@@ -1,46 +1,32 @@
-import { homeRelative } from "../lib/paths";
-import type { Project } from "../types";
+import { useEffect } from "react";
 
-/** Placeholder for a capability that a later phase fills in. */
-function UpcomingPane({ phase, title, description }: { phase: string; title: string; description: string }) {
-  return (
-    <section className="flex flex-1 flex-col rounded-lg border border-dashed border-line-strong bg-panel/60 p-5">
-      <span className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-        {phase}
-      </span>
-      <h3 className="mt-1.5 text-[14px] font-medium">{title}</h3>
-      <p className="mt-1.5 max-w-prose text-[12px] leading-relaxed text-ink-muted">{description}</p>
-    </section>
-  );
-}
+import { homeRelative } from "../lib/paths";
+import { useSessionStore } from "../stores/sessionStore";
+import type { Project } from "../types";
+import PaneGrid, { LayoutPicker } from "./PaneGrid";
 
 export default function WorkspaceShell({ project }: { project: Project }) {
-  const opened = project.lastOpened ?? project.createdAt;
+  const loadSessions = useSessionStore((state) => state.loadSessions);
+
+  useEffect(() => {
+    void loadSessions(project.id);
+  }, [project.id, loadSessions]);
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto p-5">
-      <div className="flex items-baseline gap-3">
-        <h1 className="text-[17px] font-semibold tracking-tight">{project.name}</h1>
-        <span title={project.path} className="truncate font-mono text-[11px] text-ink-faint">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-2">
+        <h1 className="shrink-0 text-[14px] font-semibold tracking-tight">{project.name}</h1>
+        <span
+          title={project.path}
+          className="min-w-0 truncate font-mono text-[11px] text-ink-faint"
+        >
           {homeRelative(project.path)}
         </span>
-      </div>
-      <p className="mt-1 text-[12px] text-ink-muted">
-        Last opened {new Date(opened).toLocaleString()}
-      </p>
+        <div className="flex-1" />
+        <LayoutPicker project={project} />
+      </header>
 
-      <div className="mt-5 flex flex-1 flex-col gap-3">
-        <UpcomingPane
-          phase="Phase 1"
-          title="Terminal grid"
-          description="Independent Grok Build sessions in a resizable pane grid, each running the real interactive TUI over a PTY."
-        />
-        <UpcomingPane
-          phase="Phase 2"
-          title="Kanban board"
-          description="Backlog through Done, with drag-to-dispatch that hands a task to a free terminal or spawns a new session for it."
-        />
-      </div>
+      <PaneGrid project={project} />
     </div>
   );
 }

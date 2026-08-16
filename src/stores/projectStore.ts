@@ -2,7 +2,7 @@ import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import type { Project } from "../types";
+import { DEFAULT_LAYOUT, PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
 
 /** Matches the backend ordering: most recently opened first. */
 function sortByRecency(projects: Project[]): Project[] {
@@ -29,6 +29,7 @@ interface ProjectState {
   openProjectAtPath: (path: string) => Promise<Project | null>;
   selectProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
+  setLayout: (id: string, layout: PaneLayout) => Promise<void>;
   forgetProject: (id: string) => Promise<void>;
   clearError: () => void;
 }
@@ -106,6 +107,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
+  /** The pane layout is per-project, so it rides along in the settings blob. */
+  setLayout: async (id, layout) => {
+    const project = get().projects.find((existing) => existing.id === id);
+    if (!project) return;
+    try {
+      const updated = await api.updateProject(id, {
+        settings: { ...project.settings, terminalLayout: layout },
+      });
+      set((state) => ({ projects: replaceProject(state.projects, updated) }));
+    } catch (error) {
+      set({ error: errorMessage(error) });
+    }
+  },
+
   forgetProject: async (id) => {
     try {
       await api.removeProject(id);
@@ -122,6 +137,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 }));
+
+export function layoutOf(project: Project | null): PaneLayout {
+  const stored = project?.settings["terminalLayout"];
+  return typeof stored === "string" && (PANE_LAYOUTS as readonly string[]).includes(stored)
+    ? (stored as PaneLayout)
+    : DEFAULT_LAYOUT;
+}
 
 export function useActiveProject(): Project | null {
   return useProjectStore(

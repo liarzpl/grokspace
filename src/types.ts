@@ -31,7 +31,15 @@ export interface Task {
   updatedAt: number;
 }
 
+/**
+ * Phase 1 only ever reports `running` or `stopped`. Telling `idle` apart from
+ * `needs_input` needs the structured ACP event stream described in
+ * docs/grok-cli-integration.md, which is Phase 2 work.
+ */
 export type SessionStatus = "idle" | "running" | "needs_input" | "stopped";
+
+/** `grok` runs an agent; `shell` runs the user's login shell in the project. */
+export type SessionKind = "grok" | "shell";
 
 export interface Session {
   id: string;
@@ -42,8 +50,22 @@ export interface Session {
   title: string | null;
   role: string | null;
   worktreePath: string | null;
+  kind: SessionKind;
+  exitCode: number | null;
   createdAt: number;
   updatedAt: number;
+}
+
+/** Grid presets, named columns-by-rows. Freeform splits are a later phase. */
+export type PaneLayout = "1x1" | "2x1" | "2x2" | "3x2";
+
+export const PANE_LAYOUTS: readonly PaneLayout[] = ["1x1", "2x1", "2x2", "3x2"];
+
+export const DEFAULT_LAYOUT: PaneLayout = "2x2";
+
+export function paneCount(layout: PaneLayout): number {
+  const [cols, rows] = layout.split("x").map(Number);
+  return (cols ?? 1) * (rows ?? 1);
 }
 
 export type MemoryEntryType = "note" | "decision" | "context" | "artifact";

@@ -1,17 +1,28 @@
 import { useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
 import TitleBar from "./components/TitleBar";
 import WorkspaceShell from "./components/WorkspaceShell";
 import { useActiveProject, useProjectStore } from "./stores/projectStore";
+import { useSessionStore } from "./stores/sessionStore";
+
+interface SessionExited {
+  id: string;
+  exitCode: number | null;
+}
 
 export default function App() {
   const activeProject = useActiveProject();
-  const error = useProjectStore((state) => state.error);
-  const clearError = useProjectStore((state) => state.clearError);
+  const projectError = useProjectStore((state) => state.error);
+  const sessionError = useSessionStore((state) => state.error);
+  const clearProjectError = useProjectStore((state) => state.clearError);
+  const clearSessionError = useSessionStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
+
+  const error = projectError ?? sessionError;
 
   useEffect(() => {
     void loadProjects();
@@ -27,6 +38,17 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [pickAndOpenProject]);
+
+  useEffect(() => {
+    // Terminal output streams over a channel; exits are infrequent enough to
+    // belong on the event system.
+    const unlisten = listen<SessionExited>("session-exited", (event) => {
+      useSessionStore.getState().markExited(event.payload.id, event.payload.exitCode);
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-canvas text-ink">
@@ -47,7 +69,10 @@ export default function App() {
           <span className="flex-1 text-[12px] text-danger selectable">{error}</span>
           <button
             type="button"
-            onClick={clearError}
+            onClick={() => {
+              clearProjectError();
+              clearSessionError();
+            }}
             className="rounded-sm px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
           >
             Dismiss
