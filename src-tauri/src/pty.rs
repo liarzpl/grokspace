@@ -45,6 +45,9 @@ pub struct SpawnOptions {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    /// Extra variables for the child, on top of the terminal ones every session
+    /// gets. This is how an agent learns which graph file is its own.
+    pub env: Vec<(String, String)>,
     pub cols: u16,
     pub rows: u16,
 }
@@ -129,6 +132,9 @@ impl PtyManager {
         // colour nor cursor addressing.
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
+        for (key, value) in &options.env {
+            command.env(key, value);
+        }
 
         let mut child = pair.slave.spawn_command(command).map_err(|error| {
             Error::Pty(format!(
@@ -328,6 +334,10 @@ mod tests {
 
     impl Fixture {
         fn spawn(script: &str) -> Self {
+            Self::spawn_with_env(script, Vec::new())
+        }
+
+        fn spawn_with_env(script: &str, env: Vec<(String, String)>) -> Self {
             let manager = PtyManager::new();
             let collector = Arc::new(Collector::default());
             let (tx, exits) = mpsc::channel();
@@ -340,6 +350,7 @@ mod tests {
                         program: "/bin/sh".into(),
                         args: vec!["-c".into(), script.into()],
                         cwd: std::env::temp_dir(),
+                        env,
                         cols: 80,
                         rows: 24,
                     },
@@ -393,6 +404,20 @@ mod tests {
         let fixture = Fixture::spawn("exit 3");
 
         assert_eq!(fixture.wait_for_exit().code, Some(3));
+    }
+
+    #[test]
+    fn extra_environment_variables_reach_the_child() {
+        // This is how an agent is told which graph file is its own.
+        let fixture = Fixture::spawn_with_env(
+            "printf 'graph:%s' \"$GROKSPACE_GRAPH_FILE\"",
+            vec![(
+                "GROKSPACE_GRAPH_FILE".to_string(),
+                "/tmp/graphs/s1.json".to_string(),
+            )],
+        );
+
+        fixture.wait_for_output("graph:/tmp/graphs/s1.json");
     }
 
     #[test]
@@ -457,6 +482,7 @@ mod tests {
                     program: "/bin/sh".into(),
                     args: vec!["-c".into(), "printf 'printed-before-attach'".into()],
                     cwd: std::env::temp_dir(),
+                    env: Vec::new(),
                     cols: 80,
                     rows: 24,
                 },
@@ -491,6 +517,7 @@ mod tests {
                     program: "/bin/sh".into(),
                     args: vec!["-c".into(), "sleep 30".into()],
                     cwd: std::env::temp_dir(),
+                    env: Vec::new(),
                     cols: 80,
                     rows: 24,
                 },
@@ -523,6 +550,7 @@ mod tests {
                     program: "grokspace-no-such-binary".into(),
                     args: vec![],
                     cwd: std::env::temp_dir(),
+                    env: Vec::new(),
                     cols: 80,
                     rows: 24,
                 },
