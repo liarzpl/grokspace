@@ -118,15 +118,23 @@ export function acquireTerminal(sessionId: string): PaneTerminal {
 /** Moves the session's terminal into `host`, opening it the first time. */
 export function mountTerminal(sessionId: string, host: HTMLElement): PaneTerminal {
   const entry = acquireTerminal(sessionId);
-  if (entry.container.parentElement !== host) {
+  const moved = entry.container.parentElement !== host;
+  if (moved) {
     host.appendChild(entry.container);
   }
+
   if (!entry.opened) {
     entry.term.open(entry.container);
     entry.opened = true;
     // Must come after open(): the addon needs the terminal's canvas context.
     void enableWebgl(entry.term);
+  } else if (moved) {
+    // Re-attaching a container that had been detached - a tab switch, or a
+    // layout change - leaves the renderer with nothing queued, so the pane reads
+    // as blank until some later event happens to repaint it.
+    entry.term.refresh(0, entry.term.rows - 1);
   }
+
   return entry;
 }
 
