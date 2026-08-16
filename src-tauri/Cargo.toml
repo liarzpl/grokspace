@@ -1,0 +1,27 @@
+[package]
+name = "grokspace"
+version = "0.1.0"
+description = "Local-first macOS multi-agent coding workspace powered by Grok Build"
+authors = ["GrokSpace"]
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+name = "grokspace_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+thiserror = "2"
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"
