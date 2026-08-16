@@ -8,7 +8,10 @@ use crate::error::{Error, Result};
 /// Ordered list of schema migrations. The index of a migration plus one is the
 /// `user_version` recorded once it has been applied, so migrations must only ever
 /// be appended.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_initial.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/0001_initial.sql"),
+    include_str!("../migrations/0002_session_command.sql"),
+];
 
 /// GrokSpace keeps all of its state under `~/.grokspace` rather than the
 /// platform app-data directory, so the workspace is easy to inspect and back up.

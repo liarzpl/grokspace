@@ -20,6 +20,15 @@ pub enum Error {
     #[error("no project found with id {0}")]
     ProjectNotFound(String),
 
+    #[error("no session found with id {0}")]
+    SessionNotFound(String),
+
+    #[error("that session is no longer running")]
+    SessionNotRunning,
+
+    #[error("{0}")]
+    Pty(String),
+
     #[error("{0}")]
     Invalid(String),
 }
