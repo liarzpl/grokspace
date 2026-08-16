@@ -82,10 +82,10 @@ function TextButton({
 function NoSession() {
   return (
     <Centred>
-      <h2 className="text-[14px] font-semibold tracking-tight">No session in this pane</h2>
+      <h2 className="text-[14px] font-semibold tracking-tight">Nothing to draw yet</h2>
       <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">
         Start a Grok agent and its graph appears here, drawn from the file that agent
-        writes as it plans and works.
+        writes as it plans and works. Every session gets its own.
       </p>
     </Centred>
   );

@@ -100,6 +100,17 @@ describe("startSession", () => {
     expect(state.busyPanes["0"]).toBe(false);
   });
 
+  it("greets a new session with the terminal, not the last one's graph", async () => {
+    useSessionStore.setState({ paneViews: { "0": "graph" } });
+    createSession.mockResolvedValue(session());
+
+    await useSessionStore
+      .getState()
+      .startSession({ projectId: "p1", paneId: "0", kind: "grok", cols: 80, rows: 24 });
+
+    expect(useSessionStore.getState().paneViews["0"]).toBe("terminal");
+  });
+
   it("keeps at most one session per pane", async () => {
     useSessionStore.setState({ sessions: [session({ id: "old", paneId: "0" })] });
     createSession.mockResolvedValue(session({ id: "new", paneId: "0" }));

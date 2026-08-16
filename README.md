@@ -10,9 +10,9 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 1 (terminal core).** Projects and a working multi-pane
-> terminal grid are in place. The Kanban board, shared memory, and agent roles
-> arrive in later phases — see [Roadmap](#roadmap).
+> **Status: Phase 1 (terminal core).** Projects, a working multi-pane terminal
+> grid, and a live graph per session are in place. The Kanban board, shared
+> memory, and agent roles arrive in later phases — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -28,6 +28,10 @@ telemetry; workspace state lives in `~/.grokspace`.
 - **Session lifecycle** — start a Grok agent or a plain shell in any pane, then
   stop, restart, rename, clear, or close it. Sessions left running when the app
   quits come back marked as stopped, ready to restart.
+- **Live graphs, one per session** — every session has its own graph file, and
+  the panel redraws the moment an agent writes to it. Watch a plan from the Graph
+  tab, or flip a single pane from `term` to `graph` and keep working in the
+  others.
 - **Local persistence** — projects and sessions live in SQLite at
   `~/.grokspace/grokspace.db`.
 
@@ -77,18 +81,21 @@ cargo fmt
 ```
 src/
   components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState,
-                  PaneGrid, TerminalPane
-  stores/         Zustand stores (projectStore, sessionStore)
+                  PaneGrid, TerminalPane, GraphVisualizer, graph/
+  stores/         Zustand stores (projectStore, sessionStore, graphStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
-                  and helpers
+                  the graph document parser, and helpers
   types.ts        Mirrors the Rust structs, which serialize as camelCase
+scripts/          Development helpers; demo-graph.mjs writes a moving graph
 src-tauri/
   migrations/     Append-only SQL migrations
+  skills/         The Grok skill GrokSpace installs on request
   src/
     db.rs         Database location, pragmas, migration runner
     project.rs    Project model, queries, and Tauri commands
     pty.rs        Pseudo-terminal plumbing; no database, no Tauri
     session.rs    Session model and the commands that drive a pty
+    graph.rs      Graph file locations, reads, and the change watcher
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
 ```
@@ -118,6 +125,36 @@ subtle:
 [`src-tauri/src/pty.rs`](src-tauri/src/pty.rs) depends on neither Tauri nor the
 database, so its tests drive real pseudo-terminals headlessly.
 
+### How graphs work
+
+A graph belongs to a session, not to the project:
+
+```
+<project>/.grokspace/graphs/<session-id>.json
+```
+
+Naming the file after the session id means nothing has to be stored to remember
+whose graph is whose, two agents in one project never overwrite each other's
+plan, and a restart — which mints a new session id — starts from no graph instead
+of inheriting the plan of the run it replaced. A project folder that cannot be
+written to falls back to `~/.grokspace/graphs/`.
+
+Every session is spawned knowing where its graph belongs, through
+`GROKSPACE_GRAPH_FILE` (absolute, so a worktree does not change the answer),
+`GROKSPACE_GRAPH_DIR`, `GROKSPACE_SESSION_ID`, and `GROKSPACE_PROJECT_DIR`.
+[`src-tauri/src/graph.rs`](src-tauri/src/graph.rs) watches those directories and
+reports which session's file moved; the panel re-reads that one file, which is
+what makes the graphs live rather than a snapshot.
+
+What makes `grok` write one is a bundled skill, installed to `~/.grok/skills/`
+from the button in the Graph panel's empty state. That empty state also names the
+file the pane is watching, and can ask a running agent for a graph directly.
+
+[`docs/graph-engineering.md`](docs/graph-engineering.md) has the file contract,
+the reasoning behind the watcher's filters, and how to test the panel by hand —
+including `npm run graph:demo`, which steps a graph through a run so the panel can
+be watched updating without an agent.
+
 ### Database
 
 State lives in `~/.grokspace/grokspace.db` rather than the platform app-data
@@ -141,7 +178,7 @@ phases add queries rather than reshaping live databases.
 
 - **Phase 0 — Foundation.** Scaffold, window shell, SQLite, project CRUD. Done.
 - **Phase 1 — Terminal core.** Pty-backed sessions, xterm.js panes, the grid
-  layout, and the session lifecycle. Done.
+  layout, the session lifecycle, and a live graph per session. Done.
 - **Phase 2 — Kanban and dispatch.** Task board with drag-to-dispatch onto a
   free terminal or a freshly spawned session. This is also where session status
   becomes richer than running/stopped: telling `idle` from `needs_input` needs

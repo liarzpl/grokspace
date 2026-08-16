@@ -76,7 +76,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({ busyPanes: { ...state.busyPanes, [input.paneId]: true }, error: null }));
     try {
       const session = await api.createSession(input);
-      set((state) => ({ sessions: replaceInPane(state.sessions, session) }));
+      set((state) => ({
+        sessions: replaceInPane(state.sessions, session),
+        // A pane left showing the previous session's graph should greet a new
+        // session with its terminal, which is the thing that needs watching.
+        paneViews: { ...state.paneViews, [input.paneId]: "terminal" },
+      }));
       return session;
     } catch (error) {
       set({ error: errorMessage(error) });

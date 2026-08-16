@@ -167,6 +167,7 @@ function GraphSummary({ session }: { session: Session | undefined }) {
 export default function WorkspaceShell({ project }: { project: Project }) {
   const loadSessions = useSessionStore((state) => state.loadSessions);
   const sessions = useSessionStore((state) => state.sessions);
+  const loadGraph = useGraphStore((state) => state.load);
   const [tab, setTab] = useState<WorkspaceTab>("terminals");
   const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
@@ -174,13 +175,21 @@ export default function WorkspaceShell({ project }: { project: Project }) {
     void loadSessions(project.id);
   }, [project.id, loadSessions]);
 
+  // Read every session's graph up front, not just the one on screen: the chips
+  // here and the dot on each pane's switch are how a plan waiting in another
+  // terminal gets noticed at all. Keyed on the ids so a status change, which
+  // replaces the array, does not re-read them all.
+  const sessionIds = sessions.map((session) => session.id).join(" ");
+  useEffect(() => {
+    for (const id of sessionIds.split(" ").filter((id) => id !== "")) void loadGraph(id);
+  }, [sessionIds, loadGraph]);
+
   useEffect(() => {
     // Watching is what makes the graphs live: the backend reports each file as it
-    // changes and the graph store re-reads it.
+    // changes and the graph store re-reads it. There is nothing to undo here — the
+    // backend keeps one watch per project until it quits, precisely so that a
+    // remount cannot leave a project unwatched.
     void api.watchProjectGraphs(project.id).catch(() => {});
-    return () => {
-      void api.unwatchProjectGraphs(project.id).catch(() => {});
-    };
   }, [project.id]);
 
   // Derived rather than stored, so closing the selected session hands the graph

@@ -71,12 +71,12 @@ export const api = {
   readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>
     invoke<GraphSnapshot>("read_session_graph", { sessionId }),
 
-  /** Watches the project's graph directories; returns the ones being watched. */
+  /**
+   * Watches the project's graph directories so changes are reported, and returns
+   * the directories being watched. Asking twice is harmless.
+   */
   watchProjectGraphs: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_graphs", { projectId }),
-
-  unwatchProjectGraphs: (projectId: string): Promise<void> =>
-    invoke<void>("unwatch_project_graphs", { projectId }),
 
   graphSkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("graph_skill_status"),
 

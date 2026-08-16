@@ -216,9 +216,18 @@ fn watch_dirs(
     Ok(watcher)
 }
 
-/// One watcher per project, keyed by project id. Watching is idempotent: asking
-/// again replaces the previous watcher rather than stacking a second one that
-/// would double every event.
+/// One watcher per project, keyed by project id.
+///
+/// Asking again replaces that project's watcher rather than stacking a second one
+/// that would double every event. Replacing rather than skipping also re-arms a
+/// watch whose directory has since been deleted, which on Linux is dead.
+///
+/// There is deliberately no way to stop watching a single project. Watching is
+/// arranged from a React effect, and an effect that both starts and stops the
+/// watch races itself: development remounts every component, so the stop for the
+/// first mount can reach the backend after the start for the second, leaving a
+/// project silently unwatched. A watch left in place costs one directory watch and
+/// keeps a project the user switches away from current for when they come back.
 #[derive(Default)]
 pub struct GraphWatchers {
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
@@ -256,12 +265,6 @@ impl GraphWatchers {
             .collect())
     }
 
-    fn unwatch(&self, project_id: &str) {
-        if let Ok(mut watchers) = self.watchers.lock() {
-            watchers.remove(project_id);
-        }
-    }
-
     /// Drops every watcher. Called when the app quits, so no background thread
     /// outlives the window it was reporting to.
     pub fn shutdown(&self) {
@@ -284,12 +287,6 @@ pub fn watch_project_graphs(
     state
         .graphs
         .watch(app, &project_id, Path::new(&project_path))
-}
-
-#[tauri::command]
-pub fn unwatch_project_graphs(state: State<'_, AppState>, project_id: String) -> Result<()> {
-    state.graphs.unwatch(&project_id);
-    Ok(())
 }
 
 #[tauri::command]
@@ -517,6 +514,29 @@ mod tests {
         let change = next_change(&changes, "s1");
         assert!(!change.removed);
         assert!(change.path.ends_with("s1.json"));
+    }
+
+    #[test]
+    fn a_graph_renamed_over_its_target_is_reported_as_present() {
+        // The skill and the demo script both write a temporary file and rename it
+        // over the target, so a reader never sees a half-written document. The
+        // rename produces different events per platform, which is why existence
+        // rather than the event kind decides whether the file is there.
+        let graphs = dir();
+        let (tx, changes) = mpsc::channel();
+        let _watcher = watch_dirs(&[graphs.path().to_path_buf()], move |change| {
+            let _ = tx.send(change);
+        })
+        .expect("the watcher should start");
+
+        let target = graphs.path().join("s1.json");
+        let temporary = graphs.path().join("s1.json.tmp");
+        std::fs::write(&temporary, r#"{"nodes":[]}"#).unwrap();
+        std::fs::rename(&temporary, &target).unwrap();
+
+        let change = next_change(&changes, "s1");
+        assert!(!change.removed, "the graph is there, under its final name");
+        assert!(snapshot_in(&[graphs.path().to_path_buf()], "s1").exists);
     }
 
     #[test]

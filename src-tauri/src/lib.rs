@@ -56,7 +56,6 @@ pub fn run() {
             session::close_session,
             graph::read_session_graph,
             graph::watch_project_graphs,
-            graph::unwatch_project_graphs,
             graph::graph_skill_status,
             graph::install_graph_skill,
         ])

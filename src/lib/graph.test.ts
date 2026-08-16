@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterAll, describe, expect, it } from "vitest";
 
 import { inferDirection, parseGraph, statusTally } from "./graph";
 import { SAMPLE_GRAPH } from "./graphFixture";
@@ -266,5 +271,29 @@ describe("statusTally", () => {
       failed: 1,
       skipped: 1,
     });
+  });
+});
+
+describe("the demo writer", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "grokspace-graph-demo-"));
+
+  afterAll(() => rmSync(workspace, { recursive: true, force: true }));
+
+  it("writes a graph this parser accepts without complaint", () => {
+    // docs/graph-engineering.md points people at this script to see the panel
+    // update, so the format it writes has to stay in step with the parser.
+    const file = join(workspace, "s1.json");
+    execFileSync("node", ["scripts/demo-graph.mjs", file], {
+      env: { ...process.env, GRAPH_DEMO_STEP_MS: "1" },
+    });
+
+    const { graph, warnings } = expectOk(JSON.parse(readFileSync(file, "utf8")) as unknown);
+
+    expect(warnings).toEqual([]);
+    expect(graph.status).toBe("partial");
+    const tally = statusTally(graph.nodes);
+    expect(tally.failed).toBe(1);
+    expect(tally.skipped).toBe(1);
+    expect(tally.completed).toBeGreaterThan(1);
   });
 });
