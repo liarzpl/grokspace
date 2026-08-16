@@ -296,18 +296,18 @@ struct SessionExited {
 }
 
 fn exit_handler(app: AppHandle, id: String) -> ExitHandler {
-    Box::new(move |exit_code| {
+    Box::new(move |exit| {
         let state = app.state::<AppState>();
         // Dropping the pty handles is what lets the reader thread finish.
         state.pty.remove(&id);
         if let Ok(conn) = state.db.lock() {
-            let _ = set_status(&conn, &id, SessionStatus::Stopped, exit_code);
+            let _ = set_status(&conn, &id, SessionStatus::Stopped, exit.code);
         }
         let _ = app.emit(
             EXIT_EVENT,
             SessionExited {
                 id: id.clone(),
-                exit_code,
+                exit_code: exit.code,
             },
         );
     })

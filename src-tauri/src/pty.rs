@@ -26,8 +26,19 @@ pub trait OutputSink: Send + Sync {
     fn emit(&self, bytes: &[u8]);
 }
 
+/// How a child finished.
+///
+/// A child that was signalled has no meaningful exit code. Reporting the number
+/// the OS synthesises for it would make a user-initiated Stop read as a failure,
+/// so `code` is left empty and the signal is reported instead.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Exit {
+    pub code: Option<i32>,
+    pub signal: Option<String>,
+}
+
 /// Called from the waiter thread once a child has exited.
-pub type ExitHandler = Box<dyn FnOnce(Option<i32>) + Send>;
+pub type ExitHandler = Box<dyn FnOnce(Exit) + Send>;
 
 pub struct SpawnOptions {
     pub id: String,
@@ -162,8 +173,21 @@ impl PtyManager {
         std::thread::Builder::new()
             .name(format!("pty-wait-{}", options.id))
             .spawn(move || {
-                let code = child.wait().ok().map(|status| status.exit_code() as i32);
-                on_exit(code);
+                let exit = child
+                    .wait()
+                    .ok()
+                    .map(|status| match status.signal() {
+                        Some(signal) => Exit {
+                            code: None,
+                            signal: Some(signal.to_string()),
+                        },
+                        None => Exit {
+                            code: Some(status.exit_code() as i32),
+                            signal: None,
+                        },
+                    })
+                    .unwrap_or_default();
+                on_exit(exit);
             })
             .map_err(|error| Error::Pty(format!("could not start the pty waiter: {error}")))?;
 
@@ -298,7 +322,7 @@ mod tests {
     struct Fixture {
         manager: PtyManager,
         collector: Arc<Collector>,
-        exits: mpsc::Receiver<Option<i32>>,
+        exits: mpsc::Receiver<Exit>,
         id: String,
     }
 
@@ -319,8 +343,8 @@ mod tests {
                         cols: 80,
                         rows: 24,
                     },
-                    Box::new(move |code| {
-                        let _ = tx.send(code);
+                    Box::new(move |exit| {
+                        let _ = tx.send(exit);
                     }),
                 )
                 .expect("the session should spawn");
@@ -343,7 +367,7 @@ mod tests {
             });
         }
 
-        fn wait_for_exit(&self) -> Option<i32> {
+        fn wait_for_exit(&self) -> Exit {
             self.exits
                 .recv_timeout(Duration::from_secs(10))
                 .expect("the child should report an exit")
@@ -361,14 +385,14 @@ mod tests {
         let fixture = Fixture::spawn("printf 'hello-from-pty'");
 
         fixture.wait_for_output("hello-from-pty");
-        assert_eq!(fixture.wait_for_exit(), Some(0));
+        assert_eq!(fixture.wait_for_exit().code, Some(0));
     }
 
     #[test]
     fn reports_a_nonzero_exit_code() {
         let fixture = Fixture::spawn("exit 3");
 
-        assert_eq!(fixture.wait_for_exit(), Some(3));
+        assert_eq!(fixture.wait_for_exit().code, Some(3));
     }
 
     #[test]
@@ -408,8 +432,16 @@ mod tests {
             .kill(&fixture.id)
             .expect("the kill should succeed");
 
-        // A signalled child still reports through the waiter thread.
-        fixture.wait_for_exit();
+        // A stop the user asked for must not be reported as a failing exit code.
+        let exit = fixture.wait_for_exit();
+        assert_eq!(
+            exit.code, None,
+            "a signalled child has no meaningful exit code"
+        );
+        assert!(
+            exit.signal.is_some(),
+            "the terminating signal should be reported"
+        );
     }
 
     #[test]
@@ -428,8 +460,8 @@ mod tests {
                     cols: 80,
                     rows: 24,
                 },
-                Box::new(move |code| {
-                    let _ = tx.send(code);
+                Box::new(move |exit| {
+                    let _ = tx.send(exit);
                 }),
             )
             .expect("the session should spawn");
@@ -462,8 +494,8 @@ mod tests {
                     cols: 80,
                     rows: 24,
                 },
-                Box::new(move |code| {
-                    let _ = tx.send(code);
+                Box::new(move |exit| {
+                    let _ = tx.send(exit);
                 }),
             )
             .expect("the session should spawn");
@@ -494,8 +526,8 @@ mod tests {
                     cols: 80,
                     rows: 24,
                 },
-                Box::new(move |code| {
-                    let _ = tx.send(code);
+                Box::new(move |exit| {
+                    let _ = tx.send(exit);
                 }),
             )
             .expect_err("spawning a missing program should fail");

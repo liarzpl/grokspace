@@ -92,15 +92,29 @@ Housekeeping:
 
 Headless sessions are stored in `~/.grok/sessions`.
 
-## Notes for Phase 1
+## What Phase 1 settled
 
-- The interactive TUI needs a genuine PTY; a plain pipe will not do. Plan on
-  `portable-pty` 0.9 behind our own `pty_manager.rs`, wired to Tauri events.
+Confirmed against `grok 1.0.4` running inside a GrokSpace pane:
+
+- The interactive TUI needs a genuine pty; a pipe will not do. GrokSpace uses
+  `portable-pty` 0.9 behind [`src-tauri/src/pty.rs`](../src-tauri/src/pty.rs).
   `tauri-plugin-pty` exists on crates.io (0.3.1, targets `tauri ^2`) and wraps
-  the same crate, but it publishes no JavaScript binding, so it buys us little
-  over calling `portable-pty` directly.
-- `--no-alt-screen` is the escape hatch if the alternate screen fights xterm.js,
-  at the cost of the full TUI. Try the default first.
+  the same crate, but publishes no JavaScript binding, so it buys little over
+  calling `portable-pty` directly.
+- The alternate screen does not fight xterm.js. `--no-alt-screen` was not
+  needed and is not passed; the full TUI renders in a pane as-is.
+- The installer puts the binary at `~/.grok/bin/grok` and appends that directory
+  to the shell profile. A macOS app launched from Finder never reads that
+  profile, so the launcher resolves `grok` from `PATH` *and* from `~/.grok/bin`,
+  `~/.local/bin`, `/usr/local/bin`, and `/opt/homebrew/bin`.
+- An unauthenticated `grok` starts normally and renders its device-code sign-in
+  screen, so a missing login is not an error GrokSpace has to special-case.
+
+## Notes for later phases
+
 - A dispatched headless run should capture `sessionId` from
   `--output-format json` and persist it on the `sessions` row, so the session
   can later be resumed or exported.
+- Session status in Phase 1 is only `running` or `stopped`. Distinguishing
+  `idle` from `needs_input` needs `grok agent stdio` and its `session/update`
+  events; the `sessions` table already has the column for it.
