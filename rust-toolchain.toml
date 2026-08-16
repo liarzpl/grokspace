@@ -1,0 +1,5 @@
+# The dependency tree pulls in crates that use edition 2024, so anything older
+# than 1.85 fails to build with an error that does not name the real cause.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]

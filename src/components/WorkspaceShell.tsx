@@ -4,7 +4,7 @@ import type { Project } from "../types";
 /** Placeholder for a capability that a later phase fills in. */
 function UpcomingPane({ phase, title, description }: { phase: string; title: string; description: string }) {
   return (
-    <section className="flex flex-1 flex-col rounded-lg border border-dashed border-line bg-panel/60 p-5">
+    <section className="flex flex-1 flex-col rounded-lg border border-dashed border-line-strong bg-panel/60 p-5">
       <span className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
         {phase}
       </span>

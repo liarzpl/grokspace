@@ -61,7 +61,7 @@ export default function ProjectSidebar() {
                   onDoubleClick={() => setEditingId(project.id)}
                   className={`w-full rounded-md px-2 py-1.5 text-left transition-colors ${
                     isActive
-                      ? "bg-accent-soft text-ink"
+                      ? "bg-accent-soft text-ink inset-ring-1 inset-ring-accent/30"
                       : "text-ink-muted hover:bg-elevated hover:text-ink"
                   }`}
                 >
