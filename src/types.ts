@@ -56,6 +56,29 @@ export interface Session {
   updatedAt: number;
 }
 
+/**
+ * A session's graph file as the backend found it. The JSON is handed over
+ * unparsed: the schema is a model's output, so `lib/graph.ts` is the one place
+ * that decides what a usable graph is.
+ */
+export interface GraphSnapshot {
+  sessionId: string;
+  /** The file that was read, or the one that is expected to appear. */
+  path: string;
+  exists: boolean;
+  /** Absent when the file is missing, or present but still empty. */
+  json: string | null;
+  updatedAt: number | null;
+}
+
+/** Whether the skill that teaches `grok` to write graph files is in place. */
+export interface SkillStatus {
+  path: string;
+  installed: boolean;
+  /** False when an older GrokSpace installed a different version of the skill. */
+  current: boolean;
+}
+
 /** Grid presets, named columns-by-rows. Freeform splits are a later phase. */
 export type PaneLayout = "1x1" | "2x1" | "2x2" | "3x2";
 

@@ -23,6 +23,7 @@ vi.mock("../lib/api", async () => {
 });
 
 const { sessionForPane, useSessionStore } = await import("./sessionStore");
+const { useGraphStore } = await import("./graphStore");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -42,11 +43,25 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 
+/** Stands in for a graph the store had already read for a session. */
+function graphEntry() {
+  return {
+    path: "/p/.grokspace/graphs/s.json",
+    graph: null,
+    warnings: [],
+    error: null,
+    updatedAt: 1000,
+    isLoading: false,
+  };
+}
+
 const initialState = useSessionStore.getState();
+const initialGraphState = useGraphStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionStore.setState(initialState, true);
+  useGraphStore.setState(initialGraphState, true);
 });
 
 describe("loadSessions", () => {
@@ -145,6 +160,16 @@ describe("restartSession", () => {
     expect(disposeTerminal).toHaveBeenCalledWith("old");
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["fresh"]);
   });
+
+  it("does not carry the previous run's graph over to the new session", async () => {
+    useSessionStore.setState({ sessions: [session({ id: "old", paneId: "1" })] });
+    useGraphStore.setState({ bySession: { old: graphEntry() } });
+    restartSession.mockResolvedValue(session({ id: "fresh", paneId: "1" }));
+
+    await useSessionStore.getState().restartSession("old", 100, 30);
+
+    expect(useGraphStore.getState().bySession).toEqual({});
+  });
 });
 
 describe("closeSession", () => {
@@ -156,6 +181,16 @@ describe("closeSession", () => {
 
     expect(disposeTerminal).toHaveBeenCalledWith("s1");
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["s2"]);
+  });
+
+  it("drops the closed session's graph and leaves the other pane's alone", async () => {
+    useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
+    useGraphStore.setState({ bySession: { s1: graphEntry(), s2: graphEntry() } });
+    closeSession.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().closeSession("s1");
+
+    expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s2"]);
   });
 
   it("keeps the session when the backend refuses", async () => {
@@ -178,6 +213,27 @@ describe("toggleMaximized", () => {
 
     toggleMaximized("2");
     expect(useSessionStore.getState().maximizedPane).toBeNull();
+  });
+});
+
+describe("setPaneView", () => {
+  it("switches one pane to its graph without touching the others", () => {
+    const { setPaneView } = useSessionStore.getState();
+
+    setPaneView("1", "graph");
+
+    const { paneViews } = useSessionStore.getState();
+    expect(paneViews["1"]).toBe("graph");
+    expect(paneViews["0"]).toBeUndefined();
+  });
+
+  it("is forgotten when another project is loaded", async () => {
+    useSessionStore.getState().setPaneView("1", "graph");
+    listSessions.mockResolvedValue([]);
+
+    await useSessionStore.getState().loadSessions("p2");
+
+    expect(useSessionStore.getState().paneViews).toEqual({});
   });
 });
 

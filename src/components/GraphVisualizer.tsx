@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -11,7 +11,11 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
+import { api } from "../lib/api";
 import { inferDirection, type GraphDocument, type NodeStatus } from "../lib/graph";
+import { homeRelative } from "../lib/paths";
+import { graphFor, useGraphStore } from "../stores/graphStore";
+import type { Session } from "../types";
 import GraphNodeCard, {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -32,24 +36,167 @@ const MINIMAP_COLOR: Record<NodeStatus, string> = {
 
 const EDGE_STROKE = "#2f3745";
 
-export function NoActiveGraph() {
+/**
+ * Typed into the agent's terminal by "Ask for a graph". Naming the variable
+ * rather than a path keeps this correct for whichever session receives it.
+ */
+const GRAPH_REQUEST =
+  "Write your plan for this work as a graph to $GROKSPACE_GRAPH_FILE now, " +
+  "then keep the node statuses in that file up to date as you go.";
+
+function Centred({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-sm text-center">
-        <h2 className="text-[14px] font-semibold tracking-tight">No active graph</h2>
-        <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">
-          When Grok plans a run with the Graph Engineering skill it writes the graph to
-          <span className="font-mono text-ink-faint"> .grokspace/graphs/current-graph.json</span> in
-          the project, falling back to
-          <span className="font-mono text-ink-faint"> ~/.grokspace/graphs/</span>. This panel draws
-          that file.
-        </p>
-      </div>
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
+      <div className="max-w-sm text-center">{children}</div>
     </div>
   );
 }
 
-function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: string[] }) {
+function TextButton({
+  label,
+  onClick,
+  disabled,
+  primary,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  primary?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={
+        primary
+          ? "rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
+          : "rounded-md border border-line-strong px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink disabled:opacity-50"
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+function NoSession() {
+  return (
+    <Centred>
+      <h2 className="text-[14px] font-semibold tracking-tight">No session in this pane</h2>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">
+        Start a Grok agent and its graph appears here, drawn from the file that agent
+        writes as it plans and works.
+      </p>
+    </Centred>
+  );
+}
+
+/**
+ * Shown until a session's file exists. It has work to do: name the exact file this
+ * pane watches, and offer the two things that make a graph appear — the skill that
+ * teaches `grok` to write one, and a direct request to this agent.
+ */
+function AwaitingGraph({ session, path }: { session: Session; path: string }) {
+  const skill = useGraphStore((state) => state.skill);
+  const isInstalling = useGraphStore((state) => state.isInstallingSkill);
+  const loadSkill = useGraphStore((state) => state.loadSkill);
+  const installSkill = useGraphStore((state) => state.installSkill);
+  const [asked, setAsked] = useState(false);
+
+  useEffect(() => {
+    void loadSkill();
+  }, [loadSkill]);
+
+  const canAsk = session.kind === "grok" && session.status === "running";
+
+  const ask = () => {
+    setAsked(true);
+    void api.writeSession(session.id, `${GRAPH_REQUEST}\r`).catch(() => setAsked(false));
+  };
+
+  return (
+    <Centred>
+      <h2 className="text-[14px] font-semibold tracking-tight">No graph yet</h2>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">
+        This pane draws the graph that <span className="text-ink">{session.title ?? "the agent"}</span>{" "}
+        writes to its own file. Every session has one, and the panel redraws the moment
+        the file changes.
+      </p>
+      {path !== "" && (
+        <p
+          title={path}
+          className="mt-2.5 truncate font-mono text-[10px] text-ink-faint selectable"
+        >
+          {homeRelative(path)}
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+        {canAsk && (
+          <TextButton
+            primary
+            label={asked ? "Asked" : "Ask for a graph"}
+            onClick={ask}
+            disabled={asked}
+          />
+        )}
+        {skill !== null && !skill.current && (
+          <TextButton
+            label={
+              isInstalling
+                ? "Installing…"
+                : skill.installed
+                  ? "Update the graph skill"
+                  : "Install the graph skill"
+            }
+            onClick={() => void installSkill()}
+            disabled={isInstalling}
+          />
+        )}
+      </div>
+
+      {skill?.current === true && (
+        <p className="mt-3 text-[10px] text-ink-faint">
+          The graph skill is installed, so agents started from now on report their plans
+          on their own.
+        </p>
+      )}
+      {skill !== null && !skill.installed && (
+        <p className="mt-3 text-[10px] leading-relaxed text-ink-faint">
+          Installing writes a skill to{" "}
+          <span className="font-mono selectable">{homeRelative(skill.path)}</span>, which
+          is where Grok looks for them.
+        </p>
+      )}
+    </Centred>
+  );
+}
+
+function UnreadableGraph({ error, path }: { error: string; path: string }) {
+  return (
+    <Centred>
+      <h2 className="text-[14px] font-semibold tracking-tight text-danger">
+        That graph file could not be read
+      </h2>
+      <p className="mt-2 text-[12px] leading-relaxed text-ink-muted selectable">{error}</p>
+      {path !== "" && (
+        <p title={path} className="mt-2.5 truncate font-mono text-[10px] text-ink-faint">
+          {homeRelative(path)}
+        </p>
+      )}
+    </Centred>
+  );
+}
+
+function GraphCanvas({
+  graph,
+  warnings,
+  compact,
+}: {
+  graph: GraphDocument;
+  warnings: string[];
+  compact: boolean;
+}) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const direction = useMemo(() => inferDirection(graph.nodes), [graph.nodes]);
@@ -96,7 +243,7 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
   const footer = [...(notes !== undefined ? [notes] : []), ...warnings];
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="relative min-h-0 flex-1">
           {/* Absolute fill: React Flow needs a parent it can measure. */}
@@ -109,8 +256,9 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
               fitView
               // A seven-layer graph fitted into a pane this narrow zooms out far
               // enough that the labels stop being readable, so fitting has a floor
-              // and the rest is left to panning.
-              fitViewOptions={{ padding: 0.12, minZoom: 0.62, maxZoom: 1 }}
+              // and the rest is left to panning. A pane is narrower again, so its
+              // floor is lower.
+              fitViewOptions={{ padding: 0.12, minZoom: compact ? 0.4 : 0.62, maxZoom: 1 }}
               minZoom={0.2}
               maxZoom={1.6}
               // This visualises a graph rather than editing one.
@@ -125,24 +273,27 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
             >
               <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#222835" />
               <Controls showInteractive={false} />
-              <MiniMap<GraphFlowNode>
-                pannable
-                zoomable
-                nodeColor={(node) => MINIMAP_COLOR[node.data.node.status]}
-                nodeStrokeColor="#0b0d12"
-                nodeStrokeWidth={2}
-                nodeBorderRadius={3}
-                bgColor="#0e1117"
-                maskColor="#0b0d12b3"
-                className="rounded-md border border-line"
-              />
+              {/* A pane-sized canvas has no room for a minimap next to the graph. */}
+              {!compact && (
+                <MiniMap<GraphFlowNode>
+                  pannable
+                  zoomable
+                  nodeColor={(node) => MINIMAP_COLOR[node.data.node.status]}
+                  nodeStrokeColor="#0b0d12"
+                  nodeStrokeWidth={2}
+                  nodeBorderRadius={3}
+                  bgColor="#0e1117"
+                  maskColor="#0b0d12b3"
+                  className="rounded-md border border-line"
+                />
+              )}
             </ReactFlow>
           </div>
         </div>
 
         {footer.length > 0 && (
           <div className="shrink-0 border-t border-line bg-panel px-3 py-1.5">
-            {footer.map((line) => (
+            {footer.slice(0, compact ? 1 : footer.length).map((line) => (
               <p key={line} className="truncate text-[11px] text-ink-faint" title={line}>
                 {line}
               </p>
@@ -151,34 +302,48 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
         )}
       </div>
 
-      {selected && <NodeInspector node={selected} onClose={() => setSelectedId(null)} />}
+      {/* In a pane there is no width to give up, so the inspector floats over the
+          canvas instead of taking a column from it. */}
+      {selected &&
+        (compact ? (
+          <div className="absolute inset-y-0 right-0 z-10 flex w-56 shadow-xl shadow-black/40">
+            <NodeInspector node={selected} onClose={() => setSelectedId(null)} compact />
+          </div>
+        ) : (
+          <NodeInspector node={selected} onClose={() => setSelectedId(null)} />
+        ))}
     </div>
   );
 }
 
+/**
+ * Draws one session's graph. The session is the unit throughout: the store keys
+ * graphs by session id and the backend keys files by it, so two panes never show
+ * each other's plan.
+ */
 export default function GraphVisualizer({
-  graph,
-  warnings = [],
-  error = null,
+  session,
+  compact = false,
 }: {
-  graph: GraphDocument | null;
-  warnings?: string[];
-  error?: string | null;
+  session: Session | undefined;
+  compact?: boolean;
 }) {
-  if (error !== null) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <div className="max-w-sm text-center">
-          <h2 className="text-[14px] font-semibold tracking-tight text-danger">
-            That graph file could not be read
-          </h2>
-          <p className="mt-2 text-[12px] leading-relaxed text-ink-muted selectable">{error}</p>
-        </div>
-      </div>
-    );
+  const sessionId = session?.id;
+  const entry = useGraphStore((state) => graphFor(state.bySession, sessionId));
+  const load = useGraphStore((state) => state.load);
+
+  useEffect(() => {
+    // The watcher keeps this current afterwards; this is the first read.
+    if (sessionId !== undefined) void load(sessionId);
+  }, [sessionId, load]);
+
+  if (!session) return <NoSession />;
+  if (entry.error !== null) return <UnreadableGraph error={entry.error} path={entry.path} />;
+  if (entry.graph === null) {
+    // Saying "no graph" before the first read has finished would be a guess.
+    if (entry.isLoading) return <div className="min-h-0 flex-1" />;
+    return <AwaitingGraph session={session} path={entry.path} />;
   }
 
-  if (!graph) return <NoActiveGraph />;
-
-  return <GraphCanvas graph={graph} warnings={warnings} />;
+  return <GraphCanvas graph={entry.graph} warnings={entry.warnings} compact={compact} />;
 }

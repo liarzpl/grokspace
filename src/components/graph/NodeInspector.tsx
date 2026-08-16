@@ -19,14 +19,21 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 export default function NodeInspector({
   node,
   onClose,
+  compact = false,
 }: {
   node: GraphNode;
   onClose: () => void;
+  /** Fills a floating container instead of claiming a column of its own. */
+  compact?: boolean;
 }) {
   const status = STATUS_META[node.status];
 
   return (
-    <aside className="flex w-68 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel">
+    <aside
+      className={`flex flex-col overflow-y-auto border-l border-line bg-panel ${
+        compact ? "w-full" : "w-68 shrink-0"
+      }`}
+    >
       <header className="flex items-start gap-2 border-b border-line px-3 py-2.5">
         <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${status.dot}`} />
         <div className="min-w-0 flex-1">

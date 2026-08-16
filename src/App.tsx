@@ -5,12 +5,18 @@ import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
 import TitleBar from "./components/TitleBar";
 import WorkspaceShell from "./components/WorkspaceShell";
+import { useGraphStore } from "./stores/graphStore";
 import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useSessionStore } from "./stores/sessionStore";
 
 interface SessionExited {
   id: string;
   exitCode: number | null;
+}
+
+/** The backend also reports `path` and `removed`; the re-read covers both. */
+interface GraphChanged {
+  sessionId: string;
 }
 
 export default function App() {
@@ -44,6 +50,18 @@ export default function App() {
     // belong on the event system.
     const unlisten = listen<SessionExited>("session-exited", (event) => {
       useSessionStore.getState().markExited(event.payload.id, event.payload.exitCode);
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    // Graph files are watched by the backend; the event says which session's file
+    // moved and the store re-reads it. A removal is refreshed rather than dropped:
+    // the pane is still there, and the re-read is what reports the file as gone.
+    const unlisten = listen<GraphChanged>("graph-changed", (event) => {
+      useGraphStore.getState().refresh(event.payload.sessionId);
     });
     return () => {
       void unlisten.then((stop) => stop());
