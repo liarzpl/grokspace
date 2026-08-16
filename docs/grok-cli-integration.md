@@ -110,6 +110,29 @@ Confirmed against `grok 1.0.4` running inside a GrokSpace pane:
 - An unauthenticated `grok` starts normally and renders its device-code sign-in
   screen, so a missing login is not an error GrokSpace has to special-case.
 
+## Skills, and why GrokSpace adds no flags
+
+Grok discovers skills — a directory holding a `SKILL.md` with YAML frontmatter —
+from `./.grok/skills/` (walked up to the repo root), `~/.grok/skills/`, enabled
+plugins, and any extra `[skills] paths` in `~/.grok/config.toml`. They are read at
+session start, so a skill installed mid-session is picked up by the next one.
+
+That is how GrokSpace asks agents to report their graphs: it installs its own
+skill into `~/.grok/skills/grokspace-graph/`, which leaves the user's repository
+untouched and works for every project. See
+[`docs/graph-engineering.md`](graph-engineering.md).
+
+Two tidier-looking alternatives were rejected:
+
+- **`--rules "<text>"`** (alias `--append-system-prompt`) would state the contract
+  per session without any file on disk. But every flag GrokSpace adds is a way for
+  a terminal to fail to start on a `grok` that does not recognise it, and a
+  terminal that will not start is a worse failure than a graph that never appears.
+- **`GROK_CONFIG='{"skills":{"paths":[…]}}'`** would point `grok` at a skill
+  inside `~/.grokspace` instead of `~/.grok`. It is an undocumented shape to
+  depend on for a feature this small, and a malformed overlay would again cost the
+  terminal rather than the graph.
+
 ## Notes for later phases
 
 - A dispatched headless run should capture `sessionId` from

@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { parseGraph, statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
-import { SAMPLE_GRAPH } from "../lib/graphFixture";
+import { api } from "../lib/api";
+import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
+import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
-import type { Project } from "../types";
+import type { Project, Session } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
 
@@ -62,18 +63,141 @@ function TabButton({
   );
 }
 
+/** Names a session the way its pane does, so the two views agree. */
+function sessionLabel(session: Session): string {
+  const pane = session.paneId === null ? "" : `${Number(session.paneId) + 1} · `;
+  return `${pane}${session.title ?? "Session"}`;
+}
+
+/**
+ * One chip per session. The dot reports the graph rather than the process: a
+ * running agent that has not written a plan yet is exactly the case this panel
+ * exists to make visible.
+ */
+function SessionChip({
+  session,
+  active,
+  onClick,
+}: {
+  session: Session;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const entry = useGraphStore((state) => graphFor(state.bySession, session.id));
+  const status = entry.graph?.status;
+  const tone =
+    entry.error !== null
+      ? "bg-danger"
+      : status !== undefined
+        ? {
+            pending: "bg-ink-faint",
+            running: "bg-accent",
+            completed: "bg-success",
+            failed: "bg-danger",
+            partial: "bg-warning",
+          }[status]
+        : "bg-line-strong";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={entry.graph?.name ?? "No graph yet"}
+      className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+        active
+          ? "border-accent bg-accent-soft text-ink"
+          : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
+      }`}
+    >
+      <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />
+      <span className="max-w-40 truncate">{sessionLabel(session)}</span>
+    </button>
+  );
+}
+
+/**
+ * The graph view of the workspace: every session's graph is reachable from here,
+ * and the one on screen is whichever session is selected.
+ */
+function GraphTab({
+  sessions,
+  selected,
+  onSelect,
+}: {
+  sessions: Session[];
+  selected: Session | undefined;
+  onSelect: (sessionId: string) => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {sessions.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-3 py-1.5">
+          {sessions.map((session) => (
+            <SessionChip
+              key={session.id}
+              session={session}
+              active={session.id === selected?.id}
+              onClick={() => onSelect(session.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <GraphVisualizer session={selected} />
+    </div>
+  );
+}
+
+/** The selected graph's name, status, and node tally, for the window header. */
+function GraphSummary({ session }: { session: Session | undefined }) {
+  const entry = useGraphStore((state) => graphFor(state.bySession, session?.id));
+  if (entry.graph === null) return null;
+
+  return (
+    <div className="flex shrink-0 items-baseline gap-2">
+      <span className="text-[12px] font-medium text-ink-muted">{entry.graph.name}</span>
+      <span
+        className={`font-mono text-[10px] tracking-wide ${GRAPH_STATUS_TONE[entry.graph.status]}`}
+      >
+        {entry.graph.status}
+      </span>
+      <span className="text-[10px] text-ink-faint">{tallySummary(entry.graph.nodes)}</span>
+    </div>
+  );
+}
+
 export default function WorkspaceShell({ project }: { project: Project }) {
   const loadSessions = useSessionStore((state) => state.loadSessions);
+  const sessions = useSessionStore((state) => state.sessions);
+  const loadGraph = useGraphStore((state) => state.load);
   const [tab, setTab] = useState<WorkspaceTab>("terminals");
+  const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadSessions(project.id);
   }, [project.id, loadSessions]);
 
-  // Phase 1 reads a fixture. The file watcher will replace this source without
-  // the visualiser itself changing, since it only takes a parsed document.
-  const parsed = useMemo(() => parseGraph(SAMPLE_GRAPH), []);
-  const graph = parsed.ok ? parsed.graph : null;
+  // Read every session's graph up front, not just the one on screen: the chips
+  // here and the dot on each pane's switch are how a plan waiting in another
+  // terminal gets noticed at all. Joined into a string so this depends on which
+  // sessions exist rather than on the array, which a status change replaces.
+  const sessionIds = sessions.map((session) => session.id).join(" ");
+  useEffect(() => {
+    for (const id of sessionIds.split(" ").filter(Boolean)) void loadGraph(id);
+  }, [sessionIds, loadGraph]);
+
+  useEffect(() => {
+    // Watching is what makes the graphs live: the backend reports each file as it
+    // changes and the graph store re-reads it. There is nothing to undo here — the
+    // backend keeps one watch per project until it quits, precisely so that a
+    // remount cannot leave a project unwatched.
+    void api.watchProjectGraphs(project.id).catch(() => {});
+  }, [project.id]);
+
+  // Derived rather than stored, so closing the selected session hands the graph
+  // view to another one instead of leaving an empty canvas behind.
+  const graphSession =
+    sessions.find((session) => session.id === selectedGraphId) ?? sessions[0] ?? undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -97,17 +221,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         {tab === "terminals" ? (
           <LayoutPicker project={project} />
         ) : (
-          graph && (
-            <div className="flex shrink-0 items-baseline gap-2">
-              <span className="text-[12px] font-medium text-ink-muted">{graph.name}</span>
-              <span
-                className={`font-mono text-[10px] tracking-wide ${GRAPH_STATUS_TONE[graph.status]}`}
-              >
-                {graph.status}
-              </span>
-              <span className="text-[10px] text-ink-faint">{tallySummary(graph.nodes)}</span>
-            </div>
-          )
+          <GraphSummary session={graphSession} />
         )}
       </header>
 
@@ -119,11 +233,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       {tab === "terminals" ? (
         <PaneGrid project={project} />
       ) : (
-        <GraphVisualizer
-          graph={graph}
-          warnings={parsed.ok ? parsed.warnings : []}
-          error={parsed.ok ? null : parsed.error}
-        />
+        <GraphTab sessions={sessions} selected={graphSession} onSelect={setSelectedGraphId} />
       )}
     </div>
   );

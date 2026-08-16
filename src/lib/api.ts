@@ -1,6 +1,13 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
 
-import type { Project, ProjectSettings, Session, SessionKind } from "../types";
+import type {
+  GraphSnapshot,
+  Project,
+  ProjectSettings,
+  Session,
+  SessionKind,
+  SkillStatus,
+} from "../types";
 
 /**
  * Typed wrappers around the Tauri commands, so components never spell out raw
@@ -59,6 +66,22 @@ export const api = {
 
   /** Ends the session and frees its pane. */
   closeSession: (id: string): Promise<void> => invoke<void>("close_session", { id }),
+
+  /** Reads the graph file belonging to one session, whether or not it exists. */
+  readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>
+    invoke<GraphSnapshot>("read_session_graph", { sessionId }),
+
+  /**
+   * Watches the project's graph directories so changes are reported, and returns
+   * the directories being watched. Asking twice is harmless.
+   */
+  watchProjectGraphs: (projectId: string): Promise<string[]> =>
+    invoke<string[]>("watch_project_graphs", { projectId }),
+
+  graphSkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("graph_skill_status"),
+
+  /** Installs, or refreshes, the skill that teaches `grok` to write graphs. */
+  installGraphSkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_graph_skill"),
 };
 
 /** Rust returns errors as plain strings, so unwrap them for display. */

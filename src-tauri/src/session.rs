@@ -1,7 +1,7 @@
 //! Terminal sessions: the database record for a pane, and the commands that
 //! drive the pty behind it.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rusqlite::{Connection, OptionalExtension, Row};
@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{project, AppState};
+use crate::{graph, project, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -288,6 +288,31 @@ fn resolve_program(program: &str) -> Result<String> {
     )))
 }
 
+/// What a session is told about itself, so an agent can report its plan into the
+/// one graph file this terminal draws. Failing to prepare the directory is not
+/// worth refusing to start a terminal over: the variables are still exported, so
+/// a writer that creates the directory itself works either way.
+fn graph_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
+    let dir = graph::ensure_graph_dir(project_path)
+        .unwrap_or_else(|_| graph::project_graph_dir(project_path));
+    let file = dir.join(graph::graph_file_name(session_id));
+    vec![
+        ("GROKSPACE_SESSION_ID".to_string(), session_id.to_string()),
+        (
+            "GROKSPACE_PROJECT_DIR".to_string(),
+            project_path.to_string_lossy().into_owned(),
+        ),
+        (
+            "GROKSPACE_GRAPH_DIR".to_string(),
+            dir.to_string_lossy().into_owned(),
+        ),
+        (
+            "GROKSPACE_GRAPH_FILE".to_string(),
+            file.to_string_lossy().into_owned(),
+        ),
+    ]
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionExited {
@@ -346,12 +371,14 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
         )
     };
 
+    let cwd = PathBuf::from(cwd);
     let spawned = state.pty.spawn(
         SpawnOptions {
             id: session.id.clone(),
             program,
             args,
-            cwd: PathBuf::from(cwd),
+            env: graph_env(&cwd, &session.id),
+            cwd,
             cols: request.cols,
             rows: request.rows,
         },
@@ -584,6 +611,51 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
             .unwrap();
         assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn a_session_is_told_where_its_own_graph_belongs() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+
+        let env = graph_env(dir.path(), "session-42");
+
+        let value = |key: &str| {
+            env.iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.clone())
+                .unwrap_or_else(|| panic!("{key} should be exported"))
+        };
+        assert_eq!(value("GROKSPACE_SESSION_ID"), "session-42");
+        assert_eq!(value("GROKSPACE_PROJECT_DIR"), dir.path().to_string_lossy());
+        // The path is absolute so that an agent working in a worktree still
+        // reports into the graph the pane is drawing.
+        let file = PathBuf::from(value("GROKSPACE_GRAPH_FILE"));
+        assert!(file.is_absolute());
+        assert!(file.ends_with("session-42.json"));
+        assert_eq!(
+            file.parent().map(Path::to_path_buf),
+            Some(PathBuf::from(value("GROKSPACE_GRAPH_DIR")))
+        );
+        assert!(
+            file.parent().is_some_and(Path::is_dir),
+            "the directory is prepared up front so the watcher has something to watch"
+        );
+    }
+
+    #[test]
+    fn two_sessions_in_one_project_get_different_graph_files() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+
+        let first = graph_env(dir.path(), "s1");
+        let second = graph_env(dir.path(), "s2");
+
+        let graph_file = |env: &[(String, String)]| {
+            env.iter()
+                .find(|(name, _)| name == "GROKSPACE_GRAPH_FILE")
+                .map(|(_, value)| value.clone())
+                .expect("the graph file should be exported")
+        };
+        assert_ne!(graph_file(&first), graph_file(&second));
     }
 
     #[test]

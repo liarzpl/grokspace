@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { api, errorMessage } from "../lib/api";
 import { disposeTerminal } from "../lib/terminals";
 import type { Session, SessionKind } from "../types";
+import { useGraphStore } from "./graphStore";
 
 /** A pane holds at most one session, so starting in a pane displaces the old one. */
 function replaceInPane(sessions: Session[], next: Session): Session[] {
@@ -20,10 +21,15 @@ interface StartInput {
   rows: number;
 }
 
+/** A pane shows either its terminal or the graph the session is reporting. */
+export type PaneView = "terminal" | "graph";
+
 interface SessionState {
   sessions: Session[];
   /** Panes with a start or restart in flight, so the UI can show progress. */
   busyPanes: Record<string, boolean>;
+  /** Which of its two faces each pane is showing; panes default to terminal. */
+  paneViews: Record<string, PaneView>;
   maximizedPane: string | null;
   isLoading: boolean;
   error: string | null;
@@ -36,12 +42,14 @@ interface SessionState {
   closeSession: (id: string) => Promise<void>;
   markExited: (id: string, exitCode: number | null) => void;
   toggleMaximized: (paneId: string) => void;
+  setPaneView: (paneId: string, view: PaneView) => void;
   clearError: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   busyPanes: {},
+  paneViews: {},
   maximizedPane: null,
   isLoading: false,
   error: null,
@@ -51,8 +59,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   toggleMaximized: (paneId) =>
     set((state) => ({ maximizedPane: state.maximizedPane === paneId ? null : paneId })),
 
+  setPaneView: (paneId, view) =>
+    set((state) => ({ paneViews: { ...state.paneViews, [paneId]: view } })),
+
   loadSessions: async (projectId) => {
-    set({ isLoading: true, error: null, maximizedPane: null });
+    // Pane state belongs to the project being left, not the one arriving.
+    set({ isLoading: true, error: null, maximizedPane: null, paneViews: {} });
     try {
       set({ sessions: await api.listSessions(projectId), isLoading: false });
     } catch (error) {
@@ -64,7 +76,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({ busyPanes: { ...state.busyPanes, [input.paneId]: true }, error: null }));
     try {
       const session = await api.createSession(input);
-      set((state) => ({ sessions: replaceInPane(state.sessions, session) }));
+      set((state) => ({
+        sessions: replaceInPane(state.sessions, session),
+        // A pane left showing the previous session's graph should greet a new
+        // session with its terminal, which is the thing that needs watching.
+        paneViews: { ...state.paneViews, [input.paneId]: "terminal" },
+      }));
       return session;
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -89,8 +106,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       const session = await api.restartSession(id, cols, rows);
       // Restarting mints a new session id, so the old terminal has nothing left
-      // to attach to.
+      // to attach to and the graph of the run it replaced is not its own.
       disposeTerminal(id);
+      useGraphStore.getState().forget(id);
       set((state) => ({
         sessions: replaceInPane(
           state.sessions.filter((existing) => existing.id !== id),
@@ -121,6 +139,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       await api.closeSession(id);
       disposeTerminal(id);
+      useGraphStore.getState().forget(id);
       set((state) => ({ sessions: state.sessions.filter((session) => session.id !== id) }));
     } catch (error) {
       set({ error: errorMessage(error) });

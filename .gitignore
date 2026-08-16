@@ -6,6 +6,9 @@ dist-ssr/
 src-tauri/target/
 src-tauri/gen/
 
+# Graphs sessions write while GrokSpace is open on its own repository.
+.grokspace/
+
 .DS_Store
 .vscode/*
 !.vscode/extensions.json

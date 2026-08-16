@@ -9,8 +9,10 @@ import {
   mountTerminal,
   writeNotice,
 } from "../lib/terminals";
+import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type { Session, SessionKind } from "../types";
+import GraphVisualizer from "./GraphVisualizer";
 
 /** A pane is created before it has been measured, so it starts at the classic size. */
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
@@ -46,6 +48,47 @@ function PaneButton({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * Flips a pane between its terminal and the graph its session is reporting, so a
+ * plan can be watched in one pane while the others keep working. The terminal is
+ * not stopped by this: lib/terminals.ts keeps the instance and its pty alive while
+ * the graph has the pane.
+ */
+function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
+  const view = useSessionStore((state) => state.paneViews[paneId] ?? "terminal");
+  const setPaneView = useSessionStore((state) => state.setPaneView);
+  const hasGraph = useGraphStore(
+    (state) => graphFor(state.bySession, session.id).graph !== null,
+  );
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 rounded-sm border border-line px-0.5">
+      {(["terminal", "graph"] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => setPaneView(paneId, option)}
+          title={
+            option === "graph" && !hasGraph
+              ? "This session has not reported a graph yet"
+              : undefined
+          }
+          className={`rounded-sm px-1 text-[10px] transition-colors ${
+            view === option ? "bg-accent-soft text-ink" : "text-ink-faint hover:text-ink-muted"
+          }`}
+        >
+          {option === "terminal" ? "term" : "graph"}
+          {/* A dot rather than a count: the pane header has no room, and "there is
+              a plan to look at" is the only thing worth saying here. */}
+          {option === "graph" && hasGraph && (
+            <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
+          )}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -152,6 +195,7 @@ export default function TerminalPane({
 }) {
   const [renaming, setRenaming] = useState(false);
   const maximizedPane = useSessionStore((state) => state.maximizedPane);
+  const paneView = useSessionStore((state) => state.paneViews[paneId] ?? "terminal");
   const toggleMaximized = useSessionStore((state) => state.toggleMaximized);
   const stopSession = useSessionStore((state) => state.stopSession);
   const restartSession = useSessionStore((state) => state.restartSession);
@@ -206,27 +250,36 @@ export default function TerminalPane({
           </button>
         )}
 
-        <div className="flex shrink-0 items-center">
-          {session ? (
-            <>
-              <PaneButton label="Clear" onClick={() => clearTerminal(session.id)} />
-              {running ? (
-                <PaneButton label="Stop" onClick={() => void stopSession(session.id)} />
-              ) : (
-                <PaneButton label="Restart" onClick={restart} disabled={busy} />
-              )}
-              <PaneButton label="Close" onClick={() => void closeSession(session.id)} />
-            </>
-          ) : null}
-          <PaneButton
-            label={isMaximized ? "Restore" : "Expand"}
-            onClick={() => toggleMaximized(paneId)}
-          />
+        <div className="flex shrink-0 items-center gap-1">
+          {session ? <ViewSwitch session={session} paneId={paneId} /> : null}
+          <div className="flex items-center">
+            {session ? (
+              <>
+                {paneView === "terminal" && (
+                  <PaneButton label="Clear" onClick={() => clearTerminal(session.id)} />
+                )}
+                {running ? (
+                  <PaneButton label="Stop" onClick={() => void stopSession(session.id)} />
+                ) : (
+                  <PaneButton label="Restart" onClick={restart} disabled={busy} />
+                )}
+                <PaneButton label="Close" onClick={() => void closeSession(session.id)} />
+              </>
+            ) : null}
+            <PaneButton
+              label={isMaximized ? "Restore" : "Expand"}
+              onClick={() => toggleMaximized(paneId)}
+            />
+          </div>
         </div>
       </header>
 
       {session ? (
-        <TerminalSurface session={session} />
+        paneView === "graph" ? (
+          <GraphVisualizer session={session} compact />
+        ) : (
+          <TerminalSurface session={session} />
+        )
       ) : (
         <EmptyPane paneId={paneId} projectId={projectId} />
       )}
