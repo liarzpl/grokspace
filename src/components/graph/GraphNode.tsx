@@ -14,6 +14,19 @@ export type FlowNodeData = {
 export type GraphFlowNode = Node<FlowNodeData, "graphNode">;
 
 /**
+ * Declared on the flow node as well as used here, so there is one source of
+ * truth for node size.
+ *
+ * This matters beyond tidiness: the visualiser drives React Flow from a
+ * controlled `nodes` array with no `onNodesChange`, so React Flow never writes
+ * measured dimensions back onto those objects. Anything reading a node's size
+ * from them - the minimap, and the initial fitView - needs the size stated up
+ * front.
+ */
+export const NODE_WIDTH = 188;
+export const NODE_HEIGHT = 60;
+
+/**
  * Type is carried by a short badge and an accent colour rather than by an icon,
  * which keeps the graph consistent with the rest of the app's typography-led
  * styling and avoids pulling in an icon set.
@@ -53,7 +66,7 @@ export default function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNod
       />
 
       <div
-        className={`w-[188px] rounded-lg border bg-panel px-2.5 py-2 transition-shadow ${status.border} ${
+        className={`flex size-full flex-col justify-center overflow-hidden rounded-lg border bg-panel px-2.5 transition-shadow ${status.border} ${
           // A gate is the one node type that stops and waits for a person, so it
           // reads as an interruption rather than as work in progress.
           node.type === "human-gate" ? "border-dashed" : ""

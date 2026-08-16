@@ -12,7 +12,11 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { inferDirection, type GraphDocument, type NodeStatus } from "../lib/graph";
-import GraphNodeCard, { type GraphFlowNode } from "./graph/GraphNode";
+import GraphNodeCard, {
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  type GraphFlowNode,
+} from "./graph/GraphNode";
 import NodeInspector from "./graph/NodeInspector";
 
 /** Module scope on purpose: React Flow warns when this object's identity changes. */
@@ -23,7 +27,7 @@ const MINIMAP_COLOR: Record<NodeStatus, string> = {
   running: "#6d8cff",
   completed: "#5ad4a0",
   failed: "#ff6b6b",
-  skipped: "#2f3745",
+  skipped: "#333b49",
 };
 
 const EDGE_STROKE = "#2f3745";
@@ -56,6 +60,8 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
         id: node.id,
         type: "graphNode" as const,
         position: node.position,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
         data: { node, direction },
         selected: node.id === selectedId,
       })),
@@ -101,7 +107,10 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
               nodeTypes={nodeTypes}
               colorMode="dark"
               fitView
-              fitViewOptions={{ padding: 0.18, maxZoom: 1 }}
+              // A seven-layer graph fitted into a pane this narrow zooms out far
+              // enough that the labels stop being readable, so fitting has a floor
+              // and the rest is left to panning.
+              fitViewOptions={{ padding: 0.12, minZoom: 0.62, maxZoom: 1 }}
               minZoom={0.2}
               maxZoom={1.6}
               // This visualises a graph rather than editing one.
@@ -110,7 +119,8 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
               edgesFocusable={false}
               onNodeClick={onNodeClick}
               onPaneClick={() => setSelectedId(null)}
-              attributionPosition="top-right"
+              // Bottom-left holds the controls and bottom-right the minimap.
+              attributionPosition="bottom-center"
               className="bg-canvas"
             >
               <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#222835" />
@@ -119,8 +129,12 @@ function GraphCanvas({ graph, warnings }: { graph: GraphDocument; warnings: stri
                 pannable
                 zoomable
                 nodeColor={(node) => MINIMAP_COLOR[node.data.node.status]}
-                maskColor="#0b0d1299"
-                className="rounded-md border border-line bg-panel!"
+                nodeStrokeColor="#0b0d12"
+                nodeStrokeWidth={2}
+                nodeBorderRadius={3}
+                bgColor="#0e1117"
+                maskColor="#0b0d12b3"
+                className="rounded-md border border-line"
               />
             </ReactFlow>
           </div>
