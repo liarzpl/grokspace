@@ -118,15 +118,14 @@ function AwaitingGraph({ session, path }: { session: Session; path: string }) {
     <Centred>
       <h2 className="text-[14px] font-semibold tracking-tight">No graph yet</h2>
       <p className="mt-2 text-[12px] leading-relaxed text-ink-muted">
-        This pane draws the graph that <span className="text-ink">{session.title ?? "the agent"}</span>{" "}
-        writes to its own file. Every session has one, and the panel redraws the moment
-        the file changes.
+        Every session has a graph of its own. This one is drawn from the file{" "}
+        <span className="text-ink">{session.title ?? "this session"}</span> writes, and it
+        appears the moment that file does.
       </p>
       {path !== "" && (
-        <p
-          title={path}
-          className="mt-2.5 truncate font-mono text-[10px] text-ink-faint selectable"
-        >
+        // Wrapped rather than truncated: the path is the thing someone reading this
+        // is most likely to want in full.
+        <p className="mt-2.5 font-mono text-[10px] break-all text-ink-faint selectable">
           {homeRelative(path)}
         </p>
       )}

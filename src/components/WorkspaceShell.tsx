@@ -102,7 +102,7 @@ function SessionChip({
     <button
       type="button"
       onClick={onClick}
-      title={entry.graph === null ? "No graph yet" : (entry.graph.name ?? undefined)}
+      title={entry.graph?.name ?? "No graph yet"}
       className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
         active
           ? "border-accent bg-accent-soft text-ink"
@@ -156,7 +156,9 @@ function GraphSummary({ session }: { session: Session | undefined }) {
   return (
     <div className="flex shrink-0 items-baseline gap-2">
       <span className="text-[12px] font-medium text-ink-muted">{entry.graph.name}</span>
-      <span className={`font-mono text-[10px] tracking-wide ${GRAPH_STATUS_TONE[entry.graph.status]}`}>
+      <span
+        className={`font-mono text-[10px] tracking-wide ${GRAPH_STATUS_TONE[entry.graph.status]}`}
+      >
         {entry.graph.status}
       </span>
       <span className="text-[10px] text-ink-faint">{tallySummary(entry.graph.nodes)}</span>
@@ -177,11 +179,11 @@ export default function WorkspaceShell({ project }: { project: Project }) {
 
   // Read every session's graph up front, not just the one on screen: the chips
   // here and the dot on each pane's switch are how a plan waiting in another
-  // terminal gets noticed at all. Keyed on the ids so a status change, which
-  // replaces the array, does not re-read them all.
+  // terminal gets noticed at all. Joined into a string so this depends on which
+  // sessions exist rather than on the array, which a status change replaces.
   const sessionIds = sessions.map((session) => session.id).join(" ");
   useEffect(() => {
-    for (const id of sessionIds.split(" ").filter((id) => id !== "")) void loadGraph(id);
+    for (const id of sessionIds.split(" ").filter(Boolean)) void loadGraph(id);
   }, [sessionIds, loadGraph]);
 
   useEffect(() => {
