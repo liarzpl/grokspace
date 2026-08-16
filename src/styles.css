@@ -16,6 +16,11 @@
   --color-accent: #6d8cff;
   --color-accent-soft: #6d8cff26;
   --color-danger: #ff6b6b;
+  --color-success: #5ad4a0;
+  --color-warning: #e3b16b;
+
+  /* Used by graph nodes whose status is `running`. */
+  --animate-node-pulse: node-pulse 2s ease-in-out infinite;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
@@ -74,4 +79,22 @@
 @utility selectable {
   user-select: text;
   cursor: text;
+}
+
+/* Pulses the ring's opacity rather than its size, so a running node never
+   shifts the graph layout while it animates. */
+@keyframes node-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px #6d8cff00;
+  }
+  50% {
+    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px #6d8cff3d;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-node-pulse {
+    animation: none;
+  }
 }
