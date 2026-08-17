@@ -84,6 +84,28 @@ describe("loadSessions", () => {
 
     expect(useSessionStore.getState().error).toBe("database is locked");
   });
+
+  it("drops the graphs of the project being left", async () => {
+    useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
+    useGraphStore.setState({ bySession: { s1: graphEntry(), s2: graphEntry() } });
+    listSessions.mockResolvedValue([session({ id: "s3", projectId: "p2" })]);
+
+    await useSessionStore.getState().loadSessions("p2");
+
+    expect(useGraphStore.getState().bySession).toEqual({});
+  });
+
+  it("keeps the graphs of sessions that are still there", async () => {
+    useSessionStore.setState({ sessions: [session()] });
+    useGraphStore.setState({ bySession: { s1: graphEntry() } });
+    listSessions.mockResolvedValue([session()]);
+
+    // Reading the same project again — a remount, not a switch — must not blank
+    // a panel that is already showing the right graph.
+    await useSessionStore.getState().loadSessions("p1");
+
+    expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s1"]);
+  });
 });
 
 describe("startSession", () => {

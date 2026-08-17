@@ -60,8 +60,14 @@ export default function App() {
     // Graph files are watched by the backend; the event says which session's file
     // moved and the store re-reads it. A removal is refreshed rather than dropped:
     // the pane is still there, and the re-read is what reports the file as gone.
+    // Whether the session is still open is answered here, since the watch outlives
+    // the sessions it was started for.
     const unlisten = listen<GraphChanged>("graph-changed", (event) => {
-      useGraphStore.getState().refresh(event.payload.sessionId);
+      const { sessionId } = event.payload;
+      const isOpen = useSessionStore
+        .getState()
+        .sessions.some((session) => session.id === sessionId);
+      useGraphStore.getState().refresh(sessionId, isOpen);
     });
     return () => {
       void unlisten.then((stop) => stop());

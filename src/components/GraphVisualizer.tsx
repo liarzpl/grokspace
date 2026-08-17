@@ -332,8 +332,13 @@ export default function GraphVisualizer({
   const load = useGraphStore((state) => state.load);
 
   useEffect(() => {
-    // The watcher keeps this current afterwards; this is the first read.
-    if (sessionId !== undefined) void load(sessionId);
+    // The first read, for a pane mounted before WorkspaceShell had read every
+    // session's graph. When that has happened the store is already current and
+    // the watcher keeps it that way, so re-reading here would be a second read of
+    // the same file on every switch into this view.
+    if (sessionId !== undefined && !(sessionId in useGraphStore.getState().bySession)) {
+      void load(sessionId);
+    }
   }, [sessionId, load]);
 
   if (!session) return <NoSession />;

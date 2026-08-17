@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { parseGraph, type GraphDocument } from "../lib/graph";
+import { parseGraph, type GraphDocument, type ParseResult } from "../lib/graph";
 import type { SkillStatus } from "../types";
 
 /**
@@ -12,14 +12,15 @@ import type { SkillStatus } from "../types";
  *
  * - A burst of writes (a run updating several node statuses at once) is coalesced,
  *   so the canvas is not rebuilt for every intermediate state.
- * - A file caught mid-write parses as broken. Rather than flashing an error that a
- *   moment later fixes itself, a failed parse is retried once before it is shown.
+ * - A file caught mid-write is not valid JSON. Rather than flashing an error that a
+ *   moment later fixes itself, that one failure is read again before it is shown.
+ *   A file that parses but describes no graph is reported the first time.
  */
 
 /** Long enough to swallow a burst of writes, short enough to still read as live. */
 const COALESCE_MS = 80;
 
-/** How long to give a writer to finish before a parse failure is believed. */
+/** How long to give a writer to finish before broken JSON is believed. */
 const RETRY_MS = 150;
 
 export interface GraphEntry {
@@ -45,8 +46,12 @@ interface GraphState {
 
   /** Reads a session's graph now; safe to call repeatedly. */
   load: (sessionId: string) => Promise<void>;
-  /** Coalesced re-read, driven by the backend's change event. */
-  refresh: (sessionId: string) => void;
+  /**
+   * Coalesced re-read, driven by the backend's change event. `isOpenSession`
+   * says whether a session with that id is still open, which the caller knows
+   * and this store does not.
+   */
+  refresh: (sessionId: string, isOpenSession: boolean) => void;
   /** Drops a session's graph, for a session that has been closed or replaced. */
   forget: (sessionId: string) => void;
   loadSkill: () => Promise<void>;
@@ -83,8 +88,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
     try {
       snapshot = await api.readSessionGraph(sessionId);
     } catch (error) {
-      // A session the backend has already forgotten is not an error worth
-      // showing; the pane it belonged to is going away too.
+      // Shown rather than swallowed: this is the only report a pane gets that the
+      // file it is pointing at could not be read. The one case that stays quiet is
+      // a session already forgotten here, and `write` is what drops it.
       write(sessionId, { isLoading: false, error: errorMessage(error) });
       return;
     }
@@ -101,18 +107,19 @@ export const useGraphStore = create<GraphState>((set, get) => {
       return;
     }
 
-    let parsed;
+    let parsed: ParseResult;
     try {
       parsed = parseGraph(JSON.parse(snapshot.json) as unknown);
     } catch {
-      parsed = { ok: false as const, error: "The graph file is not valid JSON." };
-    }
-
-    if (!parsed.ok && allowRetry) {
-      // Probably a half-written file. Give the writer a moment, then believe it.
-      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
-      if (!(sessionId in get().bySession)) return;
-      return read(sessionId, false);
+      if (allowRetry) {
+        // Probably a half-written file. Give the writer a moment, then believe it.
+        // Only broken JSON earns this: a document that parses but is not a graph
+        // will say the same thing a second time, at the price of another read.
+        await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+        if (!(sessionId in get().bySession)) return;
+        return read(sessionId, false);
+      }
+      parsed = { ok: false, error: "The graph file is not valid JSON." };
     }
 
     write(
@@ -151,15 +158,21 @@ export const useGraphStore = create<GraphState>((set, get) => {
       await read(sessionId, true);
     },
 
-    refresh: (sessionId) => {
+    refresh: (sessionId, isOpenSession) => {
+      // Closing a session removes it from the workspace but leaves its file and
+      // its project's watcher behind, so a late write can name a session that
+      // nothing is showing. Reading it would file an entry — an error, once the
+      // backend has forgotten the session too — that no pane will ever ask for.
+      if (!isOpenSession && !(sessionId in get().bySession)) return;
+
       const queued = pending.get(sessionId);
       if (queued !== undefined) clearTimeout(queued);
       pending.set(
         sessionId,
         setTimeout(() => {
           pending.delete(sessionId);
-          // An event can arrive for a session this window has never drawn, so the
-          // entry is created rather than assumed.
+          // An open session can write its first graph before anything here has
+          // read it, so the entry is created rather than assumed.
           void get().load(sessionId);
         }, COALESCE_MS),
       );
