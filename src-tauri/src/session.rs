@@ -509,6 +509,15 @@ fn close(state: &State<'_, AppState>, id: &str) -> Result<()> {
     let _ = state.pty.kill(id);
     state.pty.remove(id);
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+    // Before the row goes, since the session is the only way back to the project
+    // whose folder holds the graph. Nothing can surface this file again once the id
+    // is gone from the database, and restarting closes a session too, so leaving it
+    // meant every restart added one.
+    if let Ok(session) = get(&conn, id) {
+        if let Ok(project) = project::get(&conn, &session.project_id) {
+            graph::remove_graph(Path::new(&project.path), id);
+        }
+    }
     delete(&conn, id)
 }
 

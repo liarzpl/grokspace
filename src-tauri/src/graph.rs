@@ -164,6 +164,21 @@ pub fn snapshot(project_path: &Path, session_id: &str) -> GraphSnapshot {
     snapshot_in(&graph_dirs(project_path), session_id)
 }
 
+/// Removes the graph of a session that is going away for good.
+///
+/// Both directories are tried, for the same reason reading does: a graph written
+/// during a spell when the project folder could not be written to is in the
+/// fallback. Only the file named for this session is touched.
+///
+/// A failure is deliberately not reported. The caller is closing a terminal, and a
+/// graph that would not delete is not worth refusing that over.
+pub fn remove_graph(project_path: &Path, session_id: &str) {
+    let file_name = graph_file_name(session_id);
+    for dir in graph_dirs(project_path) {
+        let _ = std::fs::remove_file(dir.join(&file_name));
+    }
+}
+
 /// A graph file's session id, or `None` for anything else in the directory —
 /// artifacts, temporary files a writer renames from, and subdirectories.
 fn session_id_for(path: &Path, watched: &[PathBuf]) -> Option<String> {
@@ -499,6 +514,33 @@ mod tests {
             Some(r#"{"name":"second"}"#)
         );
         assert!(!snapshot(project.path(), "s3").exists);
+    }
+
+    #[test]
+    fn removing_a_session_takes_its_graph_and_nothing_else() {
+        let project = dir();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join("going.json"), r#"{"nodes":[]}"#).unwrap();
+        std::fs::write(graphs.join("staying.json"), r#"{"nodes":[]}"#).unwrap();
+        std::fs::write(graphs.join("notes.md"), "an artifact").unwrap();
+
+        remove_graph(project.path(), "going");
+
+        assert!(!snapshot(project.path(), "going").exists);
+        assert!(
+            snapshot(project.path(), "staying").exists,
+            "a neighbour's plan is not this session's to delete"
+        );
+        assert!(graphs.join("notes.md").is_file());
+    }
+
+    #[test]
+    fn removing_a_session_that_wrote_no_graph_is_quiet() {
+        let project = dir();
+        ensure_graph_dir(project.path()).unwrap();
+
+        // A session can be closed before an agent ever reports a plan.
+        remove_graph(project.path(), "never-wrote-one");
     }
 
     #[test]
