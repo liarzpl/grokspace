@@ -27,19 +27,25 @@ if (!target) {
   exit(1);
 }
 
-/** Laid out left to right, the way the panel reads best. */
+/**
+ * No positions, which is what the bundled skill asks agents for. The panel lays a
+ * graph out by longest-path layering, and it does that better than a formula because
+ * it can see how many nodes ended up in each column. Writing them here would have the
+ * demo contradict the skill it exists to demonstrate — and would leave the layout that
+ * every real graph uses exercised only by unit tests.
+ */
 const NODES = [
-  { id: "orch", type: "orchestrator", label: "Orchestrator", role: "planner", x: 0, y: 120 },
-  { id: "scan", type: "parallel-group", label: "Signal Scan", role: "scout", x: 260, y: 0 },
-  { id: "tool", type: "tool", label: "Web Search", role: "retrieval", x: 260, y: 240 },
+  { id: "orch", type: "orchestrator", label: "Orchestrator", role: "lead" },
+  { id: "scan", type: "parallel-group", label: "Signal Scan", role: "lane" },
+  { id: "tool", type: "tool", label: "Web Search", role: "retrieval" },
   // Skipped from the start, and never advanced, so the dimmed state shows up in a
   // run and not only in the tests.
-  { id: "archive", type: "agent", label: "Archive Scout", role: "scout", x: 260, y: 380, skip: true },
-  { id: "draft", type: "parallel-group", label: "Drafting", role: "drafter", x: 520, y: 120 },
-  { id: "arena", type: "arena", label: "Arena", role: "critic", x: 780, y: 120 },
-  { id: "verify", type: "verifier", label: "Feasibility", role: "verifier", x: 1040, y: 120 },
-  { id: "gate", type: "human-gate", label: "Human Gate", role: "approval", x: 1300, y: 120 },
-  { id: "synth", type: "synthesizer", label: "Synthesis", role: "writer", x: 1560, y: 120 },
+  { id: "archive", type: "agent", label: "Archive Scout", role: "lane", skip: true },
+  { id: "draft", type: "parallel-group", label: "Drafting", role: "lane" },
+  { id: "arena", type: "arena", label: "Arena", role: "skeptic" },
+  { id: "verify", type: "verifier", label: "Feasibility", role: "judge" },
+  { id: "gate", type: "human-gate", label: "Human Gate", role: "human" },
+  { id: "synth", type: "synthesizer", label: "Synthesis", role: "lead" },
 ];
 
 const EDGES = [
@@ -86,11 +92,14 @@ function document(graphStatus, running) {
       label: node.label,
       status: statuses.get(node.id),
       role: node.role,
-      position: { x: node.x, y: node.y },
+      // All six keys, as the skill asks, so two versions of a file stay diffable.
       data: {
         description: reason(node),
-        model: "grok-build-0.1",
-        effort: "medium",
+        model: "grok-4.6",
+        effort: node.type === "orchestrator" || node.type === "verifier" ? "xhigh" : "medium",
+        parallelism: node.type === "parallel-group" || node.type === "arena" ? 3 : 0,
+        worktree: node.type === "agent",
+        artifactPath: "",
       },
     })),
     edges: EDGES.map(([source, sink, label], index) => ({

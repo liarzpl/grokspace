@@ -82,12 +82,39 @@ would reject graphs the panel can happily draw.
 ## Making `grok` write one
 
 The bundled skill at
-[`src-tauri/skills/graph-engineering/SKILL.md`](../src-tauri/skills/graph-engineering/SKILL.md)
-is what teaches the agent to report a graph. Grok Build discovers skills from
-`~/.grok/skills/`, so GrokSpace installs it to
-`~/.grok/skills/grokspace-graph/SKILL.md` — from the button in the Graph panel's
-empty state, not silently on boot. Installing again refreshes the file when the
-bundled version has changed, and does nothing when it has not.
+[`src-tauri/skills/grokspace-graph/`](../src-tauri/skills/grokspace-graph/) is what
+teaches the agent to report a graph. Grok Build discovers skills from
+`~/.grok/skills/`, so GrokSpace installs it to `~/.grok/skills/grokspace-graph/` —
+from the button in the Graph panel's empty state, not silently on boot. Installing
+again refreshes any file whose bundled version has changed, and does nothing to the
+rest.
+
+It is three files, because a skill that fits in one is a skill that has to choose
+between being short and being complete:
+
+| File | Holds |
+| --- | --- |
+| `SKILL.md` | The runbook. Read every time the skill triggers, so it stays short. |
+| `references/catalog.md` | Topologies, the loop-versus-graph decision tree, and job-shaped recipes. Read when choosing a shape. |
+| `references/graph-file.md` | The file contract: path, schema, and when to write. Read when writing JSON. |
+
+Grok loads `SKILL.md` and follows its references on demand, so a two-node graph does
+not cost an agent the whole topology catalogue. `skill.rs` treats a stale reference as
+not-current, because a reference describing a contract this build no longer honours is
+worse than one that is missing — the agent follows it either way.
+
+**The merge.** This skill began as GrokSpace's own, and the catalogue came from one
+written by hand outside the app. Both were installed at once on the same machine and
+both claimed the same triggers. Their schemas were identical, so nothing had to be
+converted; what conflicted was where to write, how often, and what the defaults were.
+[`docs/skill-merge.md`](skill-merge.md) records each conflict and which side won.
+
+One of those conflicts was a real bug rather than a preference. The hand-written skill
+wrote a fixed `current-graph.json`; GrokSpace watches `<session-id>.json`. Followed
+exactly, it produced graphs the panel never saw, and the panel sat empty for the whole
+run. The merged contract forbids that filename whenever `GROKSPACE_GRAPH_FILE` is set,
+and a test asserts the prohibition — the fallback is still documented for use outside
+GrokSpace, so its absence could not be the guard.
 
 Skills are read at session start, so a session that was already running when the
 skill was installed needs restarting before it picks it up. For a session that is

@@ -162,9 +162,10 @@ function AwaitingGraph({ session, path }: { session: Session; path: string }) {
       )}
       {skill !== null && !skill.installed && (
         <p className="mt-3 text-[10px] leading-relaxed text-ink-faint">
-          Installing writes a skill to{" "}
+          Installing writes the skill into{" "}
           <span className="font-mono selectable">{homeRelative(skill.path)}</span>, which
-          is where Grok looks for them.
+          is where Grok looks for them. It is a runbook plus two references: the topology
+          catalogue and the graph file's contract, both read only when needed.
         </p>
       )}
     </Centred>

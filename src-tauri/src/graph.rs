@@ -22,7 +22,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::error::{Error, Result};
-use crate::skill::{Skill, SkillStatus};
+use crate::skill::{Skill, SkillFile, SkillStatus};
 use crate::{db, project, session, AppState};
 
 /// Emitted when a session's graph file appears, changes, or goes away. Like the
@@ -38,9 +38,26 @@ const CHANGE_EVENT: &str = "graph-changed";
 const MAX_GRAPH_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The skill GrokSpace installs so `grok` knows to write these files at all.
+///
+/// Three files rather than one. `SKILL.md` is the runbook; the catalogue and the file
+/// contract are read on demand, which is what keeps a two-node graph from costing an
+/// agent twenty kilobytes of topology theory it does not need.
 const SKILL: Skill = Skill {
     dir: "grokspace-graph",
-    content: include_str!("../skills/graph-engineering/SKILL.md"),
+    files: &[
+        SkillFile {
+            path: "SKILL.md",
+            content: include_str!("../skills/grokspace-graph/SKILL.md"),
+        },
+        SkillFile {
+            path: "references/catalog.md",
+            content: include_str!("../skills/grokspace-graph/references/catalog.md"),
+        },
+        SkillFile {
+            path: "references/graph-file.md",
+            content: include_str!("../skills/grokspace-graph/references/graph-file.md"),
+        },
+    ],
 };
 
 /// Where a project's graphs live. Kept inside the project so a graph travels with
@@ -683,8 +700,80 @@ mod tests {
     /// skill that names the wrong path teaches an agent to write where nobody reads.
     #[test]
     fn the_bundled_skill_names_the_environment_variable_it_relies_on() {
-        assert!(SKILL.content.contains("GROKSPACE_GRAPH_FILE"));
-        assert!(SKILL.content.starts_with("---\n"));
-        assert_eq!(SKILL.dir, "grokspace-graph");
+        let runbook = SKILL.content("SKILL.md").expect("a skill needs a SKILL.md");
+        let contract = SKILL
+            .content("references/graph-file.md")
+            .expect("the file contract is what the runbook defers to");
+
+        assert!(
+            runbook.starts_with("---\n"),
+            "Grok reads the frontmatter first"
+        );
+        assert!(runbook.contains("name: grokspace-graph"));
+        assert_eq!(
+            SKILL.dir, "grokspace-graph",
+            "the directory is the skill's name"
+        );
+        assert!(runbook.contains("GROKSPACE_GRAPH_FILE"));
+        assert!(contract.contains("GROKSPACE_GRAPH_FILE"));
+        assert!(
+            contract.contains("GROKSPACE_SESSION_ID"),
+            "the fallback path"
+        );
+    }
+
+    #[test]
+    fn the_runbook_points_at_every_reference_that_ships_with_it() {
+        // Grok reads SKILL.md and follows what it names. A reference nothing links to
+        // is a file installed into the user's home that will never be opened.
+        let runbook = SKILL.content("SKILL.md").expect("a skill needs a SKILL.md");
+
+        for file in SKILL.files {
+            if file.path == "SKILL.md" {
+                continue;
+            }
+            assert!(
+                runbook.contains(file.path),
+                "SKILL.md does not mention {}, so nothing will ever read it",
+                file.path
+            );
+        }
+    }
+
+    #[test]
+    fn the_contract_forbids_the_fixed_filename_that_hid_graphs_from_the_panel() {
+        // The whole reason this skill was merged. A skill writing a fixed
+        // `current-graph.json` writes somewhere GrokSpace does not watch, and the panel
+        // sits empty while the run happens. The fallback is still documented for use
+        // outside GrokSpace, so the guard has to be the prohibition, not the absence.
+        let contract = SKILL.content("references/graph-file.md").unwrap();
+
+        assert!(contract
+            .contains("Never write `current-graph.json` when `$GROKSPACE_GRAPH_FILE` is set."));
+    }
+
+    #[test]
+    fn the_contract_states_the_statuses_the_parser_actually_accepts() {
+        // parseGraph falls back to `agent` for an unknown type and `pending` for an
+        // unknown status, so a skill listing a value the parser does not know produces
+        // a graph that quietly misreports the run.
+        let contract = SKILL.content("references/graph-file.md").unwrap();
+
+        for value in [
+            "orchestrator",
+            "parallel-group",
+            "arena",
+            "verifier",
+            "human-gate",
+            "synthesizer",
+            "skipped",
+            "partial",
+            "smoothstep",
+        ] {
+            assert!(
+                contract.contains(value),
+                "the contract does not mention `{value}`"
+            );
+        }
     }
 }
