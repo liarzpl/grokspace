@@ -112,7 +112,13 @@ export function entriesOfType(entries: MemoryEntry[], type: MemoryEntryType): Me
   return entries.filter((entry) => entry.type === type);
 }
 
-/** How much of the memory's budget is spent, for the panel to show before it bites. */
+/**
+ * How much of the memory's budget is spent, for the panel to show before it bites.
+ *
+ * Counted in code points to agree with the backend, which is what actually enforces
+ * the cap. `.length` counts UTF-16 units, so an emoji or an astral character would
+ * have made this read high and the warning arrive early.
+ */
 export function memorySize(entries: MemoryEntry[]): number {
-  return entries.reduce((total, entry) => total + entry.content.length, 0);
+  return entries.reduce((total, entry) => total + [...entry.content].length, 0);
 }
