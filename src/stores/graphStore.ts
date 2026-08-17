@@ -7,7 +7,7 @@ import type { SkillStatus } from "../types";
 /**
  * One graph per session, kept in step with the files on disk.
  *
- * The backend watches the graph directories and says which session changed; this
+ * The backend watches the graph directory and says which session changed; this
  * store re-reads that session's file. Two timings matter:
  *
  * - A burst of writes (a run updating several node statuses at once) is coalesced,

@@ -72,8 +72,8 @@ export const api = {
     invoke<GraphSnapshot>("read_session_graph", { sessionId }),
 
   /**
-   * Watches the project's graph directories so changes are reported, and returns
-   * the directories being watched. Asking twice is harmless.
+   * Watches the directory the project's sessions write their graphs into so changes
+   * are reported, and returns what is being watched. Asking twice is harmless.
    */
   watchProjectGraphs: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_graphs", { projectId }),

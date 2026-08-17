@@ -12,13 +12,17 @@ it.
 ```
 
 The file name is the session id, which is why nothing has to be stored to
-remember whose graph is whose. Two consequences worth knowing:
+remember whose graph is whose. Three consequences worth knowing:
 
 - **Sessions never share a graph.** Two agents in the same project write two
   files, and each pane draws only its own.
 - **Restarting starts clean.** A restart mints a new session id, so the pane
   shows no graph until the new run writes one, rather than inheriting the plan of
-  the run it replaced. The old file stays on disk until something removes it.
+  the run it replaced.
+- **A graph goes when its session does.** Closing a session removes its file, and
+  so does restarting, which closes the old session first. Once an id has left the
+  database nothing can surface its graph again, so keeping the file only meant a
+  project collecting one per restart.
 
 When the project folder cannot be written to, both the writer and the reader fall
 back to `~/.grokspace/graphs/<session-id>.json`.
@@ -39,11 +43,16 @@ worktree still reports into the graph its pane is drawing.
 
 ## How the panel stays live
 
-[`src-tauri/src/graph.rs`](../src-tauri/src/graph.rs) watches the graph
-directories with `notify` and emits `graph-changed` naming the session whose file
+[`src-tauri/src/graph.rs`](../src-tauri/src/graph.rs) watches a project's graph
+directory with `notify` and emits `graph-changed` naming the session whose file
 moved; [`src/stores/graphStore.ts`](../src/stores/graphStore.ts) re-reads that
-file. Five decisions in that path exist for a reason:
+file. Seven decisions in that path exist for a reason:
 
+- **Only the directory the project's sessions write into is watched.** The
+  fallback is shared by every project, so watching it as well would put a watcher
+  on it per open project and report each write landing there that many times. A
+  graph left in the fallback from a spell when the project folder was read-only is
+  still read; it is only no longer reported live.
 - **The watch is non-recursive, and only `.json` files directly in the directory
   count.** A run's artifacts live under the same directory and would otherwise be
   most of the events. Put artifacts in a subdirectory.
@@ -55,10 +64,16 @@ file. Five decisions in that path exist for a reason:
 - **Invalid JSON is read again before it is shown.** A file caught mid-write is
   not valid JSON, and reporting that immediately would make every update flash an
   error that fixes itself. A file that parses but describes no graph is reported
-  the first time: it will read the same a moment later.
+  the first time: it will read the same a moment later. Only `JSON.parse` decides
+  which of the two a failure is, so the narrow retry does not depend on
+  `parseGraph` reporting rather than throwing.
+- **A file past 4 MiB is refused unread,** and reported as too large rather than as
+  a graph that has not arrived. The two are different things to say: one file is
+  missing, the other is sitting there and will not be opened. A plan does not reach
+  that size, so what this catches is an agent redirecting output into the file.
 - **An event naming a session that is no longer open is ignored,** unless a graph
-  is still held for it. Closing a session leaves its file and its project's
-  watcher behind, so these events keep arriving for the rest of the run.
+  is still held for it. A project's watcher outlives the sessions it was started
+  for, and removing a closed session's file is itself an event naming it.
 
 The JSON crosses from Rust to the frontend unparsed. `parseGraph` is deliberately
 forgiving because a model writes these files; a second, stricter parser in Rust
