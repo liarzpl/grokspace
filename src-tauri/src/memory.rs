@@ -233,18 +233,31 @@ pub fn write_projection(project_path: &Path, entries: &[MemoryEntry]) -> Result<
     Ok(())
 }
 
-/// Rewrites the projection after a change, and says nothing if it cannot.
-///
-/// The table is the source of truth, so a project folder that will not take the
-/// file is not a reason to refuse the write — losing a note because a directory is
-/// read-only would be the worse outcome. The panel names the path, which is how a
-/// missing file stays discoverable.
-fn project_memory(conn: &Connection, project_id: &str) -> Result<Vec<MemoryEntry>> {
+/// Everything the projection needs, gathered while the lock is held so that the
+/// writing can happen once it is not.
+fn memory_and_path(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<(Vec<MemoryEntry>, Option<String>)> {
     let entries = list(conn, project_id)?;
-    if let Ok(project) = project::get(conn, project_id) {
-        let _ = write_projection(Path::new(&project.path), &entries);
+    let path = project::get(conn, project_id)
+        .ok()
+        .map(|project| project.path);
+    Ok((entries, path))
+}
+
+/// Rewrites the projection, and says nothing if it cannot.
+///
+/// Deliberately takes no connection, because it must not be called with one held:
+/// this is file I/O and every command queues on the single database mutex.
+///
+/// A failure is ignored. The table is the source of truth, so a project folder that
+/// will not take the file is no reason to refuse a note — and the panel names the
+/// path, which is how a missing file stays discoverable.
+fn project_to_disk(entries: &[MemoryEntry], project_path: Option<&str>) {
+    if let Some(path) = project_path {
+        let _ = write_projection(Path::new(path), entries);
     }
-    Ok(entries)
 }
 
 fn with_db<T>(
@@ -270,10 +283,12 @@ pub fn put_memory(
     content: String,
     entry_type: MemoryEntryType,
 ) -> Result<Vec<MemoryEntry>> {
-    with_db(&state, |conn| {
+    let (entries, path) = with_db(&state, |conn| {
         put(conn, &project_id, &key, &content, entry_type)?;
-        project_memory(conn, &project_id)
-    })
+        memory_and_path(conn, &project_id)
+    })?;
+    project_to_disk(&entries, path.as_deref());
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -282,10 +297,12 @@ pub fn remove_memory(
     project_id: String,
     key: String,
 ) -> Result<Vec<MemoryEntry>> {
-    with_db(&state, |conn| {
+    let (entries, path) = with_db(&state, |conn| {
         remove(conn, &project_id, &key)?;
-        project_memory(conn, &project_id)
-    })
+        memory_and_path(conn, &project_id)
+    })?;
+    project_to_disk(&entries, path.as_deref());
+    Ok(entries)
 }
 
 #[tauri::command]

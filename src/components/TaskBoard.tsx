@@ -534,9 +534,14 @@ function SwarmLauncher({ project }: { project: Project }) {
     // In ROLES order rather than the order they were clicked, so a swarm always
     // starts Planner first and reads the same however it was picked.
     const roles = ROLES.filter((role) => chosen.includes(role.name));
-    await launchSwarm(project.id, roles);
+    const failed = await launchSwarm(project.id, roles);
     setLaunching(false);
-    setOpen(false);
+
+    // Closed only when every role started. Otherwise the row stays open with just
+    // the ones that did not selected, so the retry is one click and does not restart
+    // the agents that are already running. The banner says why; this says which.
+    if (failed.length === 0) setOpen(false);
+    else setChosen(failed);
   };
 
   if (!open) {
