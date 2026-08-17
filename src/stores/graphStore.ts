@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { parseGraph, type GraphDocument } from "../lib/graph";
+import { parseGraph, type GraphDocument, type ParseResult } from "../lib/graph";
 import type { SkillStatus } from "../types";
 
 /**
@@ -12,14 +12,15 @@ import type { SkillStatus } from "../types";
  *
  * - A burst of writes (a run updating several node statuses at once) is coalesced,
  *   so the canvas is not rebuilt for every intermediate state.
- * - A file caught mid-write parses as broken. Rather than flashing an error that a
- *   moment later fixes itself, a failed parse is retried once before it is shown.
+ * - A file caught mid-write is not valid JSON. Rather than flashing an error that a
+ *   moment later fixes itself, that one failure is read again before it is shown.
+ *   A file that parses but describes no graph is reported the first time.
  */
 
 /** Long enough to swallow a burst of writes, short enough to still read as live. */
 const COALESCE_MS = 80;
 
-/** How long to give a writer to finish before a parse failure is believed. */
+/** How long to give a writer to finish before broken JSON is believed. */
 const RETRY_MS = 150;
 
 export interface GraphEntry {
@@ -105,18 +106,19 @@ export const useGraphStore = create<GraphState>((set, get) => {
       return;
     }
 
-    let parsed;
+    let parsed: ParseResult;
     try {
       parsed = parseGraph(JSON.parse(snapshot.json) as unknown);
     } catch {
-      parsed = { ok: false as const, error: "The graph file is not valid JSON." };
-    }
-
-    if (!parsed.ok && allowRetry) {
-      // Probably a half-written file. Give the writer a moment, then believe it.
-      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
-      if (!(sessionId in get().bySession)) return;
-      return read(sessionId, false);
+      if (allowRetry) {
+        // Probably a half-written file. Give the writer a moment, then believe it.
+        // Only broken JSON earns this: a document that parses but is not a graph
+        // will say the same thing a second time, at the price of another read.
+        await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+        if (!(sessionId in get().bySession)) return;
+        return read(sessionId, false);
+      }
+      parsed = { ok: false, error: "The graph file is not valid JSON." };
     }
 
     write(

@@ -136,12 +136,18 @@ describe("a half-written file", () => {
     expect(entry("s1").error).toContain("JSON");
   });
 
-  it("is reported when the document is valid JSON but not a graph", async () => {
+});
+
+describe("a file that is valid JSON but not a graph", () => {
+  it("is reported the first time it is read", async () => {
     readSessionGraph.mockResolvedValue(snapshot({ json: '{"name": "no nodes here"}' }));
 
     await useGraphStore.getState().load("s1");
 
     expect(entry("s1").error).toContain("nodes");
+    // Nothing is half-written here, so a second read would say the same thing.
+    // Waiting for one would put that cost on every update of a stably bad file.
+    expect(readSessionGraph).toHaveBeenCalledTimes(1);
   });
 });
 
