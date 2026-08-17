@@ -1,0 +1,230 @@
+name: Release
+
+# Tag-driven. Pushing `v0.1.0` builds that version and nothing else does, so a release
+# is always something somebody deliberately named.
+#
+# `workflow_dispatch` is here for the dry run: everything except publishing, which is
+# the only way to learn whether signing works without also shipping the answer.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build and sign, but publish nothing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Never cancelled. A half-finished notarization submission is worse than a slow one,
+  # and two releases of the same tag do not race in practice.
+  cancel-in-progress: false
+
+jobs:
+  # The same checks a pull request gets, not a second copy of them. A tagged build that
+  # skipped the tests would be the one build where skipping them matters.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  # Cheap, and before anything is built. `tauri.conf.json` carries the version that
+  # ends up in the bundle and in the DMG's name, so a tag disagreeing with it produces
+  # a `v0.2.0` release containing an app that calls itself 0.1.0 — the kind of mistake
+  # nobody notices until a user reports the wrong version.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: read
+        name: Check every version agrees with the tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # Three files carry the version, and they are not derived from one another.
+          # tauri.conf.json names the app and the DMG, Cargo.toml is what the binary
+          # reports, and package.json is what `npm version` would bump. Any two
+          # disagreeing ships a release whose files contradict each other.
+          config="$(jq -er .version src-tauri/tauri.conf.json)"
+          package="$(jq -er .version package.json)"
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
+
+          echo "tauri.conf.json  $config"
+          echo "package.json     $package"
+          echo "Cargo.toml       $cargo"
+          echo "version=$config" >> "$GITHUB_OUTPUT"
+
+          if [ "$config" != "$package" ] || [ "$config" != "$cargo" ]; then
+            echo "::error::These three versions must match. Bump all of them together."
+            exit 1
+          fi
+
+          if [ "$REF_TYPE" != "tag" ]; then
+            echo "Not a tag, so there is no tag to disagree with."
+            exit 0
+          fi
+
+          if [ "$TAG" != "v$config" ]; then
+            echo "::error::Tag $TAG does not match version $config."
+            echo "::error::Bump the three files and re-tag, or tag v$config instead."
+            exit 1
+          fi
+          echo "Tag $TAG matches."
+
+  macos:
+    needs: [checks, version]
+    # Unpinned on purpose. `minimumSystemVersion` sets the deployment target
+    # explicitly, so a newer SDK on the runner does not narrow what the app runs on,
+    # and the notarization tools ship with every supported image. Pinning would buy
+    # reproducibility this job does not need, at the cost of an image retirement it
+    # would eventually hit.
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # One universal binary rather than a DMG per architecture. It is the larger
+      # download and the simpler instruction: there is no wrong file to pick, which
+      # matters more for something installed once.
+      - name: Add both Apple targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: universal-apple-darwin
+
+      - run: npm ci
+
+      # Everything the release step needs is decided here, in shell, rather than in
+      # nested `${{ }}` conditionals. The reason is a real trap: in GitHub expressions
+      # `condition && '' || other` does not do what it looks like, because an empty
+      # string is falsy and the `||` therefore takes the other branch — a dry run built
+      # that way would publish. Computing it here removes the class of mistake.
+      - id: plan
+        name: Work out what this build is
+        env:
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # An unsigned DMG still builds and is still useful for testing. What it must
+          # not do is arrive looking signed: Gatekeeper refuses it, and the app then
+          # looks broken rather than unsigned.
+          if [ -n "$IDENTITY" ] && [ -n "$CERTIFICATE" ] && [ -n "$APPLE_ID" ]; then
+            signed=true
+            echo "Signing and notarizing: the Apple secrets are present."
+          else
+            signed=false
+            echo "::warning::No Apple secrets, so this build will be unsigned. \
+            docs/releasing.md lists which ones are needed."
+          fi
+          echo "signed=$signed" >> "$GITHUB_OUTPUT"
+
+          # tauri-action publishes nothing when tagName and releaseName are both empty,
+          # which is what a dry run wants.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "name=" >> "$GITHUB_OUTPUT"
+            echo "Dry run: building and signing, publishing nothing."
+          else
+            echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+            echo "name=GrokSpace v$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$signed" = "true" ]; then
+            opening="Signed with a Developer ID certificate and notarized by Apple, so it opens by double-clicking."
+          else
+            opening="**This build is unsigned.** macOS will refuse to open it by double-clicking. Right-click the app and choose Open, or run \`xattr -dr com.apple.quarantine /Applications/GrokSpace.app\`. Use it for testing only."
+          fi
+
+          {
+            echo "notes<<RELEASE_NOTES_END"
+            echo "$opening"
+            echo
+            echo "Requires macOS 11 or later. Universal, so one download covers Apple Silicon and Intel."
+            echo
+            echo "GrokSpace runs \`grok\` from your own machine and keeps everything in \`~/.grokspace\`."
+            echo "Agent sessions need the [\`grok\` CLI](https://docs.x.ai/build); the terminal grid works without it."
+            echo "RELEASE_NOTES_END"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # tauri-action imports the certificate into a temporary keychain, signs,
+          # submits for notarization and staples the ticket — but only when all of
+          # these are set. Any one missing and it quietly produces an unsigned bundle,
+          # which is why the step above checks rather than trusting.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          # An app-specific password, not the account password. The account password
+          # fails notarization with an authentication error that reads like a typo.
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: --target universal-apple-darwin
+          tagName: ${{ steps.plan.outputs.tag }}
+          releaseName: ${{ steps.plan.outputs.name }}
+          releaseBody: ${{ steps.plan.outputs.notes }}
+          # A draft, always. Somebody reads the inspection below before anyone
+          # downloads anything.
+          releaseDraft: true
+          prerelease: false
+
+      # Every failure mode here is quiet: an unsigned app, and a signed one that was
+      # never notarized, both build cleanly and only fail on a user's machine. So the
+      # bundle is inspected rather than trusted.
+      #
+      # Informational, never fatal. Which of the .app and the .dmg carries the stapled
+      # ticket is a detail of the bundler, and a check that guessed wrong would fail a
+      # release that is fine. docs/releasing.md says what good output looks like.
+      - name: Inspect what was actually produced
+        if: always()
+        continue-on-error: true
+        run: |
+          bundle="src-tauri/target/universal-apple-darwin/release/bundle"
+          app="$bundle/macos/GrokSpace.app"
+          [ -d "$app" ] || { echo "No app bundle, so there is nothing to inspect."; exit 0; }
+
+          echo "::group::Signature and hardened runtime"
+          # `flags=0x10000(runtime)` in this output is the hardened runtime, which
+          # notarization requires. Tauri enables it by default.
+          codesign -dv --verbose=4 "$app" 2>&1 || echo "codesign could not read it"
+          echo "::endgroup::"
+
+          echo "::group::Does Gatekeeper accept it"
+          spctl --assess --type execute --verbose "$app" 2>&1 || echo "spctl refused it"
+          echo "::endgroup::"
+
+          echo "::group::Is the notarization ticket stapled"
+          for target in "$app" $(find "$bundle/dmg" -name '*.dmg' 2>/dev/null); do
+            printf '%s: ' "$(basename "$target")"
+            xcrun stapler validate "$target" 2>&1 || true
+          done
+          echo "::endgroup::"
+
+          echo "::group::Architectures"
+          # Both must be listed, or the universal build silently became a single-arch
+          # one and half the users get nothing.
+          lipo -archs "$app/Contents/MacOS/GrokSpace" 2>&1 || true
+          echo "::endgroup::"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grokspace-macos-universal
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
