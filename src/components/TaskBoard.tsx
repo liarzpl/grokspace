@@ -14,10 +14,18 @@ const COLUMNS: readonly { status: TaskStatus; label: string }[] = [
 ];
 
 /**
- * The drag payload is a task id under a private type, so a file dragged in from
- * the desktop cannot be mistaken for a card.
+ * Which card is being dragged is React state, not the drag payload.
+ *
+ * `dataTransfer` looked like the right place for it and is not: a custom MIME type
+ * does not survive the drag in every webview — WebKitGTK hands back an empty
+ * string — so a drop read from `getData` silently did nothing. The payload is still
+ * set, as `text/plain`, because a drag with nothing in it is refused outright.
+ *
+ * Reading from state is also the stronger guard. A file dragged in from the desktop
+ * never sets this, so it can never be mistaken for a card, and the check happens in
+ * `dragover` where refusing costs nothing rather than in `drop` after the fact.
  */
-const TASK_MIME = "application/x-grokspace-task";
+const DRAG_MIME = "text/plain";
 
 /** An agent already running, or a free pane one could be started in. */
 type DispatchTarget =
@@ -89,15 +97,29 @@ function NewTaskForm({ projectId }: { projectId: string }) {
         placeholder="Add a task…"
         className="selectable w-full rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
       />
-      {/* Only once there is a task to describe, so the column is not two inputs deep
-          when nobody is adding anything. */}
+      {/* Both only once there is a task to describe, so the column is not three
+          controls deep when nobody is adding anything. */}
       {title.trim() !== "" && (
-        <input
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Context for the agent (optional)"
-          className="selectable w-full rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
-        />
+        <>
+          <input
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Context for the agent (optional)"
+            className="selectable w-full rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+          />
+          {/*
+            Not decoration: a form with two text fields and no submit button does
+            not submit on Enter at all. HTML's implicit submission gives up once
+            more than one field blocks it, so without this the description input
+            appearing is what would stop the keyboard working.
+          */}
+          <button
+            type="submit"
+            className="rounded-md bg-accent px-2 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90"
+          >
+            Add task
+          </button>
+        </>
       )}
     </form>
   );
@@ -105,10 +127,12 @@ function NewTaskForm({ projectId }: { projectId: string }) {
 
 function CardButton({
   label,
+  title,
   onClick,
   disabled,
 }: {
   label: string;
+  title?: string;
   onClick: () => void;
   disabled?: boolean;
 }) {
@@ -117,7 +141,8 @@ function CardButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-sm px-1 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-40"
+      title={title}
+      className="rounded-sm px-1 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-30 disabled:hover:bg-transparent"
     >
       {label}
     </button>
@@ -138,6 +163,7 @@ function TaskCard({
   const dispatch = useTaskStore((state) => state.dispatch);
   const dispatchToNewSession = useTaskStore((state) => state.dispatchToNewSession);
   const editTask = useTaskStore((state) => state.editTask);
+  const moveTask = useTaskStore((state) => state.moveTask);
   const removeTask = useTaskStore((state) => state.removeTask);
   const busy = useTaskStore((state) => state.dispatching[task.id] ?? false);
   const assigned = useSessionStore((state) =>
@@ -146,6 +172,13 @@ function TaskCard({
 
   const [choosing, setChoosing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+
+  const column = COLUMNS.findIndex(({ status }) => status === task.status);
+
+  const moveBy = (step: number) => {
+    const next = COLUMNS[column + step];
+    if (next !== undefined) void moveTask(task.id, next.status);
+  };
 
   const send = (target: DispatchTarget) => {
     setChoosing(false);
@@ -165,12 +198,12 @@ function TaskCard({
     <div
       draggable={editing === null}
       onDragStart={(event) => {
-        event.dataTransfer.setData(TASK_MIME, task.id);
+        event.dataTransfer.setData(DRAG_MIME, task.id);
         event.dataTransfer.effectAllowed = "move";
         onDragStart(task.id);
       }}
       onDragEnd={onDragEnd}
-      className="group shrink-0 cursor-grab rounded-md border border-line bg-panel p-2 transition-colors hover:border-line-strong active:cursor-grabbing"
+      className="shrink-0 cursor-grab rounded-md border border-line bg-panel p-2 transition-colors hover:border-line-strong active:cursor-grabbing"
     >
       {editing !== null ? (
         <input
@@ -211,19 +244,40 @@ function TaskCard({
         </p>
       )}
 
-      {/* Shown on hover or while this card is mid-interaction, so a full column is
-          a list of tasks rather than a wall of controls. */}
-      <div
-        className={`mt-1.5 flex items-center gap-0.5 transition-opacity ${
-          choosing || busy ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        }`}
-      >
+      {/*
+        Always shown rather than revealed on hover. Controls faded to nothing are
+        still clickable, which is a trap, and hiding the primary action behind a
+        hover is a poor way to let anyone discover it. They are quiet enough at this
+        size to read as a footer rather than a wall.
+      */}
+      <div className="mt-1.5 flex items-center gap-0.5">
+        {/* The keyboard-reachable way to change column. Dragging is nicer when it
+            works, but it is the one interaction here that depends on the webview's
+            drag support, so it must not be the only way across. */}
+        <CardButton
+          label="◀"
+          title={column > 0 ? `Move to ${COLUMNS[column - 1]?.label}` : "Already leftmost"}
+          disabled={column <= 0}
+          onClick={() => moveBy(-1)}
+        />
+        <CardButton
+          label="▶"
+          title={
+            column < COLUMNS.length - 1
+              ? `Move to ${COLUMNS[column + 1]?.label}`
+              : "Already rightmost"
+          }
+          disabled={column >= COLUMNS.length - 1}
+          onClick={() => moveBy(1)}
+        />
+
+        <div className="flex-1" />
+
         <CardButton
           label={busy ? "Dispatching…" : choosing ? "Cancel" : "Dispatch"}
           disabled={busy}
           onClick={() => setChoosing(!choosing)}
         />
-        <div className="flex-1" />
         <CardButton label="Delete" onClick={() => void removeTask(task.id)} />
       </div>
 
@@ -253,7 +307,7 @@ function TaskColumn({
   label,
   tasks,
   targets,
-  dragging,
+  draggingId,
   onDragStart,
   onDragEnd,
   projectId,
@@ -262,7 +316,7 @@ function TaskColumn({
   label: string;
   tasks: Task[];
   targets: DispatchTarget[];
-  dragging: boolean;
+  draggingId: string | null;
   onDragStart: (taskId: string) => void;
   onDragEnd: () => void;
   projectId: string;
@@ -272,22 +326,21 @@ function TaskColumn({
 
   return (
     <div
-      onDragEnter={() => dragging && setOver(true)}
+      onDragEnter={() => draggingId !== null && setOver(true)}
       onDragLeave={(event) => reallyLeft(event) && setOver(false)}
       onDragOver={(event) => {
         // Without preventDefault the browser refuses the drop entirely.
-        if (!dragging) return;
+        if (draggingId === null) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "move";
       }}
       onDrop={(event) => {
         setOver(false);
-        const taskId = event.dataTransfer.getData(TASK_MIME);
-        if (taskId === "") return;
+        if (draggingId === null) return;
         event.preventDefault();
         // A card dropped back where it started is a no-op, not a round trip.
-        if (tasks.some((task) => task.id === taskId)) return;
-        void moveTask(taskId, status);
+        if (tasks.some((task) => task.id === draggingId)) return;
+        void moveTask(draggingId, status);
       }}
       className={`flex min-h-0 flex-col gap-1.5 rounded-md border p-1.5 transition-colors ${
         over ? "border-accent bg-accent-soft" : "border-line bg-canvas"
@@ -325,11 +378,11 @@ function TaskColumn({
 function DispatchRow({
   project,
   targets,
-  dragging,
+  draggingId,
 }: {
   project: Project;
   targets: DispatchTarget[];
-  dragging: boolean;
+  draggingId: string | null;
 }) {
   const dispatch = useTaskStore((state) => state.dispatch);
   const dispatchToNewSession = useTaskStore((state) => state.dispatchToNewSession);
@@ -350,24 +403,23 @@ function DispatchRow({
         return (
           <div
             key={key}
-            onDragEnter={() => dragging && setOver(key)}
+            onDragEnter={() => draggingId !== null && setOver(key)}
             onDragLeave={(event) => reallyLeft(event) && setOver(null)}
             onDragOver={(event) => {
-              if (!dragging) return;
+              if (draggingId === null) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
             }}
             onDrop={(event) => {
               setOver(null);
-              const taskId = event.dataTransfer.getData(TASK_MIME);
-              if (taskId === "") return;
+              if (draggingId === null) return;
               event.preventDefault();
-              drop(target, taskId);
+              drop(target, draggingId);
             }}
             className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
               over === key
                 ? "border-accent bg-accent-soft text-ink"
-                : dragging
+                : draggingId !== null
                   ? "border-line-strong text-ink-muted"
                   : "border-line text-ink-faint"
             }`}
@@ -394,7 +446,7 @@ export default function TaskBoard({ project }: { project: Project }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <DispatchRow project={project} targets={targets} dragging={dragging !== null} />
+      <DispatchRow project={project} targets={targets} draggingId={dragging} />
 
       <div className="grid min-h-0 flex-1 grid-cols-4 gap-2 p-2">
         {COLUMNS.map(({ status, label }) => (
@@ -404,7 +456,7 @@ export default function TaskBoard({ project }: { project: Project }) {
             label={label}
             tasks={tasksInColumn(tasks, status)}
             targets={targets}
-            dragging={dragging !== null}
+            draggingId={dragging}
             onDragStart={setDragging}
             onDragEnd={() => setDragging(null)}
             projectId={project.id}
