@@ -6,6 +6,7 @@ mod memory;
 mod project;
 mod pty;
 mod session;
+mod settings;
 mod skill;
 mod task;
 
@@ -75,6 +76,8 @@ pub fn run() {
             task::update_task,
             task::dispatch_task,
             task::remove_task,
+            settings::read_settings,
+            settings::write_setting,
             graph::read_session_graph,
             graph::watch_project_graphs,
             graph::graph_skill_status,

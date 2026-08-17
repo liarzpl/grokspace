@@ -94,6 +94,17 @@ export interface GraphSnapshot {
   updatedAt: number | null;
 }
 
+/**
+ * Preferences that belong to the app rather than to one project. Missing keys read
+ * as their defaults, so an older database needs no backfill.
+ */
+export interface Settings {
+  /** The pane layout a project that has never chosen one gets. */
+  defaultLayout: PaneLayout;
+  /** The panel the workspace opens on. */
+  openingTab: "terminals" | "graph" | "tasks" | "memory";
+}
+
 /** Whether the skill that teaches `grok` to write graph files is in place. */
 export interface SkillStatus {
   path: string;
@@ -107,6 +118,13 @@ export type PaneLayout = "1x1" | "2x1" | "2x2" | "3x2";
 
 export const PANE_LAYOUTS: readonly PaneLayout[] = ["1x1", "2x1", "2x2", "3x2"];
 
+/**
+ * The layout a project falls back to when nothing else has an opinion.
+ *
+ * Both the frontend's settings store and `settings.rs` name the same value, and this
+ * is the third place it appears — kept because the fallback chain has to end
+ * somewhere that does not depend on a preference having loaded.
+ */
 export const DEFAULT_LAYOUT: PaneLayout = "2x2";
 
 export function paneCount(layout: PaneLayout): number {

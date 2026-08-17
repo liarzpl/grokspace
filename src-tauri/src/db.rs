@@ -11,6 +11,7 @@ use crate::error::{Error, Result};
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_initial.sql"),
     include_str!("../migrations/0002_session_command.sql"),
+    include_str!("../migrations/0003_app_settings.sql"),
 ];
 
 /// GrokSpace keeps all of its state under `~/.grokspace` rather than the
@@ -102,7 +103,13 @@ mod tests {
 
         assert_eq!(
             table_names(&conn),
-            vec!["memory_entries", "projects", "sessions", "tasks"]
+            vec![
+                "app_settings",
+                "memory_entries",
+                "projects",
+                "sessions",
+                "tasks"
+            ]
         );
         assert_eq!(user_version(&conn), MIGRATIONS.len() as i64);
     }

@@ -8,6 +8,7 @@ import type {
   ProjectSettings,
   Session,
   SessionKind,
+  Settings,
   SkillStatus,
   Task,
   TaskStatus,
@@ -128,6 +129,12 @@ export const api = {
     invoke<Task>("dispatch_task", { id, sessionId }),
 
   removeTask: (id: string): Promise<void> => invoke<void>("remove_task", { id }),
+
+  readSettings: (): Promise<Settings> => invoke<Settings>("read_settings"),
+
+  /** Writes one preference and returns them all, since the backend fills defaults. */
+  writeSetting: (key: string, value: string): Promise<Settings> =>
+    invoke<Settings>("write_setting", { key, value }),
 
   listMemory: (projectId: string): Promise<MemoryEntry[]> =>
     invoke<MemoryEntry[]>("list_memory", { projectId }),

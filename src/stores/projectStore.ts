@@ -2,7 +2,8 @@ import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { DEFAULT_LAYOUT, PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
+import { PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
+import { useSettingsStore } from "./settingsStore";
 
 /** Matches the backend ordering: most recently opened first. */
 function sortByRecency(projects: Project[]): Project[] {
@@ -138,11 +139,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 }));
 
-export function layoutOf(project: Project | null): PaneLayout {
+/**
+ * A project's layout, or the configured default for one that has never chosen.
+ *
+ * The fallback is read from the settings store rather than threaded through every
+ * caller: `layoutOf` is called from four places that have no business knowing about
+ * preferences, and passing it down would have been four signatures changed to move
+ * one value.
+ */
+export function layoutOf(project: Project | null, fallback?: PaneLayout): PaneLayout {
   const stored = project?.settings["terminalLayout"];
-  return typeof stored === "string" && (PANE_LAYOUTS as readonly string[]).includes(stored)
-    ? (stored as PaneLayout)
-    : DEFAULT_LAYOUT;
+  if (typeof stored === "string" && (PANE_LAYOUTS as readonly string[]).includes(stored)) {
+    return stored as PaneLayout;
+  }
+  return fallback ?? useSettingsStore.getState().settings.defaultLayout;
 }
 
 export function useActiveProject(): Project | null {
