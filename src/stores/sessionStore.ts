@@ -66,7 +66,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Pane state belongs to the project being left, not the one arriving.
     set({ isLoading: true, error: null, maximizedPane: null, paneViews: {} });
     try {
-      set({ sessions: await api.listSessions(projectId), isLoading: false });
+      const sessions = await api.listSessions(projectId);
+      // Graphs of sessions that are not in the arriving list belong to a project
+      // being left; nothing will ask for them again, and the watcher that fed them
+      // is still running. Sessions that survive the load keep the graph they had,
+      // so re-reading the same project does not blank the panel.
+      const arriving = new Set(sessions.map((session) => session.id));
+      for (const departing of get().sessions) {
+        if (!arriving.has(departing.id)) useGraphStore.getState().forget(departing.id);
+      }
+      set({ sessions, isLoading: false });
     } catch (error) {
       set({ error: errorMessage(error), isLoading: false });
     }
