@@ -5,15 +5,18 @@ import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
-import type { Project, Session } from "../types";
+import { useTaskStore } from "../stores/taskStore";
+import type { Project, Session, TaskStatus } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
+import TaskBoard from "./TaskBoard";
 
-type WorkspaceTab = "terminals" | "graph";
+type WorkspaceTab = "terminals" | "graph" | "tasks";
 
 const TABS: readonly { id: WorkspaceTab; label: string }[] = [
   { id: "terminals", label: "Terminals" },
   { id: "graph", label: "Graph" },
+  { id: "tasks", label: "Tasks" },
 ];
 
 const GRAPH_STATUS_TONE: Record<GraphStatus, string> = {
@@ -148,6 +151,31 @@ function GraphTab({
   );
 }
 
+/**
+ * What the board adds up to, for the window header. Only the columns with
+ * something in them are named, so an empty board says nothing rather than four
+ * zeroes.
+ */
+function TaskSummary() {
+  const tasks = useTaskStore((state) => state.tasks);
+  if (tasks.length === 0) return null;
+
+  const count = (status: TaskStatus) => tasks.filter((task) => task.status === status).length;
+  const counted = (
+    [
+      [count("in_progress"), "in progress"],
+      [count("review"), "in review"],
+      [count("backlog"), "in the backlog"],
+      [count("done"), "done"],
+    ] as const
+  )
+    .filter(([total]) => total > 0)
+    .map(([total, label]) => `${total} ${label}`)
+    .join(" · ");
+
+  return <span className="shrink-0 text-[10px] text-ink-faint">{counted}</span>;
+}
+
 /** The selected graph's name, status, and node tally, for the window header. */
 function GraphSummary({ session }: { session: Session | undefined }) {
   const entry = useGraphStore((state) => graphFor(state.bySession, session?.id));
@@ -170,12 +198,19 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   const loadSessions = useSessionStore((state) => state.loadSessions);
   const sessions = useSessionStore((state) => state.sessions);
   const loadGraph = useGraphStore((state) => state.load);
+  const loadTasks = useTaskStore((state) => state.loadTasks);
   const [tab, setTab] = useState<WorkspaceTab>("terminals");
   const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
   useEffect(() => {
     void loadSessions(project.id);
   }, [project.id, loadSessions]);
+
+  // Loaded with the project rather than when the tab opens: the header's tally is
+  // how a task waiting in another column gets noticed at all.
+  useEffect(() => {
+    void loadTasks(project.id);
+  }, [project.id, loadTasks]);
 
   // Read every session's graph up front, not just the one on screen: the chips
   // here and the dot on each pane's switch are how a plan waiting in another
@@ -218,11 +253,9 @@ export default function WorkspaceShell({ project }: { project: Project }) {
 
         <div className="flex-1" />
 
-        {tab === "terminals" ? (
-          <LayoutPicker project={project} />
-        ) : (
-          <GraphSummary session={graphSession} />
-        )}
+        {tab === "terminals" && <LayoutPicker project={project} />}
+        {tab === "graph" && <GraphSummary session={graphSession} />}
+        {tab === "tasks" && <TaskSummary />}
       </header>
 
       {/*
@@ -230,11 +263,11 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         each xterm instance and its detached container outside React, so the ptys
         keep running and the scrollback survives the remount.
       */}
-      {tab === "terminals" ? (
-        <PaneGrid project={project} />
-      ) : (
+      {tab === "terminals" && <PaneGrid project={project} />}
+      {tab === "graph" && (
         <GraphTab sessions={sessions} selected={graphSession} onSelect={setSelectedGraphId} />
       )}
+      {tab === "tasks" && <TaskBoard project={project} />}
     </div>
   );
 }
