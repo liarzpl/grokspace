@@ -2,6 +2,8 @@ import { invoke, type Channel } from "@tauri-apps/api/core";
 
 import type {
   GraphSnapshot,
+  MemoryEntry,
+  MemoryEntryType,
   Project,
   ProjectSettings,
   Session,
@@ -118,6 +120,39 @@ export const api = {
     invoke<Task>("dispatch_task", { id, sessionId }),
 
   removeTask: (id: string): Promise<void> => invoke<void>("remove_task", { id }),
+
+  listMemory: (projectId: string): Promise<MemoryEntry[]> =>
+    invoke<MemoryEntry[]>("list_memory", { projectId }),
+
+  /**
+   * Writes one entry and returns the whole memory, since the file agents read is
+   * rebuilt from all of it and the panel wants the list it was built from.
+   *
+   * `type` is `entryType` across the boundary because `type` is a Rust keyword; the
+   * entry itself still carries it as `type`.
+   */
+  putMemory: (
+    projectId: string,
+    entry: { key: string; content: string; type: MemoryEntryType },
+  ): Promise<MemoryEntry[]> =>
+    invoke<MemoryEntry[]>("put_memory", {
+      projectId,
+      key: entry.key,
+      content: entry.content,
+      entryType: entry.type,
+    }),
+
+  removeMemory: (projectId: string, key: string): Promise<MemoryEntry[]> =>
+    invoke<MemoryEntry[]>("remove_memory", { projectId, key }),
+
+  /** The file the project's agents are told to read, for the panel to name. */
+  memoryFilePath: (projectId: string): Promise<string> =>
+    invoke<string>("memory_file_path", { projectId }),
+
+  memorySkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("memory_skill_status"),
+
+  /** Installs, or refreshes, the skill that teaches `grok` to read the memory. */
+  installMemorySkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_memory_skill"),
 
   /** Reads the graph file belonging to one session, whether or not it exists. */
   readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>

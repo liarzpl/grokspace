@@ -4,19 +4,22 @@ import { api } from "../lib/api";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
+import { useMemoryStore } from "../stores/memoryStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useTaskStore } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
+import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
 import TaskBoard from "./TaskBoard";
 
-type WorkspaceTab = "terminals" | "graph" | "tasks";
+type WorkspaceTab = "terminals" | "graph" | "tasks" | "memory";
 
 const TABS: readonly { id: WorkspaceTab; label: string }[] = [
   { id: "terminals", label: "Terminals" },
   { id: "graph", label: "Graph" },
   { id: "tasks", label: "Tasks" },
+  { id: "memory", label: "Memory" },
 ];
 
 const GRAPH_STATUS_TONE: Record<GraphStatus, string> = {
@@ -176,6 +179,18 @@ function TaskSummary() {
   return <span className="shrink-0 text-[10px] text-ink-faint">{counted}</span>;
 }
 
+/** How much the project remembers, for the window header. */
+function MemorySummary() {
+  const entries = useMemoryStore((state) => state.entries);
+  if (entries.length === 0) return null;
+
+  return (
+    <span className="shrink-0 text-[10px] text-ink-faint">
+      {entries.length} {entries.length === 1 ? "entry" : "entries"} every session reads
+    </span>
+  );
+}
+
 /** The selected graph's name, status, and node tally, for the window header. */
 function GraphSummary({ session }: { session: Session | undefined }) {
   const entry = useGraphStore((state) => graphFor(state.bySession, session?.id));
@@ -199,6 +214,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   const sessions = useSessionStore((state) => state.sessions);
   const loadGraph = useGraphStore((state) => state.load);
   const loadTasks = useTaskStore((state) => state.loadTasks);
+  const loadMemory = useMemoryStore((state) => state.loadMemory);
   const [tab, setTab] = useState<WorkspaceTab>("terminals");
   const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
@@ -211,6 +227,10 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   useEffect(() => {
     void loadTasks(project.id);
   }, [project.id, loadTasks]);
+
+  useEffect(() => {
+    void loadMemory(project.id);
+  }, [project.id, loadMemory]);
 
   // Read every session's graph up front, not just the one on screen: the chips
   // here and the dot on each pane's switch are how a plan waiting in another
@@ -256,6 +276,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         {tab === "terminals" && <LayoutPicker project={project} />}
         {tab === "graph" && <GraphSummary session={graphSession} />}
         {tab === "tasks" && <TaskSummary />}
+        {tab === "memory" && <MemorySummary />}
       </header>
 
       {/*
@@ -268,6 +289,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         <GraphTab sessions={sessions} selected={graphSession} onSelect={setSelectedGraphId} />
       )}
       {tab === "tasks" && <TaskBoard project={project} />}
+      {tab === "memory" && <MemoryPanel project={project} />}
     </div>
   );
 }
