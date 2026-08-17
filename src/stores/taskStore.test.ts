@@ -8,6 +8,7 @@ const updateTask = vi.fn();
 const dispatchTask = vi.fn();
 const removeTask = vi.fn();
 const writeSession = vi.fn();
+const promptSession = vi.fn();
 const createSession = vi.fn();
 
 // Mocked wholesale for the same reason sessionStore's tests do it: the real module
@@ -26,6 +27,7 @@ vi.mock("../lib/api", async () => {
       dispatchTask,
       removeTask,
       writeSession,
+      promptSession,
       createSession,
       listSessions: vi.fn(),
     },
@@ -222,6 +224,48 @@ describe("dispatch", () => {
     expect(writeSession).not.toHaveBeenCalled();
     expect(useTaskStore.getState().error).toContain("agent");
   });
+
+  it("asks an agent rather than typing at it", async () => {
+    // The difference the ACP session buys: a request has a reply, so the session
+    // can report going back to idle. A terminal can only be written into.
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
+    promptSession.mockResolvedValue(undefined);
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+
+    const ok = await useTaskStore.getState().dispatch("t1", "s1");
+
+    expect(ok).toBe(true);
+    expect(promptSession).toHaveBeenCalledWith("s1", "Fix the login bug");
+    expect(writeSession).not.toHaveBeenCalled();
+    // No trailing carriage return: nothing is being typed, so there is no line to
+    // submit.
+    expect(promptSession.mock.calls[0]?.[1]).not.toContain("\r");
+  });
+
+  it("takes work to an idle agent, which a terminal never reports", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null, status: "idle" })],
+    });
+    promptSession.mockResolvedValue(undefined);
+    dispatchTask.mockResolvedValue(task({ status: "in_progress" }));
+
+    expect(await useTaskStore.getState().dispatch("t1", "s1")).toBe(true);
+  });
+
+  it("refuses an agent that is already blocked on a question", async () => {
+    // A second prompt would queue behind something nobody has answered.
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null, status: "needs_input" })],
+    });
+
+    const ok = await useTaskStore.getState().dispatch("t1", "s1");
+
+    expect(ok).toBe(false);
+    expect(promptSession).not.toHaveBeenCalled();
+  });
 });
 
 describe("dispatchToNewSession", () => {
@@ -239,6 +283,23 @@ describe("dispatchToNewSession", () => {
     );
     expect(writeSession).toHaveBeenCalledWith("s9", "Fix the login bug\r");
     expect(useTaskStore.getState().tasks[0]?.assignedSessionId).toBe("s9");
+  });
+
+  it("starts a paneless agent when no pane is named", async () => {
+    // A full grid must not be the reason a task cannot be dispatched, which is why
+    // the agent target needs no pane.
+    useTaskStore.setState({ tasks: [task()] });
+    createSession.mockResolvedValue(session({ id: "a1", kind: "agent", paneId: null }));
+    promptSession.mockResolvedValue(undefined);
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "a1" }));
+
+    const ok = await useTaskStore.getState().dispatchToNewSession("t1", "p1", null);
+
+    expect(ok).toBe(true);
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ paneId: null, kind: "agent" }),
+    );
+    expect(promptSession).toHaveBeenCalledWith("a1", "Fix the login bug");
   });
 
   it("gives up quietly when the agent will not start", async () => {

@@ -32,14 +32,29 @@ export interface Task {
 }
 
 /**
- * Phase 1 only ever reports `running` or `stopped`. Telling `idle` apart from
- * `needs_input` needs the structured ACP event stream described in
- * docs/grok-cli-integration.md, which is Phase 2 work.
+ * A terminal session only ever reports `running` or `stopped`: a pty carries
+ * pixels, and pixels cannot say what the process inside is doing. All four are
+ * reachable for an `agent`, which GrokSpace drives over ACP — see
+ * docs/grok-cli-integration.md for why those cannot be the same session.
  */
 export type SessionStatus = "idle" | "running" | "needs_input" | "stopped";
 
-/** `grok` runs an agent; `shell` runs the user's login shell in the project. */
-export type SessionKind = "grok" | "shell";
+/**
+ * `grok` runs an agent as a terminal, `shell` the user's login shell, and `agent`
+ * the same Grok Build over ACP with no terminal at all — which is what buys the
+ * richer status. An agent holds no pane.
+ */
+export type SessionKind = "grok" | "shell" | "agent";
+
+/**
+ * Something an agent is blocked on. It does nothing further until this is
+ * answered, which is what `needs_input` means.
+ */
+export interface PermissionRequest {
+  /** The id to answer with; the agent is waiting on this exact one. */
+  requestId: number;
+  summary: string;
+}
 
 export interface Session {
   id: string;

@@ -9,6 +9,7 @@ import { useGraphStore } from "./stores/graphStore";
 import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useSessionStore } from "./stores/sessionStore";
 import { useTaskStore } from "./stores/taskStore";
+import type { SessionStatus } from "./types";
 
 interface SessionExited {
   id: string;
@@ -18,6 +19,17 @@ interface SessionExited {
 /** The backend also reports `path` and `removed`; the re-read covers both. */
 interface GraphChanged {
   sessionId: string;
+}
+
+interface SessionStatusChanged {
+  id: string;
+  status: SessionStatus;
+}
+
+interface PermissionAsked {
+  id: string;
+  requestId: number;
+  summary: string;
 }
 
 export default function App() {
@@ -55,6 +67,30 @@ export default function App() {
     // belong on the event system.
     const unlisten = listen<SessionExited>("session-exited", (event) => {
       useSessionStore.getState().markExited(event.payload.id, event.payload.exitCode);
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    // Only agents report these: a terminal cannot say what the process inside it
+    // is doing. The backend has already written the status to the database, so this
+    // is the live path rather than the only one.
+    const unlisten = listen<SessionStatusChanged>("session-status", (event) => {
+      useSessionStore.getState().markStatus(event.payload.id, event.payload.status);
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    // An agent blocked on a permission does nothing until it is answered, which is
+    // why this is an event rather than something to be polled for.
+    const unlisten = listen<PermissionAsked>("session-permission", (event) => {
+      const { id, requestId, summary } = event.payload;
+      useSessionStore.getState().askPermission(id, { requestId, summary });
     });
     return () => {
       void unlisten.then((stop) => stop());

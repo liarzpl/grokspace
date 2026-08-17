@@ -2,20 +2,29 @@ import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
 import { disposeTerminal } from "../lib/terminals";
-import type { Session, SessionKind } from "../types";
+import type { PermissionRequest, Session, SessionKind, SessionStatus } from "../types";
 import { useGraphStore } from "./graphStore";
 
-/** A pane holds at most one session, so starting in a pane displaces the old one. */
+/**
+ * A pane holds at most one session, so starting in a pane displaces the old one.
+ *
+ * An agent has no pane, and two of them must not displace each other, which is why
+ * a null `paneId` is never treated as a match.
+ */
 function replaceInPane(sessions: Session[], next: Session): Session[] {
   return [
-    ...sessions.filter((session) => session.id !== next.id && session.paneId !== next.paneId),
+    ...sessions.filter(
+      (session) =>
+        session.id !== next.id && (next.paneId === null || session.paneId !== next.paneId),
+    ),
     next,
   ];
 }
 
 interface StartInput {
   projectId: string;
-  paneId: string;
+  /** Absent for an agent, which runs beside the grid rather than in it. */
+  paneId: string | null;
   kind: SessionKind;
   cols: number;
   rows: number;
@@ -31,6 +40,11 @@ interface SessionState {
   /** Which of its two faces each pane is showing; panes default to terminal. */
   paneViews: Record<string, PaneView>;
   maximizedPane: string | null;
+  /**
+   * What each agent is blocked on, keyed by session. Only ACP sessions ever have
+   * any: a terminal has no way to ask.
+   */
+  permissions: Record<string, PermissionRequest[]>;
   isLoading: boolean;
   error: string | null;
 
@@ -41,6 +55,11 @@ interface SessionState {
   renameSession: (id: string, title: string) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
   markExited: (id: string, exitCode: number | null) => void;
+  /** From the backend's status event, which only agents emit. */
+  markStatus: (id: string, status: SessionStatus) => void;
+  /** From the backend's permission event. */
+  askPermission: (id: string, request: PermissionRequest) => void;
+  answerPermission: (id: string, requestId: number, allow: boolean) => Promise<void>;
   toggleMaximized: (paneId: string) => void;
   setPaneView: (paneId: string, view: PaneView) => void;
   clearError: () => void;
@@ -51,6 +70,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   busyPanes: {},
   paneViews: {},
   maximizedPane: null,
+  permissions: {},
   isLoading: false,
   error: null,
 
@@ -82,21 +102,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   startSession: async (input) => {
-    set((state) => ({ busyPanes: { ...state.busyPanes, [input.paneId]: true }, error: null }));
+    // An agent has no pane, so there is no pane to mark busy or to switch back to
+    // its terminal. Keying either on `null` would invent a pane called "null".
+    const paneId = input.paneId;
+    const busy = (value: boolean) =>
+      paneId === null ? {} : { busyPanes: { ...get().busyPanes, [paneId]: value } };
+
+    set((state) => ({ ...busy(true), error: null, permissions: state.permissions }));
     try {
       const session = await api.createSession(input);
       set((state) => ({
         sessions: replaceInPane(state.sessions, session),
         // A pane left showing the previous session's graph should greet a new
         // session with its terminal, which is the thing that needs watching.
-        paneViews: { ...state.paneViews, [input.paneId]: "terminal" },
+        paneViews:
+          paneId === null ? state.paneViews : { ...state.paneViews, [paneId]: "terminal" },
       }));
       return session;
     } catch (error) {
       set({ error: errorMessage(error) });
       return null;
     } finally {
-      set((state) => ({ busyPanes: { ...state.busyPanes, [input.paneId]: false } }));
+      set(() => busy(false));
     }
   },
 
@@ -149,7 +176,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await api.closeSession(id);
       disposeTerminal(id);
       useGraphStore.getState().forget(id);
-      set((state) => ({ sessions: state.sessions.filter((session) => session.id !== id) }));
+      set((state) => ({
+        sessions: state.sessions.filter((session) => session.id !== id),
+        permissions: without(state.permissions, id),
+      }));
     } catch (error) {
       set({ error: errorMessage(error) });
     }
@@ -167,8 +197,53 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ? { ...session, status: "stopped" as const, exitCode, processId: null }
           : session,
       ),
+      // Nothing can answer what a session that has gone was asking.
+      permissions: without(state.permissions, id),
     })),
+
+  markStatus: (id, status) =>
+    set((state) => ({
+      sessions: state.sessions.map((session) =>
+        session.id === id ? { ...session, status } : session,
+      ),
+    })),
+
+  askPermission: (id, request) =>
+    set((state) => ({
+      permissions: {
+        ...state.permissions,
+        // Appended rather than replaced: an agent can be blocked on more than one,
+        // and each has its own id to answer.
+        [id]: [...(state.permissions[id] ?? []), request],
+      },
+    })),
+
+  answerPermission: async (id, requestId, allow) => {
+    try {
+      await api.answerSessionPermission(id, requestId, allow);
+      set((state) => ({
+        permissions: {
+          ...state.permissions,
+          [id]: (state.permissions[id] ?? []).filter(
+            (request) => request.requestId !== requestId,
+          ),
+        },
+      }));
+    } catch (error) {
+      // Left in place, so the answer can be tried again. The agent is still
+      // waiting either way.
+      set({ error: errorMessage(error) });
+    }
+  },
 }));
+
+/** A copy without one session's entry. */
+function without<T>(bySession: Record<string, T>, id: string): Record<string, T> {
+  if (!(id in bySession)) return bySession;
+  const next = { ...bySession };
+  delete next[id];
+  return next;
+}
 
 export function sessionForPane(sessions: Session[], paneId: string): Session | undefined {
   return sessions.find((session) => session.paneId === paneId);
