@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { briefPrompt, roleByName, ROLES } from "./roles";
+import { briefPrompt, roleByName, ROLES, rolesInPlay } from "./roles";
 
 describe("the role presets", () => {
   it("are the five the roadmap names", () => {
@@ -58,5 +58,34 @@ describe("briefPrompt", () => {
     const scout = roleByName("Scout");
     expect(scout).toBeDefined();
     expect(briefPrompt(scout!)).toContain("change nothing");
+  });
+});
+
+describe("rolesInPlay", () => {
+  const session = (role: string | null, status = "running") => ({ role, status });
+
+  it("names the roles a live session is covering", () => {
+    const covered = rolesInPlay([session("Planner"), session("Reviewer", "idle")]);
+
+    expect([...covered].sort()).toEqual(["Planner", "Reviewer"]);
+  });
+
+  it("does not count a session that has stopped", () => {
+    // Its role is no longer being done, so offering to start it again is the point.
+    expect(rolesInPlay([session("Planner", "stopped")]).has("Planner")).toBe(false);
+  });
+
+  it("counts one that is waiting to be answered", () => {
+    // needs_input is blocked, not finished, and starting a second Planner would not
+    // unblock it.
+    expect(rolesInPlay([session("Planner", "needs_input")]).has("Planner")).toBe(true);
+  });
+
+  it("ignores a session started by hand", () => {
+    expect(rolesInPlay([session(null), session(null, "idle")]).size).toBe(0);
+  });
+
+  it("counts a role twice over only once", () => {
+    expect(rolesInPlay([session("Planner"), session("Planner")]).size).toBe(1);
   });
 });

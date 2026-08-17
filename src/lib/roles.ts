@@ -78,6 +78,22 @@ export function roleByName(name: string): Role | undefined {
 }
 
 /**
+ * The roles a live session is already covering.
+ *
+ * Here rather than inline in the launcher so it can be tested by asserting rather
+ * than by clicking: what counts as "already running" is a judgement — a stopped
+ * session does not, an unrecognised role name does not become a preset — and a
+ * judgement in a component body is one only a person with a mouse can check.
+ */
+export function rolesInPlay(sessions: readonly { role: string | null; status: string }[]): Set<string> {
+  return new Set(
+    sessions
+      .filter((session) => session.role !== null && session.status !== "stopped")
+      .map((session) => session.role as string),
+  );
+}
+
+/**
  * What a role's session is asked first.
  *
  * One line, for the same reason a dispatched task is: a newline submits in a TUI, so

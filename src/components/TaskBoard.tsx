@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { ROLES } from "../lib/roles";
+import { ROLES, rolesInPlay } from "../lib/roles";
 import { layoutOf } from "../stores/projectStore";
 import { sessionForPane, useSessionStore } from "../stores/sessionStore";
 import { tasksInColumn, useTaskStore } from "../stores/taskStore";
@@ -528,11 +528,7 @@ function SwarmLauncher({ project }: { project: Project }) {
   // Which roles are already covered. Without this, pressing the button twice would
   // quietly start a second Planner beside the first — five agents is a decision, and
   // ten by accident is not.
-  const running = new Set(
-    sessions
-      .filter((session) => session.role !== null && session.status !== "stopped")
-      .map((session) => session.role),
-  );
+  const running = rolesInPlay(sessions);
 
   const start = () => {
     // Chosen when the row opens rather than once at mount, so the default reflects
