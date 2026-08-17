@@ -155,10 +155,13 @@ pub fn get(conn: &Connection, id: &str) -> Result<Session> {
     .ok_or_else(|| Error::SessionNotFound(id.to_string()))
 }
 
+/// `pane_id` is absent for an agent, which occupies no pane. Nothing else in the
+/// app has to special-case that: a session with no pane is simply never the one
+/// `session_for_pane` finds.
 pub fn insert(
     conn: &Connection,
     project_id: &str,
-    pane_id: &str,
+    pane_id: Option<&str>,
     kind: SessionKind,
     title: &str,
 ) -> Result<Session> {
@@ -445,7 +448,7 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
 
 struct StartRequest {
     project_id: String,
-    pane_id: String,
+    pane_id: Option<String>,
     kind: SessionKind,
     title: Option<String>,
     cols: u16,
@@ -468,7 +471,7 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
             insert(
                 &conn,
                 &request.project_id,
-                &request.pane_id,
+                request.pane_id.as_deref(),
                 request.kind,
                 &title,
             )?,
@@ -534,7 +537,7 @@ pub fn create_session(
     app: AppHandle,
     state: State<'_, AppState>,
     project_id: String,
-    pane_id: String,
+    pane_id: Option<String>,
     kind: SessionKind,
     cols: u16,
     rows: u16,
@@ -631,7 +634,9 @@ pub fn restart_session(
         &app,
         &state,
         StartRequest {
-            pane_id: previous.pane_id.unwrap_or_else(|| "0".to_string()),
+            // Preserved as it was, including absent: an agent restarted into pane
+            // zero would displace whatever terminal is actually there.
+            pane_id: previous.pane_id,
             project_id: previous.project_id,
             kind: previous.kind,
             title: previous.title,
@@ -705,7 +710,7 @@ mod tests {
     fn a_new_session_starts_running_in_its_pane() {
         let (conn, project_id) = fixture();
 
-        let session = insert(&conn, &project_id, "1", SessionKind::Grok, "Grok").unwrap();
+        let session = insert(&conn, &project_id, Some("1"), SessionKind::Grok, "Grok").unwrap();
 
         assert_eq!(session.status, SessionStatus::Running);
         assert_eq!(session.kind, SessionKind::Grok);
@@ -714,13 +719,30 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_holds_no_pane_and_so_never_displaces_a_terminal() {
+        let (conn, project_id) = fixture();
+        let terminal = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+
+        let agent = insert(&conn, &project_id, None, SessionKind::Agent, "Agent").unwrap();
+
+        assert_eq!(agent.pane_id, None);
+        assert_eq!(agent.kind, SessionKind::Agent);
+        assert_eq!(
+            terminal.pane_id.as_deref(),
+            Some("0"),
+            "the agent is beside the grid, not in it"
+        );
+        assert_eq!(list(&conn, &project_id).unwrap().len(), 2);
+    }
+
+    #[test]
     fn sessions_are_listed_per_project_in_creation_order() {
         let (conn, project_id) = fixture();
         let other = project::upsert_by_path(&conn, "/tmp/other", "other").unwrap();
 
-        insert(&conn, &project_id, "0", SessionKind::Grok, "First").unwrap();
-        insert(&conn, &project_id, "1", SessionKind::Shell, "Second").unwrap();
-        insert(&conn, &other.id, "0", SessionKind::Grok, "Elsewhere").unwrap();
+        insert(&conn, &project_id, Some("0"), SessionKind::Grok, "First").unwrap();
+        insert(&conn, &project_id, Some("1"), SessionKind::Shell, "Second").unwrap();
+        insert(&conn, &other.id, Some("0"), SessionKind::Grok, "Elsewhere").unwrap();
 
         let titles: Vec<_> = list(&conn, &project_id)
             .unwrap()
@@ -733,7 +755,7 @@ mod tests {
     #[test]
     fn an_exit_records_the_status_and_the_code() {
         let (conn, project_id) = fixture();
-        let session = insert(&conn, &project_id, "0", SessionKind::Shell, "Shell").unwrap();
+        let session = insert(&conn, &project_id, Some("0"), SessionKind::Shell, "Shell").unwrap();
 
         set_status(&conn, &session.id, SessionStatus::Stopped, Some(130)).unwrap();
 
@@ -745,7 +767,7 @@ mod tests {
     #[test]
     fn renaming_rejects_an_empty_title() {
         let (conn, project_id) = fixture();
-        let session = insert(&conn, &project_id, "0", SessionKind::Grok, "Grok").unwrap();
+        let session = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
 
         assert!(set_title(&conn, &session.id, "   ").is_err());
         assert_eq!(
@@ -760,9 +782,10 @@ mod tests {
     #[test]
     fn startup_marks_every_surviving_session_stopped() {
         let (conn, project_id) = fixture();
-        let running = insert(&conn, &project_id, "0", SessionKind::Grok, "Grok").unwrap();
+        let running = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
         set_process_id(&conn, &running.id, Some(4242)).unwrap();
-        let already_stopped = insert(&conn, &project_id, "1", SessionKind::Shell, "Shell").unwrap();
+        let already_stopped =
+            insert(&conn, &project_id, Some("1"), SessionKind::Shell, "Shell").unwrap();
         set_status(&conn, &already_stopped.id, SessionStatus::Stopped, Some(0)).unwrap();
 
         let reconciled = reconcile_on_start(&conn).unwrap();
@@ -779,7 +802,7 @@ mod tests {
     #[test]
     fn removing_a_project_takes_its_sessions_with_it() {
         let (conn, project_id) = fixture();
-        insert(&conn, &project_id, "0", SessionKind::Grok, "Grok").unwrap();
+        insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
 
         project::remove(&conn, &project_id).unwrap();
 
