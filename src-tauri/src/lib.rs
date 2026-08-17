@@ -1,8 +1,10 @@
 mod acp;
 mod db;
+mod diff;
 mod error;
 mod graph;
 mod memory;
+mod program;
 mod project;
 mod pty;
 mod session;
@@ -76,6 +78,8 @@ pub fn run() {
             task::update_task,
             task::dispatch_task,
             task::remove_task,
+            diff::project_diff,
+            diff::file_diff,
             settings::read_settings,
             settings::write_setting,
             graph::read_session_graph,

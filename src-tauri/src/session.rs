@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, memory, project, AppState};
+use crate::{acp, graph, memory, program, project, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -273,7 +273,7 @@ enum Launch {
 fn command_for(kind: SessionKind) -> Result<Launch> {
     match kind {
         SessionKind::Grok => Ok(Launch::Terminal {
-            program: resolve_program("grok")?,
+            program: program::resolve("grok")?,
             // The working directory is set on the process itself, so `--cwd`
             // would be a second source of truth. `--no-auto-update` keeps
             // background update checks out of an automated session.
@@ -286,47 +286,9 @@ fn command_for(kind: SessionKind) -> Result<Launch> {
         // The subcommand and its flags belong to the ACP layer, which is what
         // knows the protocol it is about to speak.
         SessionKind::Agent => Ok(Launch::Agent {
-            program: resolve_program("grok")?,
+            program: program::resolve("grok")?,
         }),
     }
-}
-
-/// A macOS app launched from Finder does not inherit the shell's `PATH`, so a
-/// `grok` installed into a user-local bin directory is invisible to a plain
-/// `PATH` lookup. Check the usual install locations before giving up.
-fn resolve_program(program: &str) -> Result<String> {
-    if program.contains('/') {
-        return Ok(program.to_string());
-    }
-
-    if let Some(found) = std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
-        .unwrap_or_default()
-        .into_iter()
-        .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
-    {
-        return Ok(found.to_string_lossy().into_owned());
-    }
-
-    let home = dirs::home_dir();
-    let fallbacks = [
-        home.as_ref().map(|home| home.join(".local/bin")),
-        home.as_ref().map(|home| home.join(".grok/bin")),
-        Some(PathBuf::from("/usr/local/bin")),
-        Some(PathBuf::from("/opt/homebrew/bin")),
-    ];
-    for dir in fallbacks.into_iter().flatten() {
-        let candidate = dir.join(program);
-        if candidate.is_file() {
-            return Ok(candidate.to_string_lossy().into_owned());
-        }
-    }
-
-    Err(Error::Pty(format!(
-        "could not find `{program}` on PATH or in the usual install locations. \
-         Install it with: curl -fsSL https://x.ai/cli/install.sh | bash"
-    )))
 }
 
 /// What a session is told about itself: which graph file is its own to write, and
@@ -1099,14 +1061,5 @@ mod tests {
             Ok(Launch::Terminal { .. }) => panic!("an agent must not be started on a pty"),
             Err(_) => {} // No `grok` here, which is a different failure.
         }
-    }
-
-    #[test]
-    fn resolving_a_missing_program_explains_how_to_install_it() {
-        let error = resolve_program("grokspace-no-such-binary").unwrap_err();
-
-        let message = error.to_string();
-        assert!(message.contains("grokspace-no-such-binary"));
-        assert!(message.contains("x.ai/cli"));
     }
 }

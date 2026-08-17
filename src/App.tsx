@@ -12,6 +12,7 @@ import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useMemoryStore } from "./stores/memoryStore";
 import { useSessionStore } from "./stores/sessionStore";
 import { useTaskStore } from "./stores/taskStore";
+import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
 import { shortcutFor } from "./lib/shortcuts";
@@ -45,18 +46,21 @@ export default function App() {
   const taskError = useTaskStore((state) => state.error);
   const memoryError = useMemoryStore((state) => state.error);
   const settingsError = useSettingsStore((state) => state.error);
+  const diffError = useDiffStore((state) => state.error);
   const clearProjectError = useProjectStore((state) => state.clearError);
   const clearSessionError = useSessionStore((state) => state.clearError);
   const clearTaskError = useTaskStore((state) => state.clearError);
   const clearMemoryError = useMemoryStore((state) => state.clearError);
   const clearSettingsError = useSettingsStore((state) => state.clearError);
+  const clearDiffError = useDiffStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
   const togglePalette = useUiStore((state) => state.togglePalette);
 
   // Every store that can fail has to be named here or its errors are written to a
   // field nothing reads. One banner, so a failure cannot arrive twice.
-  const error = projectError ?? sessionError ?? taskError ?? memoryError ?? settingsError;
+  const error =
+    projectError ?? sessionError ?? taskError ?? memoryError ?? settingsError ?? diffError;
 
   useEffect(() => {
     void loadProjects();
@@ -172,6 +176,7 @@ export default function App() {
               clearTaskError();
               clearMemoryError();
               clearSettingsError();
+              clearDiffError();
             }}
             className="rounded-sm px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
           >

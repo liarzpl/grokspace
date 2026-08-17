@@ -9,6 +9,7 @@ import { TABS, useUiStore } from "../stores/uiStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useTaskStore } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
+import DiffPanel from "./DiffPanel";
 import GraphVisualizer from "./GraphVisualizer";
 import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
@@ -285,6 +286,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       )}
       {tab === "tasks" && <TaskBoard project={project} />}
       {tab === "memory" && <MemoryPanel project={project} />}
+      {tab === "diff" && <DiffPanel project={project} />}
     </div>
   );
 }

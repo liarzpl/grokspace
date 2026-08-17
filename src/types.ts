@@ -94,6 +94,27 @@ export interface GraphSnapshot {
   updatedAt: number | null;
 }
 
+/** What happened to one file, in the words `git status` uses. */
+export type FileChange = "added" | "modified" | "deleted" | "renamed" | "untracked";
+
+export interface ChangedFile {
+  path: string;
+  change: FileChange;
+}
+
+/**
+ * What the diff panel has to draw, as one of four things it can honestly say.
+ *
+ * A union rather than a struct of optionals: "git is missing" and "nothing has
+ * changed" are different sentences, and a `files: []` that meant either would leave
+ * the panel guessing.
+ */
+export type DiffState =
+  | { state: "gitMissing" }
+  | { state: "notARepo" }
+  | { state: "clean"; branch: string | null }
+  | { state: "changed"; branch: string | null; files: ChangedFile[] };
+
 /**
  * Preferences that belong to the app rather than to one project. Missing keys read
  * as their defaults, so an older database needs no backfill.

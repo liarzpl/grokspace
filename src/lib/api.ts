@@ -1,6 +1,7 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
 
 import type {
+  DiffState,
   GraphSnapshot,
   MemoryEntry,
   MemoryEntryType,
@@ -129,6 +130,18 @@ export const api = {
     invoke<Task>("dispatch_task", { id, sessionId }),
 
   removeTask: (id: string): Promise<void> => invoke<void>("remove_task", { id }),
+
+  /** What the agents have changed in this project, according to git. */
+  projectDiff: (projectId: string): Promise<DiffState> =>
+    invoke<DiffState>("project_diff", { projectId }),
+
+  /**
+   * One file's diff. `untracked` picks the comparison: a file git has never seen has
+   * nothing in HEAD to diff against, so it is diffed against nothing and reads as all
+   * additions.
+   */
+  fileDiff: (projectId: string, path: string, untracked: boolean): Promise<string> =>
+    invoke<string>("file_diff", { projectId, path, untracked }),
 
   readSettings: (): Promise<Settings> => invoke<Settings>("read_settings"),
 

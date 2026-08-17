@@ -12,13 +12,14 @@ import { create } from "zustand";
  */
 
 /** The panels the workspace switches between while working. */
-export type WorkspaceTab = "terminals" | "graph" | "tasks" | "memory";
+export type WorkspaceTab = "terminals" | "graph" | "tasks" | "memory" | "diff";
 
 export const TABS: readonly { id: WorkspaceTab; label: string }[] = [
   { id: "terminals", label: "Terminals" },
   { id: "graph", label: "Graph" },
   { id: "tasks", label: "Tasks" },
   { id: "memory", label: "Memory" },
+  { id: "diff", label: "Diff" },
 ];
 
 interface UiState {
