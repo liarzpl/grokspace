@@ -158,19 +158,26 @@ pub fn get(conn: &Connection, id: &str) -> Result<Session> {
 /// `pane_id` is absent for an agent, which occupies no pane. Nothing else in the
 /// app has to special-case that: a session with no pane is simply never the one
 /// `session_for_pane` finds.
+///
+/// `role` is what a session was started as - Planner, Reviewer, and so on - and is
+/// absent for one started by hand. It is a label plus the brief the caller sends;
+/// nothing in the schema constrains it, because the presets are the frontend's to
+/// name and a role nobody recognised should still be remembered.
 pub fn insert(
     conn: &Connection,
     project_id: &str,
     pane_id: Option<&str>,
     kind: SessionKind,
     title: &str,
+    role: Option<&str>,
 ) -> Result<Session> {
     let now = now_ms();
+    let role = role.map(str::trim).filter(|role| !role.is_empty());
     let session = conn.query_row(
         &format!(
             "INSERT INTO sessions
-                 (id, project_id, pane_id, status, title, kind, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+                 (id, project_id, pane_id, status, title, role, kind, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
              RETURNING {COLUMNS}"
         ),
         rusqlite::params![
@@ -179,6 +186,7 @@ pub fn insert(
             pane_id,
             SessionStatus::Running.as_str(),
             title,
+            role,
             kind.as_str(),
             now,
         ],
@@ -354,6 +362,19 @@ fn session_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
     ]
 }
 
+/// The role a session was started as, for a skill or a hook to read.
+///
+/// Kept out of `session_env` because that one is derived from the project and the
+/// session id alone, and this comes from the request. Absent rather than empty for a
+/// session started by hand: an agent should be able to tell "no role" from a role
+/// that happens to be blank.
+fn role_env(role: Option<&str>) -> Vec<(String, String)> {
+    role.map(str::trim)
+        .filter(|role| !role.is_empty())
+        .map(|role| vec![("GROKSPACE_SESSION_ROLE".to_string(), role.to_string())])
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionExited {
@@ -459,6 +480,7 @@ struct StartRequest {
     pane_id: Option<String>,
     kind: SessionKind,
     title: Option<String>,
+    role: Option<String>,
     cols: u16,
     rows: u16,
 }
@@ -472,8 +494,11 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
     let (session, cwd, remembered) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
         let project = project::get(&conn, &request.project_id)?;
+        // A role makes a better title than the kind does: five agents all called
+        // "Agent" are five things nobody can tell apart.
         let title = request
             .title
+            .or_else(|| request.role.clone())
             .unwrap_or_else(|| request.kind.default_title().to_string());
         (
             insert(
@@ -482,6 +507,7 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
                 request.pane_id.as_deref(),
                 request.kind,
                 &title,
+                request.role.as_deref(),
             )?,
             project.path,
             memory::list(&conn, &request.project_id)?,
@@ -494,7 +520,8 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
     // the session is about to be told to read this path, and a file saying there is
     // nothing to know is friendlier than one that is missing.
     let _ = memory::write_projection(&cwd, &remembered);
-    let env = session_env(&cwd, &session.id);
+    let mut env = session_env(&cwd, &session.id);
+    env.extend(role_env(session.role.as_deref()));
     // An agent is told where its graph belongs the same way a terminal is, which is
     // what lets the Graph tab draw a plan for a session that has no pane.
     let spawned = match launch {
@@ -546,26 +573,41 @@ pub fn list_sessions(state: State<'_, AppState>, project_id: String) -> Result<V
     list(&conn, &project_id)
 }
 
+/// What starting a session takes, as one value.
+///
+/// Loose arguments were fine at four and stopped being fine at seven: the role took
+/// this past what anyone can read at a call site, and past what clippy will accept.
+/// Naming the fields at the boundary is what a struct buys.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSession {
+    project_id: String,
+    /// Absent for an agent, which runs beside the grid rather than in it.
+    pane_id: Option<String>,
+    kind: SessionKind,
+    /// What the session is being started as, when it is being started as anything.
+    role: Option<String>,
+    cols: u16,
+    rows: u16,
+}
+
 #[tauri::command]
 pub fn create_session(
     app: AppHandle,
     state: State<'_, AppState>,
-    project_id: String,
-    pane_id: Option<String>,
-    kind: SessionKind,
-    cols: u16,
-    rows: u16,
+    session: NewSession,
 ) -> Result<Session> {
     start(
         &app,
         &state,
         StartRequest {
-            project_id,
-            pane_id,
-            kind,
+            project_id: session.project_id,
+            pane_id: session.pane_id,
+            kind: session.kind,
             title: None,
-            cols,
-            rows,
+            role: session.role,
+            cols: session.cols,
+            rows: session.rows,
         },
     )
 }
@@ -654,6 +696,9 @@ pub fn restart_session(
             project_id: previous.project_id,
             kind: previous.kind,
             title: previous.title,
+            // Kept, so a restarted Reviewer comes back a Reviewer. The brief is the
+            // caller's to send again; this is only the label.
+            role: previous.role,
             cols,
             rows,
         },
@@ -724,7 +769,15 @@ mod tests {
     fn a_new_session_starts_running_in_its_pane() {
         let (conn, project_id) = fixture();
 
-        let session = insert(&conn, &project_id, Some("1"), SessionKind::Grok, "Grok").unwrap();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("1"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
 
         assert_eq!(session.status, SessionStatus::Running);
         assert_eq!(session.kind, SessionKind::Grok);
@@ -735,9 +788,17 @@ mod tests {
     #[test]
     fn an_agent_holds_no_pane_and_so_never_displaces_a_terminal() {
         let (conn, project_id) = fixture();
-        let terminal = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+        let terminal = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
 
-        let agent = insert(&conn, &project_id, None, SessionKind::Agent, "Agent").unwrap();
+        let agent = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
 
         assert_eq!(agent.pane_id, None);
         assert_eq!(agent.kind, SessionKind::Agent);
@@ -754,9 +815,33 @@ mod tests {
         let (conn, project_id) = fixture();
         let other = project::upsert_by_path(&conn, "/tmp/other", "other").unwrap();
 
-        insert(&conn, &project_id, Some("0"), SessionKind::Grok, "First").unwrap();
-        insert(&conn, &project_id, Some("1"), SessionKind::Shell, "Second").unwrap();
-        insert(&conn, &other.id, Some("0"), SessionKind::Grok, "Elsewhere").unwrap();
+        insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "First",
+            None,
+        )
+        .unwrap();
+        insert(
+            &conn,
+            &project_id,
+            Some("1"),
+            SessionKind::Shell,
+            "Second",
+            None,
+        )
+        .unwrap();
+        insert(
+            &conn,
+            &other.id,
+            Some("0"),
+            SessionKind::Grok,
+            "Elsewhere",
+            None,
+        )
+        .unwrap();
 
         let titles: Vec<_> = list(&conn, &project_id)
             .unwrap()
@@ -769,7 +854,15 @@ mod tests {
     #[test]
     fn an_exit_records_the_status_and_the_code() {
         let (conn, project_id) = fixture();
-        let session = insert(&conn, &project_id, Some("0"), SessionKind::Shell, "Shell").unwrap();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Shell,
+            "Shell",
+            None,
+        )
+        .unwrap();
 
         set_status(&conn, &session.id, SessionStatus::Stopped, Some(130)).unwrap();
 
@@ -781,7 +874,15 @@ mod tests {
     #[test]
     fn renaming_rejects_an_empty_title() {
         let (conn, project_id) = fixture();
-        let session = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
 
         assert!(set_title(&conn, &session.id, "   ").is_err());
         assert_eq!(
@@ -796,10 +897,25 @@ mod tests {
     #[test]
     fn startup_marks_every_surviving_session_stopped() {
         let (conn, project_id) = fixture();
-        let running = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+        let running = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
         set_process_id(&conn, &running.id, Some(4242)).unwrap();
-        let already_stopped =
-            insert(&conn, &project_id, Some("1"), SessionKind::Shell, "Shell").unwrap();
+        let already_stopped = insert(
+            &conn,
+            &project_id,
+            Some("1"),
+            SessionKind::Shell,
+            "Shell",
+            None,
+        )
+        .unwrap();
         set_status(&conn, &already_stopped.id, SessionStatus::Stopped, Some(0)).unwrap();
 
         let reconciled = reconcile_on_start(&conn).unwrap();
@@ -816,7 +932,15 @@ mod tests {
     #[test]
     fn removing_a_project_takes_its_sessions_with_it() {
         let (conn, project_id) = fixture();
-        insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+        insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
 
         project::remove(&conn, &project_id).unwrap();
 
@@ -852,6 +976,68 @@ mod tests {
         assert!(
             file.parent().is_some_and(Path::is_dir),
             "the directory is prepared up front so the watcher has something to watch"
+        );
+    }
+
+    #[test]
+    fn a_session_remembers_the_role_it_was_started_as() {
+        let (conn, project_id) = fixture();
+
+        let reviewer = insert(
+            &conn,
+            &project_id,
+            None,
+            SessionKind::Agent,
+            "Reviewer",
+            Some("  Reviewer  "),
+        )
+        .unwrap();
+        let by_hand = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            reviewer.role.as_deref(),
+            Some("Reviewer"),
+            "roles are trimmed"
+        );
+        assert_eq!(
+            by_hand.role, None,
+            "a session started by hand has no role, which is not the same as a blank one"
+        );
+    }
+
+    #[test]
+    fn a_blank_role_is_stored_as_none() {
+        // So an agent can tell "no role" from a role that happens to be empty.
+        let (conn, project_id) = fixture();
+
+        let session = insert(
+            &conn,
+            &project_id,
+            None,
+            SessionKind::Agent,
+            "Agent",
+            Some("  "),
+        )
+        .unwrap();
+
+        assert_eq!(session.role, None);
+    }
+
+    #[test]
+    fn only_a_session_with_a_role_is_told_about_one() {
+        assert!(role_env(None).is_empty());
+        assert!(role_env(Some("   ")).is_empty());
+        assert_eq!(
+            role_env(Some(" Planner ")),
+            vec![("GROKSPACE_SESSION_ROLE".to_string(), "Planner".to_string())]
         );
     }
 

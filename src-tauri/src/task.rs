@@ -371,8 +371,15 @@ mod tests {
     #[test]
     fn dispatching_assigns_the_session_and_moves_the_task_in_one_step() {
         let (conn, project_id) = fixture();
-        let session =
-            session::insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+        let session = session::insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
         let task = insert(&conn, &project_id, "Ship it", None).unwrap();
 
         let dispatched = dispatch(&conn, &task.id, &session.id).unwrap();
@@ -393,8 +400,15 @@ mod tests {
         // Closing a session deletes its row, and assigned_session_id has no foreign
         // key to null this out, so the read is what has to be honest.
         let (conn, project_id) = fixture();
-        let session =
-            session::insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+        let session = session::insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
         let task = insert(&conn, &project_id, "Ship it", None).unwrap();
         dispatch(&conn, &task.id, &session.id).unwrap();
 

@@ -242,6 +242,11 @@ export default function TerminalPane({
             className="min-w-0 flex-1 truncate text-left text-[11px] font-medium text-ink-muted"
           >
             {session?.title ?? `Pane ${Number(paneId) + 1}`}
+            {/* Only when it says something the title does not. A session started as a
+                role is titled after it, so printing both would read "Reviewer · Reviewer". */}
+            {session?.role != null && session.role !== session.title ? (
+              <span className="ml-1.5 text-ink-faint">· {session.role}</span>
+            ) : null}
             {session && !running ? (
               <span className="ml-1.5 text-ink-faint">
                 {session.exitCode == null ? "· stopped" : `· exit ${session.exitCode}`}
