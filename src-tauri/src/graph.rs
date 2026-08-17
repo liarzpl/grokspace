@@ -22,6 +22,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::error::{Error, Result};
+use crate::skill::{Skill, SkillStatus};
 use crate::{db, project, session, AppState};
 
 /// Emitted when a session's graph file appears, changes, or goes away. Like the
@@ -37,10 +38,10 @@ const CHANGE_EVENT: &str = "graph-changed";
 const MAX_GRAPH_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The skill GrokSpace installs so `grok` knows to write these files at all.
-/// `~/.grok/skills` is the user-level directory Grok Build discovers skills from.
-const SKILL_DIR: &str = ".grok/skills/grokspace-graph";
-const SKILL_FILE: &str = "SKILL.md";
-const BUNDLED_SKILL: &str = include_str!("../skills/graph-engineering/SKILL.md");
+const SKILL: Skill = Skill {
+    dir: "grokspace-graph",
+    content: include_str!("../skills/graph-engineering/SKILL.md"),
+};
 
 /// Where a project's graphs live. Kept inside the project so a graph travels with
 /// the code it describes, and so `grok` can write it without leaving its cwd.
@@ -351,51 +352,14 @@ pub fn read_session_graph(state: State<'_, AppState>, session_id: String) -> Res
     Ok(snapshot(Path::new(&project_path), &session_id))
 }
 
-/// Whether the skill that teaches `grok` to write these files is in place.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillStatus {
-    pub path: String,
-    pub installed: bool,
-    /// False when an older GrokSpace installed a different version of the skill.
-    pub current: bool,
-}
-
-fn skill_file() -> Result<PathBuf> {
-    Ok(dirs::home_dir()
-        .ok_or(Error::NoHomeDir)?
-        .join(SKILL_DIR)
-        .join(SKILL_FILE))
-}
-
-fn status_of(path: &Path) -> SkillStatus {
-    let installed = std::fs::read_to_string(path).ok();
-    SkillStatus {
-        path: path.to_string_lossy().into_owned(),
-        installed: installed.is_some(),
-        current: installed.as_deref() == Some(BUNDLED_SKILL),
-    }
-}
-
 #[tauri::command]
 pub fn graph_skill_status() -> Result<SkillStatus> {
-    Ok(status_of(&skill_file()?))
+    SKILL.status()
 }
 
-/// Installs, or refreshes, the bundled skill. Writing only when the contents
-/// differ keeps this idempotent without a version marker to keep in step.
 #[tauri::command]
 pub fn install_graph_skill() -> Result<SkillStatus> {
-    let path = skill_file()?;
-    let status = status_of(&path);
-    if status.current {
-        return Ok(status);
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, BUNDLED_SKILL)?;
-    Ok(status_of(&path))
+    SKILL.install()
 }
 
 #[cfg(test)]
@@ -714,28 +678,13 @@ mod tests {
         assert_eq!(change.session_id, "s1");
     }
 
-    #[test]
-    fn installing_the_skill_is_idempotent() {
-        let home = dir();
-        let path = home.path().join(SKILL_DIR).join(SKILL_FILE);
-
-        assert!(!status_of(&path).installed);
-
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, BUNDLED_SKILL).unwrap();
-        let status = status_of(&path);
-        assert!(status.installed && status.current);
-
-        // An older version left behind by a previous release is installed but not
-        // current, which is what makes the install button offer to refresh it.
-        std::fs::write(&path, "---\nname: grokspace-graph\n---\nold\n").unwrap();
-        let stale = status_of(&path);
-        assert!(stale.installed && !stale.current);
-    }
-
+    /// Installing is `skill.rs`'s job and tested there. What is this module's job is
+    /// that the skill it ships names the variable the sessions are given, since a
+    /// skill that names the wrong path teaches an agent to write where nobody reads.
     #[test]
     fn the_bundled_skill_names_the_environment_variable_it_relies_on() {
-        assert!(BUNDLED_SKILL.contains("GROKSPACE_GRAPH_FILE"));
-        assert!(BUNDLED_SKILL.starts_with("---\n"));
+        assert!(SKILL.content.contains("GROKSPACE_GRAPH_FILE"));
+        assert!(SKILL.content.starts_with("---\n"));
+        assert_eq!(SKILL.dir, "grokspace-graph");
     }
 }

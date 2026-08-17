@@ -6,6 +6,7 @@ mod memory;
 mod project;
 mod pty;
 mod session;
+mod skill;
 mod task;
 
 use std::sync::Mutex;
