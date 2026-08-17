@@ -177,6 +177,66 @@ describe("parseGraph tolerance", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("parses a document in the exact shape the bundled skill asks for, silently", () => {
+    // The contract test for src-tauri/skills/grokspace-graph: no positions, all six
+    // data keys present with empty defaults, the orchestrator already running on the
+    // first write. If this starts warning, the skill and the parser have drifted and
+    // every agent following the skill will see complaints about doing as it says.
+    const { graph, warnings } = expectOk(
+      doc({
+        id: "ge-20260816T143012Z-ideas-arena",
+        name: "Idea generation",
+        status: "running",
+        topology: "ideas-arena",
+        nodes: [
+          {
+            id: "orch",
+            type: "orchestrator",
+            label: "Lead",
+            status: "running",
+            role: "lead",
+            data: {
+              description: "Contract, spawn, fail-closed join.",
+              model: "grok-4.6",
+              effort: "xhigh",
+              parallelism: 0,
+              worktree: false,
+              artifactPath: "",
+            },
+          },
+          {
+            id: "ideas",
+            type: "parallel-group",
+            label: "Ideas",
+            status: "pending",
+            role: "",
+            data: {
+              description: "Three isolated producers.",
+              model: "",
+              effort: "",
+              parallelism: 3,
+              worktree: true,
+              artifactPath: "",
+            },
+          },
+        ],
+        edges: [
+          { id: "e-orch-ideas", source: "orch", target: "ideas", type: "smoothstep", animated: true },
+        ],
+        state: { currentLayer: "ideas", notes: "", partial: false, survivors: [] },
+      }),
+    );
+
+    expect(warnings).toEqual([]);
+    expect(graph.nodes[0]?.status).toBe("running");
+    // An empty role and effort read as absent, so the inspector shows neither rather
+    // than an empty row. That is what makes always-emitting the keys safe.
+    expect(graph.nodes[1]?.role).toBeUndefined();
+    expect(graph.nodes[1]?.data.effort).toBeUndefined();
+    expect(graph.nodes[1]?.data.parallelism).toBe(3);
+    expect(graph.nodes[0]?.position).not.toEqual(graph.nodes[1]?.position);
+  });
+
   it("warns when only some nodes were placed, which is a file getting it wrong", () => {
     const { warnings } = expectOk(
       doc({
