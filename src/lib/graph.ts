@@ -190,7 +190,16 @@ function place(nodes: UnplacedNode[], edges: GraphEdge[], warnings: string[]): G
     return nodes.map((node) => ({ ...node, position: node.position ?? { x: 0, y: 0 } }));
   }
 
-  warnings.push("The file did not include usable node positions, so the layout was computed.");
+  // Warned about only when the file tried and produced something unusable — some nodes
+  // placed and others not, or every node on the same spot. A file with no positions at
+  // all is following the skill, which asks agents to omit them: layering here can see
+  // how many nodes landed in each column and a formula in a prompt cannot, so that
+  // graph is not degraded and saying it is would train people to ignore the warnings.
+  if (placed.length > 0) {
+    warnings.push(
+      "Some node positions were unusable, so the whole layout was computed instead.",
+    );
+  }
   const computed = layeredPositions(nodes, edges);
   return nodes.map((node) => ({ ...node, position: computed.get(node.id) ?? { x: 0, y: 0 } }));
 }

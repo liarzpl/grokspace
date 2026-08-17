@@ -171,7 +171,39 @@ describe("parseGraph tolerance", () => {
     // Layered by longest path, so each hop moves one column right.
     expect(xs[0]).toBeLessThan(xs[1] ?? 0);
     expect(xs[1] ?? 0).toBeLessThan(xs[2] ?? 0);
-    expect(warnings.join(" ")).toContain("positions");
+    // Silently, because the skill asks agents to omit positions: layering here can see
+    // how many nodes landed in each column and a formula in a prompt cannot. Warning
+    // about the recommended shape would train people to ignore the warnings.
+    expect(warnings).toEqual([]);
+  });
+
+  it("warns when only some nodes were placed, which is a file getting it wrong", () => {
+    const { warnings } = expectOk(
+      doc({
+        nodes: [
+          { id: "a", type: "orchestrator", label: "A", status: "completed", position: { x: 0, y: 0 } },
+          { id: "b", type: "agent", label: "B", status: "running" },
+        ],
+        edges: [{ id: "e1", source: "a", target: "b" }],
+      }),
+    );
+
+    expect(warnings.join(" ")).toContain("unusable");
+  });
+
+  it("warns when every node was given the same position", () => {
+    // Which renders as one node on top of another and reads as a bug in the app.
+    const { warnings } = expectOk(
+      doc({
+        nodes: [
+          { id: "a", type: "agent", label: "A", status: "running", position: { x: 40, y: 40 } },
+          { id: "b", type: "agent", label: "B", status: "running", position: { x: 40, y: 40 } },
+        ],
+        edges: [],
+      }),
+    );
+
+    expect(warnings.join(" ")).toContain("unusable");
   });
 
   it("computes a layout when every position is identical", () => {
