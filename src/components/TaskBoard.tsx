@@ -520,9 +520,28 @@ function DispatchRow({
  */
 function SwarmLauncher({ project }: { project: Project }) {
   const launchSwarm = useSessionStore((state) => state.launchSwarm);
+  const sessions = useSessionStore((state) => state.sessions);
   const [open, setOpen] = useState(false);
-  const [chosen, setChosen] = useState<readonly string[]>(ROLES.map((role) => role.name));
+  const [chosen, setChosen] = useState<readonly string[]>([]);
   const [launching, setLaunching] = useState(false);
+
+  // Which roles are already covered. Without this, pressing the button twice would
+  // quietly start a second Planner beside the first — five agents is a decision, and
+  // ten by accident is not.
+  const running = new Set(
+    sessions
+      .filter((session) => session.role !== null && session.status !== "stopped")
+      .map((session) => session.role),
+  );
+
+  const start = () => {
+    // Chosen when the row opens rather than once at mount, so the default reflects
+    // what is running now. Everything already covered starts unticked, which means a
+    // full swarm reopens with nothing selected — correctly saying there is nothing to
+    // add.
+    setChosen(ROLES.filter((role) => !running.has(role.name)).map((role) => role.name));
+    setOpen(true);
+  };
 
   const toggle = (name: string) =>
     setChosen((current) =>
@@ -548,7 +567,7 @@ function SwarmLauncher({ project }: { project: Project }) {
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={start}
         className="shrink-0 rounded-md border border-line-strong px-2 py-0.5 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink"
       >
         Launch a swarm
@@ -563,7 +582,7 @@ function SwarmLauncher({ project }: { project: Project }) {
           key={role.name}
           type="button"
           onClick={() => toggle(role.name)}
-          title={role.summary}
+          title={running.has(role.name) ? `${role.name} is already running` : role.summary}
           className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
             chosen.includes(role.name)
               ? "border-accent bg-accent-soft text-ink"
@@ -571,6 +590,9 @@ function SwarmLauncher({ project }: { project: Project }) {
           }`}
         >
           {role.name}
+          {/* Still tickable: a second Reviewer is a reasonable thing to want, just not
+              something to get by accident. */}
+          {running.has(role.name) && <span className="ml-1 text-ink-faint">·on</span>}
         </button>
       ))}
       <button
