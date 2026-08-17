@@ -10,10 +10,10 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 2 complete.** Projects, a multi-pane terminal grid, a live graph
-> per session, a task board that hands work to an agent, and agents driven over ACP
-> that report what they are doing. Shared memory and agent roles are next — see
-> [Roadmap](#roadmap).
+> **Status: Phase 3, shared memory.** Projects, a multi-pane terminal grid, a live
+> graph per session, a task board that hands work to an agent, agents driven over ACP
+> that report what they are doing, and a project memory every session reads. Role
+> presets and swarm launches are next — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -43,7 +43,11 @@ telemetry; workspace state lives in `~/.grokspace`.
   moved with the arrows on the card, and each card can be handed to an agent:
   one already running, a fresh terminal in a free pane, or a new ACP agent, which
   needs no pane at all. Dispatching records which session took the task.
-- **Local persistence** — projects, sessions, and tasks live in SQLite at
+- **Shared project memory** — one memory per project, in the columns `context`,
+  `decisions`, `notes`, and `artifacts`. It is projected into a Markdown file every
+  session is told to read, so what you would otherwise repeat to each agent gets
+  said once. A bundled skill is what teaches agents to read it before they plan.
+- **Local persistence** — projects, sessions, tasks, and memory live in SQLite at
   `~/.grokspace/grokspace.db`.
 
 ## Stack
@@ -97,17 +101,17 @@ Tauri needs to compile on Linux.
 ```
 .github/          The CI workflow: the same checks, on every pull request
 src/
-  components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState,
-                  PaneGrid, TerminalPane, GraphVisualizer, TaskBoard, graph/
+  components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState, PaneGrid,
+                  TerminalPane, GraphVisualizer, TaskBoard, MemoryPanel, graph/
   stores/         Zustand stores (projectStore, sessionStore, graphStore,
-                  taskStore)
+                  taskStore, memoryStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
                   the graph document parser, and helpers
   types.ts        Mirrors the Rust structs, which serialize as camelCase
 scripts/          Development helpers; demo-graph.mjs writes a moving graph
 src-tauri/
   migrations/     Append-only SQL migrations
-  skills/         The Grok skill GrokSpace installs on request
+  skills/         The Grok skills GrokSpace installs on request
   src/
     db.rs         Database location, pragmas, migration runner
     project.rs    Project model, queries, and Tauri commands
@@ -115,6 +119,8 @@ src-tauri/
     session.rs    Session model and the commands that drive a pty or an agent
     acp.rs        Agent Client Protocol: status from JSON-RPC, no Tauri, no database
     task.rs       Task model, the board's queries, and dispatch
+    memory.rs     Shared project memory, and the file agents read it from
+    skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
@@ -175,6 +181,39 @@ the reasoning behind the watcher's filters, and how to test the panel by hand �
 including `npm run graph:demo`, which steps a graph through a run so the panel can
 be watched updating without an agent.
 
+### How memory works
+
+The database is the memory; the file is a projection of it:
+
+```
+<project>/.grokspace/memory.md
+```
+
+Agents read files rather than SQLite, so every write rebuilds that file from the
+whole table and every session is spawned knowing its path through
+`GROKSPACE_MEMORY_FILE`. It is written even when the memory is empty, since a file
+saying there is nothing to know is friendlier than one that is missing.
+
+Three decisions shape the rest:
+
+- **The key is half the primary key,** so writing is an upsert. Memory is a set of
+  things that are true about the project, not a log of things that were said, and
+  writing the same key twice is a correction.
+- **One direction only.** GrokSpace writes and the agent reads. A file the agent
+  also wrote would need merging against the table on every change, and a merge that
+  guesses wrong loses something a person typed. The skill therefore asks the agent to
+  *name* what belongs in memory in its reply, rather than to write it.
+- **It is capped, at 32k characters.** Every session reads all of it, so an
+  unbounded panel would quietly make each session more expensive and less attentive.
+  Rewriting an existing entry replaces its own size, so a correction is never refused
+  for being long.
+
+`.grok/rules/` would have needed no skill at all, since Grok loads every `.md`
+under it automatically. It is not used, for a reason recorded in
+[`docs/grok-cli-integration.md`](docs/grok-cli-integration.md): Grok skips files
+that `.gitignore` ignores, so the file would either land in the user's git history
+or be silently ignored.
+
 ### Database
 
 State lives in `~/.grokspace/grokspace.db` rather than the platform app-data
@@ -191,9 +230,9 @@ Migrations are an append-only list in
 that has already shipped.
 
 Migration `0001` creates `projects`, `tasks`, `sessions`, and `memory_entries`.
-`tasks` gained its queries in Phase 2 without a schema change, and `sessions` took
-a third `kind` without one either, which is what writing both in Phase 0 bought.
-`memory_entries` is still unused, reserved the same way for Phase 3.
+Every table written in Phase 0 has since gained its queries without a schema
+change: `tasks` and a third `sessions.kind` in Phase 2, `memory_entries` in Phase 3.
+Two migrations, both from before any of that.
 
 ## Roadmap
 
@@ -206,8 +245,8 @@ a third `kind` without one either, which is what writing both in Phase 0 bought.
   subscription and an interactive sign-in.
   [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records what that
   leaves unproven.
-- **Phase 3 — Memory and roles.** Shared project memory, role presets
-  (Planner, Coder, Reviewer, Tester, Scout), and swarm launches.
+- **Phase 3 — Memory and roles.** Shared project memory: done. Role presets
+  (Planner, Coder, Reviewer, Tester, Scout) and swarm launches are the other half.
 - **Phase 4 — Polish and distribution.** Command palette, diff preview,
   settings, and a notarized `.dmg`.
 

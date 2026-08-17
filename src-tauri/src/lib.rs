@@ -2,9 +2,11 @@ mod acp;
 mod db;
 mod error;
 mod graph;
+mod memory;
 mod project;
 mod pty;
 mod session;
+mod skill;
 mod task;
 
 use std::sync::Mutex;
@@ -62,6 +64,12 @@ pub fn run() {
             session::close_session,
             session::prompt_session,
             session::answer_session_permission,
+            memory::list_memory,
+            memory::put_memory,
+            memory::remove_memory,
+            memory::memory_file_path,
+            memory::memory_skill_status,
+            memory::install_memory_skill,
             task::list_tasks,
             task::create_task,
             task::update_task,

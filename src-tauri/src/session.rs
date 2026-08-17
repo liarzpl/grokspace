@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, project, AppState};
+use crate::{acp, graph, memory, project, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -321,11 +321,13 @@ fn resolve_program(program: &str) -> Result<String> {
     )))
 }
 
-/// What a session is told about itself, so an agent can report its plan into the
-/// one graph file this terminal draws. Failing to prepare the directory is not
-/// worth refusing to start a terminal over: the variables are still exported, so
-/// a writer that creates the directory itself works either way.
-fn graph_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
+/// What a session is told about itself: which graph file is its own to write, and
+/// where the project's shared memory is to be read.
+///
+/// Failing to prepare the graph directory is not worth refusing to start a terminal
+/// over. The variables are still exported, so a writer that creates the directory
+/// itself works either way.
+fn session_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
     let dir = graph::ensure_graph_dir(project_path)
         .unwrap_or_else(|_| graph::project_graph_dir(project_path));
     let file = dir.join(graph::graph_file_name(session_id));
@@ -342,6 +344,12 @@ fn graph_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
         (
             "GROKSPACE_GRAPH_FILE".to_string(),
             file.to_string_lossy().into_owned(),
+        ),
+        (
+            "GROKSPACE_MEMORY_FILE".to_string(),
+            memory::memory_file(project_path)
+                .to_string_lossy()
+                .into_owned(),
         ),
     ]
 }
@@ -461,7 +469,7 @@ struct StartRequest {
 fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) -> Result<Session> {
     let launch = command_for(request.kind)?;
 
-    let (session, cwd) = {
+    let (session, cwd, remembered) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
         let project = project::get(&conn, &request.project_id)?;
         let title = request
@@ -476,11 +484,17 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
                 &title,
             )?,
             project.path,
+            memory::list(&conn, &request.project_id)?,
         )
     };
 
     let cwd = PathBuf::from(cwd);
-    let env = graph_env(&cwd, &session.id);
+    // Deliberately after the lock is dropped, since this writes a file and every
+    // command queues on the one connection. Written even when the memory is empty:
+    // the session is about to be told to read this path, and a file saying there is
+    // nothing to know is friendlier than one that is missing.
+    let _ = memory::write_projection(&cwd, &remembered);
+    let env = session_env(&cwd, &session.id);
     // An agent is told where its graph belongs the same way a terminal is, which is
     // what lets the Graph tab draw a plan for a session that has no pane.
     let spawned = match launch {
@@ -816,7 +830,7 @@ mod tests {
     fn a_session_is_told_where_its_own_graph_belongs() {
         let dir = tempfile::tempdir().expect("temp dir should be created");
 
-        let env = graph_env(dir.path(), "session-42");
+        let env = session_env(dir.path(), "session-42");
 
         let value = |key: &str| {
             env.iter()
@@ -842,11 +856,31 @@ mod tests {
     }
 
     #[test]
+    fn every_session_in_a_project_is_pointed_at_the_same_memory() {
+        // The graph is one session's own; the memory is what they share, so unlike
+        // the graph file this one must not vary by session.
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+
+        let memory_of = |session_id: &str| {
+            session_env(dir.path(), session_id)
+                .into_iter()
+                .find(|(name, _)| name == "GROKSPACE_MEMORY_FILE")
+                .map(|(_, value)| value)
+                .expect("the memory file should be exported")
+        };
+
+        let first = memory_of("s1");
+        assert_eq!(first, memory_of("s2"));
+        assert!(PathBuf::from(&first).is_absolute());
+        assert!(first.ends_with("memory.md"));
+    }
+
+    #[test]
     fn two_sessions_in_one_project_get_different_graph_files() {
         let dir = tempfile::tempdir().expect("temp dir should be created");
 
-        let first = graph_env(dir.path(), "s1");
-        let second = graph_env(dir.path(), "s2");
+        let first = session_env(dir.path(), "s1");
+        let second = session_env(dir.path(), "s2");
 
         let graph_file = |env: &[(String, String)]| {
             env.iter()

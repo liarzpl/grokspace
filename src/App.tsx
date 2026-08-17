@@ -7,6 +7,7 @@ import TitleBar from "./components/TitleBar";
 import WorkspaceShell from "./components/WorkspaceShell";
 import { useGraphStore } from "./stores/graphStore";
 import { useActiveProject, useProjectStore } from "./stores/projectStore";
+import { useMemoryStore } from "./stores/memoryStore";
 import { useSessionStore } from "./stores/sessionStore";
 import { useTaskStore } from "./stores/taskStore";
 import type { SessionStatus } from "./types";
@@ -37,15 +38,17 @@ export default function App() {
   const projectError = useProjectStore((state) => state.error);
   const sessionError = useSessionStore((state) => state.error);
   const taskError = useTaskStore((state) => state.error);
+  const memoryError = useMemoryStore((state) => state.error);
   const clearProjectError = useProjectStore((state) => state.clearError);
   const clearSessionError = useSessionStore((state) => state.clearError);
   const clearTaskError = useTaskStore((state) => state.clearError);
+  const clearMemoryError = useMemoryStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
 
   // Every store that can fail has to be named here or its errors are written to a
   // field nothing reads. One banner, so a failure cannot arrive twice.
-  const error = projectError ?? sessionError ?? taskError;
+  const error = projectError ?? sessionError ?? taskError ?? memoryError;
 
   useEffect(() => {
     void loadProjects();
@@ -138,6 +141,7 @@ export default function App() {
               clearProjectError();
               clearSessionError();
               clearTaskError();
+              clearMemoryError();
             }}
             className="rounded-sm px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
           >

@@ -209,6 +209,34 @@ What that means in practice, for whoever runs it first:
 The terminal path, the board, and everything either shares is verified by running
 the app.
 
+## What Phase 3 settled: where project rules could have gone, and why they did not
+
+Grok loads `AGENTS.md` and every `*.md` under `.grok/rules/` into the context of
+every session in that directory tree, with no flag and no skill. For shared project
+memory that looked like the whole answer, and one line of Grok's own documentation
+rules it out:
+
+> Files ignored by `.gitignore` are skipped.
+
+So a memory file GrokSpace wrote there has two fates and both are bad. Not ignored,
+and it lands in the user's git history — GrokSpace writing commits for them. Ignored,
+and Grok never reads it, so the memory silently does nothing. A feature that
+silently does nothing is worse than one that asks to be installed.
+
+Memory therefore uses the same shape the graphs already proved: a file whose path is
+handed to the session in the environment, and a bundled skill that teaches the agent
+to read it. `GROKSPACE_MEMORY_FILE` joins the graph variables, and unlike them it is
+the same for every session in a project, because the memory is what they share.
+
+Grok has two features with similar names that are **not** this, and should not be
+wired to it:
+
+- **`--experimental-memory`** is an agent's own recollection across its sessions,
+  appended with `/memory`. GrokSpace's memory is curated by a person and read by
+  every agent.
+- **Subagents** are parallel children Grok spawns inside one session. GrokSpace's
+  sessions are the ones the user can see and stop.
+
 ## Notes for later phases
 
 - A dispatched headless run should capture `sessionId` from
