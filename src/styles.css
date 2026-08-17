@@ -1,7 +1,12 @@
 @import "tailwindcss";
 
-/* Dark-only palette for now; Phase 4 introduces theme switching, and having the
-   tokens in one place is what makes that a contained change. */
+/* Dark-only palette for now.
+   
+   Every colour the app draws is declared here, including the ones only JavaScript can
+   apply: xterm takes a theme object and React Flow takes props, so `lib/theme.ts`
+   reads these back out rather than either file keeping its own copy. That is what
+   "tokens in one place" has to mean to be worth saying — a second palette is then a
+   second block here, and nothing else. */
 @theme {
   --color-canvas: #0b0d12;
   --color-panel: #101319;
@@ -18,6 +23,36 @@
   --color-danger: #ff6b6b;
   --color-success: #5ad4a0;
   --color-warning: #e3b16b;
+
+  /* A skipped graph node: dimmer than a line, since it is a thing that did not
+     happen rather than a thing that failed. */
+  --color-skipped: #333b49;
+
+  /* A pane's own background, a shade off the panel behind it so a terminal reads as
+     inset rather than flush. Also the minimap's. */
+  --color-terminal: #0e1117;
+
+  /* The ANSI palette a terminal paints with. Not decoration: a program's output picks
+     these by number, so they are as much a part of the theme as the chrome is. */
+  --color-ansi-black: #1c2130;
+  --color-ansi-red: #ff6b6b;
+  --color-ansi-green: #5ad4a0;
+  --color-ansi-yellow: #e3c46b;
+  --color-ansi-blue: #6d8cff;
+  --color-ansi-magenta: #c98bff;
+  --color-ansi-cyan: #5ec8d8;
+  --color-ansi-white: #c8cede;
+  --color-ansi-bright-black: #5b6474;
+  --color-ansi-bright-red: #ff8f8f;
+  --color-ansi-bright-green: #7ee7bb;
+  --color-ansi-bright-yellow: #f2da8a;
+  --color-ansi-bright-blue: #93aaff;
+  --color-ansi-bright-magenta: #daa9ff;
+  --color-ansi-bright-cyan: #87dee9;
+  --color-ansi-bright-white: #f2f5fb;
+
+  /* Selection and cursor accent, which xterm wants as its own values. */
+  --color-terminal-selection: #6d8cff40;
 
   /* Used by graph nodes whose status is `running`. */
   --animate-node-pulse: node-pulse 2s ease-in-out infinite;
