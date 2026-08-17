@@ -12,14 +12,17 @@ use std::sync::Mutex;
 use rusqlite::Connection;
 use tauri::{Manager, RunEvent};
 
+use crate::acp::AcpManager;
 use crate::graph::GraphWatchers;
 use crate::pty::PtyManager;
 
-/// Shared handles for the workspace: its database, its live terminals, and the
-/// watchers that report graph files changing under each project.
+/// Shared handles for the workspace: its database, its live terminals, the agents
+/// it drives over ACP, and the watchers that report graph files changing under each
+/// project.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub pty: PtyManager,
+    pub acp: AcpManager,
     pub graphs: GraphWatchers,
 }
 
@@ -39,6 +42,7 @@ pub fn run() {
         .manage(AppState {
             db: Mutex::new(connection),
             pty: PtyManager::new(),
+            acp: AcpManager::new(),
             graphs: GraphWatchers::new(),
         })
         .invoke_handler(tauri::generate_handler![
@@ -56,6 +60,8 @@ pub fn run() {
             session::restart_session,
             session::rename_session,
             session::close_session,
+            session::prompt_session,
+            session::answer_session_permission,
             task::list_tasks,
             task::create_task,
             task::update_task,
@@ -73,6 +79,7 @@ pub fn run() {
         if matches!(event, RunEvent::Exit) {
             let state = app.state::<AppState>();
             state.pty.shutdown();
+            state.acp.shutdown();
             state.graphs.shutdown();
         }
     });
