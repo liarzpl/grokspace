@@ -133,7 +133,9 @@ src/
                   the theme reader
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
-scripts/          Development helpers; demo-graph.mjs writes a moving graph
+scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
+                  the release-*.sh pair holds the release workflow's decisions so
+                  they can be tested
 src-tauri/
   migrations/     Append-only SQL migrations
   skills/         The Grok skills GrokSpace installs on request
@@ -297,7 +299,9 @@ would need — a phase of its own rather than polish.
   and a macOS runner, so the first tagged build is what verifies it.
 
 [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
-verified `grok` CLI surface that Phases 1-3 build on.
+verified `grok` CLI surface that Phases 1-3 build on, and
+[`docs/releasing.md`](docs/releasing.md) covers signing, notarizing and what to check
+the first time a real release runs.
 
 ## Platform notes
 
