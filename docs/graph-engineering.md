@@ -42,7 +42,7 @@ worktree still reports into the graph its pane is drawing.
 [`src-tauri/src/graph.rs`](../src-tauri/src/graph.rs) watches the graph
 directories with `notify` and emits `graph-changed` naming the session whose file
 moved; [`src/stores/graphStore.ts`](../src/stores/graphStore.ts) re-reads that
-file. Four decisions in that path exist for a reason:
+file. Five decisions in that path exist for a reason:
 
 - **The watch is non-recursive, and only `.json` files directly in the directory
   count.** A run's artifacts live under the same directory and would otherwise be
@@ -52,9 +52,13 @@ file. Four decisions in that path exist for a reason:
   platform.
 - **Writes are coalesced.** A run flipping several node statuses at once redraws
   the canvas once.
-- **A parse failure is retried once before it is shown.** A file caught mid-write
-  is not valid JSON, and reporting that immediately would make every update flash
-  an error that fixes itself.
+- **Invalid JSON is read again before it is shown.** A file caught mid-write is
+  not valid JSON, and reporting that immediately would make every update flash an
+  error that fixes itself. A file that parses but describes no graph is reported
+  the first time: it will read the same a moment later.
+- **An event naming a session that is no longer open is ignored,** unless a graph
+  is still held for it. Closing a session leaves its file and its project's
+  watcher behind, so these events keep arriving for the rest of the run.
 
 The JSON crosses from Rust to the frontend unparsed. `parseGraph` is deliberately
 forgiving because a model writes these files; a second, stricter parser in Rust
