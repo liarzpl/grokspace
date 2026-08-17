@@ -1,7 +1,9 @@
 # Grok Build CLI integration
 
 Reference notes for the `grok` CLI surface that GrokSpace drives from Phase 1
-onward. Checked against the xAI Grok Build docs (`docs.x.ai/build/cli`).
+onward. Checked against the xAI Grok Build docs (`docs.x.ai/build`) and, for the
+ACP section, against Grok's own published client example and the Agent Client
+Protocol schema.
 
 Phase 0 does not shell out to `grok` at all. This file exists so the terminal
 and dispatch work starts from the real flag surface rather than from
@@ -133,11 +135,52 @@ Two tidier-looking alternatives were rejected:
   depend on for a feature this small, and a malformed overlay would again cost the
   terminal rather than the graph.
 
+## What Phase 2 settled: ACP is not a terminal
+
+The plan for richer session status was "use `grok agent stdio`". Reading the ACP
+surface properly turned up something that reshapes it.
+
+**An ACP agent and the interactive TUI cannot be the same process.** `grok agent
+stdio` is a JSON-RPC server speaking on stdin and stdout; it does not render a TUI.
+So there is no way to obtain ACP status *for a pane*, because the process in that
+pane is a TUI and offers no structured channel. `--leader` looked like it might
+bridge the two and does not — it shares credentials between processes, not sessions.
+
+The consequence: `idle` and `needs_input` are only knowable for sessions GrokSpace
+itself drives over ACP, which are exactly the dispatched ones. A session someone
+started by hand in a pane stays `running` or `stopped`, and honestly so.
+
+**Grok speaks ACP v1.** Its own documented client example sends
+`protocolVersion: "1"` and switches on `sessionUpdate` values including
+`agent_message_chunk`, `agent_thought_chunk`, `tool_call`, and `plan`. v1 has no
+`state_update` — that arrived in v2 — so the four statuses come from the request
+lifecycle instead, which happens to line up exactly with the column the schema
+already has:
+
+| Status | Where it comes from in ACP v1 |
+| --- | --- |
+| `running` | a `session/prompt` request is in flight |
+| `needs_input` | a `session/request_permission` request is awaiting an answer |
+| `idle` | `session/prompt` returned, carrying a `stopReason` |
+| `stopped` | the process is gone |
+
+**`--always-approve` must not be passed**, even though the Grok docs recommend it
+for automation. It removes permission prompts altogether, and a permission prompt
+is the only thing `needs_input` can mean.
+
+## How dispatch works today
+
+Phase 2 dispatches by typing the task into a running agent's terminal, the way the
+graph panel's "Ask for a graph" does. That keeps dispatch working with the TUI
+sessions Phase 1 already has, and it is why the prompt is flattened to one line: a
+newline submits, so a multi-line prompt arrives as several fragments.
+
 ## Notes for later phases
 
 - A dispatched headless run should capture `sessionId` from
   `--output-format json` and persist it on the `sessions` row, so the session
   can later be resumed or exported.
-- Session status in Phase 1 is only `running` or `stopped`. Distinguishing
-  `idle` from `needs_input` needs `grok agent stdio` and its `session/update`
-  events; the `sessions` table already has the column for it.
+- An ACP-backed session needs no migration: `kind` is validated in Rust rather
+  than by a SQL `CHECK`, so a third value costs nothing. It does need somewhere to
+  be seen, having no pty — the task card and the Graph tab may be enough, since the
+  graph skill already teaches an agent to write its plan.
