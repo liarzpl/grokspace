@@ -170,10 +170,44 @@ is the only thing `needs_input` can mean.
 
 ## How dispatch works today
 
-Phase 2 dispatches by typing the task into a running agent's terminal, the way the
-graph panel's "Ask for a graph" does. That keeps dispatch working with the TUI
-sessions Phase 1 already has, and it is why the prompt is flattened to one line: a
-newline submits, so a multi-line prompt arrives as several fragments.
+There are two ways a task reaches an agent, because there are two kinds of agent.
+
+**Into a terminal.** The prompt is typed into a running `grok` pane, the way the
+graph panel's "Ask for a graph" does. This is why such a prompt is flattened to one
+line: a newline submits, so a multi-line prompt would arrive as several fragments.
+Nothing here can tell whether the agent read it, which is the limit of the approach.
+
+**To an ACP session.** `session/prompt` is a request, so the reply is what says the
+turn is over. No carriage return, because nothing is being typed. This is the path
+that makes `idle` and `needs_input` real, and an ACP session holds no pane — a full
+grid is never the reason a task cannot be dispatched.
+
+`--always-approve` is not passed to either. GrokSpace answers permission requests
+from the card of the task they concern, which is only possible because they are
+still being asked.
+
+## What is not verified
+
+The ACP path has never run against a real `grok`. It was written against the
+published ACP schema and Grok's own documented client example, and its logic is
+covered by tests that drive the handshake and the reader over in-memory buffers —
+but no machine in this project's CI has the binary, which needs a subscription and
+an interactive sign-in.
+
+What that means in practice, for whoever runs it first:
+
+- The handshake assumes `session/new` answers with `result.sessionId`. If Grok nests
+  it differently, `start` fails with "opened a session without giving it an id",
+  which is the error to look for.
+- The permission reply sends `{ "outcome": "selected", "optionId": "allow" }`.
+  ACP lets an agent offer its own option ids, so a real request may name something
+  other than `allow`, in which case the option would have to be read from the
+  request rather than assumed.
+- Status derivation depends on a prompt's reply carrying the same id it was sent
+  with, which JSON-RPC requires but only a real run proves.
+
+The terminal path, the board, and everything either shares is verified by running
+the app.
 
 ## Notes for later phases
 
