@@ -151,24 +151,48 @@ describe("refresh", () => {
     readSessionGraph.mockResolvedValue(snapshot());
 
     const { refresh } = useGraphStore.getState();
-    refresh("s1");
-    refresh("s1");
-    refresh("s1");
+    refresh("s1", true);
+    refresh("s1", true);
+    refresh("s1", true);
 
     expect(readSessionGraph).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(200);
     expect(readSessionGraph).toHaveBeenCalledTimes(1);
   });
 
-  it("reads a session it has never seen before", async () => {
+  it("reads an open session it has never seen before", async () => {
     vi.useFakeTimers();
     readSessionGraph.mockResolvedValue(snapshot());
 
     // The first graph of a run arrives as a change event, not as a load.
-    useGraphStore.getState().refresh("s1");
+    useGraphStore.getState().refresh("s1", true);
     await vi.advanceTimersByTimeAsync(200);
 
     expect(entry("s1").graph?.name).toBe("Idea Generation");
+  });
+
+  it("ignores a file left behind by a session that is no longer open", async () => {
+    vi.useFakeTimers();
+    readSessionGraph.mockResolvedValue(snapshot());
+
+    // Closing a session leaves its file and its project's watcher in place, so a
+    // late write names a session no pane is showing.
+    useGraphStore.getState().refresh("closed", false);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(readSessionGraph).not.toHaveBeenCalled();
+    expect(useGraphStore.getState().bySession).toEqual({});
+  });
+
+  it("still re-reads a graph it is holding for a session the caller cannot place", async () => {
+    readSessionGraph.mockResolvedValue(snapshot());
+    await useGraphStore.getState().load("s1");
+    vi.useFakeTimers();
+
+    useGraphStore.getState().refresh("s1", false);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(readSessionGraph).toHaveBeenCalledTimes(2);
   });
 
   it("does not resurrect a session that was closed while the read was queued", async () => {
@@ -176,7 +200,7 @@ describe("refresh", () => {
     readSessionGraph.mockResolvedValue(snapshot());
 
     const graphs = useGraphStore.getState();
-    graphs.refresh("s1");
+    graphs.refresh("s1", true);
     graphs.forget("s1");
     await vi.advanceTimersByTimeAsync(200);
 

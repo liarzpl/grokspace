@@ -45,8 +45,12 @@ interface GraphState {
 
   /** Reads a session's graph now; safe to call repeatedly. */
   load: (sessionId: string) => Promise<void>;
-  /** Coalesced re-read, driven by the backend's change event. */
-  refresh: (sessionId: string) => void;
+  /**
+   * Coalesced re-read, driven by the backend's change event. `isOpenSession`
+   * says whether a session with that id is still open, which the caller knows
+   * and this store does not.
+   */
+  refresh: (sessionId: string, isOpenSession: boolean) => void;
   /** Drops a session's graph, for a session that has been closed or replaced. */
   forget: (sessionId: string) => void;
   loadSkill: () => Promise<void>;
@@ -151,15 +155,21 @@ export const useGraphStore = create<GraphState>((set, get) => {
       await read(sessionId, true);
     },
 
-    refresh: (sessionId) => {
+    refresh: (sessionId, isOpenSession) => {
+      // Closing a session removes it from the workspace but leaves its file and
+      // its project's watcher behind, so a late write can name a session that
+      // nothing is showing. Reading it would file an entry — an error, once the
+      // backend has forgotten the session too — that no pane will ever ask for.
+      if (!isOpenSession && !(sessionId in get().bySession)) return;
+
       const queued = pending.get(sessionId);
       if (queued !== undefined) clearTimeout(queued);
       pending.set(
         sessionId,
         setTimeout(() => {
           pending.delete(sessionId);
-          // An event can arrive for a session this window has never drawn, so the
-          // entry is created rather than assumed.
+          // An open session can write its first graph before anything here has
+          // read it, so the entry is created rather than assumed.
           void get().load(sessionId);
         }, COALESCE_MS),
       );
