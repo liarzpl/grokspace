@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
+import CommandPalette from "./components/CommandPalette";
 import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
 import TitleBar from "./components/TitleBar";
@@ -10,6 +11,8 @@ import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useMemoryStore } from "./stores/memoryStore";
 import { useSessionStore } from "./stores/sessionStore";
 import { useTaskStore } from "./stores/taskStore";
+import { useUiStore } from "./stores/uiStore";
+import { shortcutFor } from "./lib/shortcuts";
 import type { SessionStatus } from "./types";
 
 interface SessionExited {
@@ -45,6 +48,7 @@ export default function App() {
   const clearMemoryError = useMemoryStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
+  const togglePalette = useUiStore((state) => state.togglePalette);
 
   // Every store that can fail has to be named here or its errors are written to a
   // field nothing reads. One banner, so a failure cannot arrive twice.
@@ -55,15 +59,23 @@ export default function App() {
   }, [loadProjects]);
 
   useEffect(() => {
+    // One listener for every shortcut, which is what lib/shortcuts.ts exists for.
+    //
+    // Registered in the capture phase on purpose: a focused terminal hands every
+    // keystroke to xterm, and xterm's own handler sits on its textarea. Capturing
+    // means this runs first and preventDefault stops the terminal seeing it, so
+    // Cmd+K opens the palette instead of being swallowed by whatever the shell
+    // thinks Cmd+K means.
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-        event.preventDefault();
-        void pickAndOpenProject();
-      }
+      const shortcut = shortcutFor(event);
+      if (shortcut === undefined) return;
+      event.preventDefault();
+      if (shortcut === "open-project") void pickAndOpenProject();
+      if (shortcut === "command-palette") togglePalette();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pickAndOpenProject]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [pickAndOpenProject, togglePalette]);
 
   useEffect(() => {
     // Terminal output streams over a channel; exits are infrequent enough to
@@ -128,6 +140,8 @@ export default function App() {
           {activeProject ? <WorkspaceShell project={activeProject} /> : <EmptyState />}
         </main>
       </div>
+
+      <CommandPalette />
 
       {error && (
         <div

@@ -5,6 +5,7 @@ import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useMemoryStore } from "../stores/memoryStore";
+import { TABS, useUiStore } from "../stores/uiStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useTaskStore } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
@@ -12,15 +13,6 @@ import GraphVisualizer from "./GraphVisualizer";
 import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
 import TaskBoard from "./TaskBoard";
-
-type WorkspaceTab = "terminals" | "graph" | "tasks" | "memory";
-
-const TABS: readonly { id: WorkspaceTab; label: string }[] = [
-  { id: "terminals", label: "Terminals" },
-  { id: "graph", label: "Graph" },
-  { id: "tasks", label: "Tasks" },
-  { id: "memory", label: "Memory" },
-];
 
 const GRAPH_STATUS_TONE: Record<GraphStatus, string> = {
   pending: "text-ink-faint",
@@ -215,7 +207,10 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   const loadGraph = useGraphStore((state) => state.load);
   const loadTasks = useTaskStore((state) => state.loadTasks);
   const loadMemory = useMemoryStore((state) => state.loadMemory);
-  const [tab, setTab] = useState<WorkspaceTab>("terminals");
+  // In a store rather than local state: the command palette switches tabs too, and
+  // two components cannot share a useState.
+  const tab = useUiStore((state) => state.tab);
+  const setTab = useUiStore((state) => state.setTab);
   const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
   useEffect(() => {
