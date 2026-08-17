@@ -10,9 +10,10 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 1 (terminal core).** Projects, a working multi-pane terminal
-> grid, and a live graph per session are in place. The Kanban board, shared
-> memory, and agent roles arrive in later phases — see [Roadmap](#roadmap).
+> **Status: Phase 2 (board and dispatch).** Projects, a multi-pane terminal grid,
+> a live graph per session, and a task board that hands work to an agent are in
+> place. Richer session status than running/stopped, shared memory, and agent
+> roles arrive next — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -32,7 +33,12 @@ telemetry; workspace state lives in `~/.grokspace`.
   the panel redraws the moment an agent writes to it. Watch a plan from the Graph
   tab, or flip a single pane from `term` to `graph` and keep working in the
   others.
-- **Local persistence** — projects and sessions live in SQLite at
+- **Task board** — a Kanban board per project, in the columns `backlog`,
+  `in_progress`, `review`, and `done`. Cards can be dragged between columns or
+  moved with the arrows on the card, and each card can be handed to an agent:
+  either one already running in a pane, or a fresh one started in a free pane.
+  Dispatching types the task into that agent and records which session took it.
+- **Local persistence** — projects, sessions, and tasks live in SQLite at
   `~/.grokspace/grokspace.db`.
 
 ## Stack
@@ -87,8 +93,9 @@ Tauri needs to compile on Linux.
 .github/          The CI workflow: the same checks, on every pull request
 src/
   components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState,
-                  PaneGrid, TerminalPane, GraphVisualizer, graph/
-  stores/         Zustand stores (projectStore, sessionStore, graphStore)
+                  PaneGrid, TerminalPane, GraphVisualizer, TaskBoard, graph/
+  stores/         Zustand stores (projectStore, sessionStore, graphStore,
+                  taskStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
                   the graph document parser, and helpers
   types.ts        Mirrors the Rust structs, which serialize as camelCase
@@ -101,6 +108,7 @@ src-tauri/
     project.rs    Project model, queries, and Tauri commands
     pty.rs        Pseudo-terminal plumbing; no database, no Tauri
     session.rs    Session model and the commands that drive a pty
+    task.rs       Task model, the board's queries, and dispatch
     graph.rs      Graph file locations, reads, and the change watcher
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
@@ -177,18 +185,20 @@ Migrations are an append-only list in
 that has already shipped.
 
 Migration `0001` creates `projects`, `tasks`, `sessions`, and `memory_entries`.
-`tasks` and `memory_entries` are still unused; they are reserved so the later
-phases add queries rather than reshaping live databases.
+`tasks` gained its queries in Phase 2 without a schema change, which is what
+writing it in Phase 0 bought. `memory_entries` is still unused, reserved the same
+way for Phase 3.
 
 ## Roadmap
 
 - **Phase 0 — Foundation.** Scaffold, window shell, SQLite, project CRUD. Done.
 - **Phase 1 — Terminal core.** Pty-backed sessions, xterm.js panes, the grid
   layout, the session lifecycle, and a live graph per session. Done.
-- **Phase 2 — Kanban and dispatch.** Task board with drag-to-dispatch onto a
-  free terminal or a freshly spawned session. This is also where session status
-  becomes richer than running/stopped: telling `idle` from `needs_input` needs
-  the structured ACP event stream, not scraped terminal output.
+- **Phase 2 — Kanban and dispatch.** The board, and dispatch onto a running agent
+  or a freshly spawned one: done. Richer session status than running/stopped is
+  the other half and is not: telling `idle` from `needs_input` needs the ACP
+  event stream, and an ACP session is not a terminal, which
+  [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) explains.
 - **Phase 3 — Memory and roles.** Shared project memory, role presets
   (Planner, Coder, Reviewer, Tester, Scout), and swarm launches.
 - **Phase 4 — Polish and distribution.** Command palette, diff preview,
