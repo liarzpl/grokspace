@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SAMPLE_GRAPH } from "../lib/graphFixture";
-import type { GraphSnapshot } from "../types";
+import type { GraphSnapshot, SkillStatus } from "../types";
 
 const readSessionGraph = vi.fn();
+const graphSkillStatus = vi.fn();
+const installGraphSkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-  return { errorMessage: actual.errorMessage, api: { readSessionGraph } };
+  return {
+    errorMessage: actual.errorMessage,
+    api: { readSessionGraph, graphSkillStatus, installGraphSkill },
+  };
 });
 
 const { graphFor, useGraphStore } = await import("./graphStore");
@@ -257,5 +262,58 @@ describe("forget", () => {
     await inFlight;
 
     expect(useGraphStore.getState().bySession).toEqual({});
+  });
+});
+
+const skill = (overrides: Partial<SkillStatus> = {}): SkillStatus => ({
+  path: "/home/dev/.grok/skills/grokspace-graph/SKILL.md",
+  installed: true,
+  current: true,
+  ...overrides,
+});
+
+describe("loadSkill", () => {
+  it("asks the backend once however many panes want to know", async () => {
+    // Six empty panes share one answer; that is why the status is not per-pane.
+    graphSkillStatus.mockResolvedValue(skill({ installed: false, current: false }));
+
+    await useGraphStore.getState().loadSkill();
+    await useGraphStore.getState().loadSkill();
+
+    expect(graphSkillStatus).toHaveBeenCalledTimes(1);
+    expect(useGraphStore.getState().skill?.installed).toBe(false);
+  });
+
+  it("stays quiet when the backend cannot answer", async () => {
+    // This only decides whether to offer the install button, so a failure must not
+    // put an error over a panel that is otherwise working.
+    graphSkillStatus.mockRejectedValue("no home directory");
+
+    await useGraphStore.getState().loadSkill();
+
+    expect(useGraphStore.getState().skill).toBeNull();
+  });
+});
+
+describe("installSkill", () => {
+  it("takes the status the install reports back", async () => {
+    useGraphStore.setState({ skill: skill({ installed: false, current: false }) });
+    installGraphSkill.mockResolvedValue(skill());
+
+    await useGraphStore.getState().installSkill();
+
+    expect(useGraphStore.getState().skill?.current).toBe(true);
+    expect(useGraphStore.getState().isInstallingSkill).toBe(false);
+  });
+
+  it("leaves the button usable when the install fails", async () => {
+    const before = skill({ installed: false, current: false });
+    useGraphStore.setState({ skill: before });
+    installGraphSkill.mockRejectedValue("permission denied");
+
+    await useGraphStore.getState().installSkill();
+
+    expect(useGraphStore.getState().skill).toEqual(before);
+    expect(useGraphStore.getState().isInstallingSkill).toBe(false);
   });
 });
