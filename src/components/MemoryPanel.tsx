@@ -96,9 +96,14 @@ function NewEntryForm({ projectId }: { projectId: string }) {
   const [content, setContent] = useState("");
   const [type, setType] = useState<MemoryEntryType>("context");
 
+  // Both halves are needed, and the button says so by being disabled rather than by
+  // accepting the click and doing nothing. A control that looks pressable and is not
+  // is the same trap the task board's hidden controls were.
+  const ready = key.trim() !== "" && content.trim() !== "";
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (key.trim() === "" || content.trim() === "") return;
+    if (!ready) return;
     if (await putEntry(projectId, { key, content, type })) {
       setKey("");
       setContent("");
@@ -149,7 +154,9 @@ function NewEntryForm({ projectId }: { projectId: string }) {
             no implicit submission, so this is the thing that makes the keyboard work. */}
         <button
           type="submit"
-          className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90"
+          disabled={!ready}
+          title={ready ? undefined : "A memory entry needs both a key and something to remember"}
+          className="shrink-0 rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40"
         >
           Remember
         </button>
