@@ -238,6 +238,24 @@ fn watch_dirs(
     Ok(watcher)
 }
 
+/// The directories a project's watcher covers.
+///
+/// Exactly one: the directory its sessions are being told to write into, which is
+/// what `ensure_graph_dir` decides — creating it on the way, since notify cannot
+/// watch a directory that does not exist and the first graph of a run creates the
+/// directory along with the file.
+///
+/// Watching the fallback as well would put a watcher on `~/.grokspace/graphs` for
+/// every open project, because they all share it, and so report every write landing
+/// there once per project. A graph left in the fallback from a spell when the
+/// project folder could not be written to is still found by `snapshot`, which reads
+/// both; it is only no longer reported live.
+fn watched_dirs(project_path: &Path) -> Vec<PathBuf> {
+    ensure_graph_dir(project_path)
+        .map(|dir| vec![dir])
+        .unwrap_or_default()
+}
+
 /// One watcher per project, keyed by project id.
 ///
 /// Asking again replaces that project's watcher rather than stacking a second one
@@ -260,16 +278,13 @@ impl GraphWatchers {
         Self::default()
     }
 
-    /// Starts watching a project's graph directories and returns the ones that
-    /// could be watched.
+    /// Starts watching a project's graph directory and returns what could be
+    /// watched, which is empty when the directory could not be prepared at all.
     fn watch(&self, app: AppHandle, project_id: &str, project_path: &Path) -> Result<Vec<String>> {
-        let dirs = graph_dirs(project_path);
-        // notify cannot watch a directory that does not exist yet, and the first
-        // graph of a run creates the directory along with the file.
-        for dir in &dirs {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let existing: Vec<PathBuf> = dirs.into_iter().filter(|dir| dir.is_dir()).collect();
+        let existing: Vec<PathBuf> = watched_dirs(project_path)
+            .into_iter()
+            .filter(|dir| dir.is_dir())
+            .collect();
         if existing.is_empty() {
             return Ok(Vec::new());
         }
@@ -511,6 +526,26 @@ mod tests {
 
         assert_eq!(graphs, project_graph_dir(project.path()));
         assert!(graphs.is_dir());
+    }
+
+    #[test]
+    fn a_project_is_watched_in_one_directory_only() {
+        let project = dir();
+
+        let watched = watched_dirs(project.path());
+
+        // Not the fallback as well: every project shares it, so a watch on it here
+        // would report each write landing there once per open project.
+        assert_eq!(watched, vec![project_graph_dir(project.path())]);
+    }
+
+    #[test]
+    fn a_project_that_cannot_hold_graphs_is_watched_in_the_fallback() {
+        // /proc rejects the directory, which is what a read-only project folder
+        // does too, and is where the writer will have been sent instead.
+        let watched = watched_dirs(Path::new("/proc/nonexistent-project"));
+
+        assert_eq!(watched, vec![home_graph_dir().unwrap()]);
     }
 
     #[test]
