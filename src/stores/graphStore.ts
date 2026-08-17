@@ -110,6 +110,21 @@ export const useGraphStore = create<GraphState>((set, get) => {
       return;
     }
 
+    // Ahead of the missing-graph branch, which an unread file also lands in: a
+    // file refused for its size is there, so reporting it as no graph yet would
+    // leave the pane waiting for something that has already arrived.
+    if (snapshot.tooLarge) {
+      write(sessionId, {
+        path: snapshot.path,
+        graph: null,
+        warnings: [],
+        error: "The graph file is too large to read.",
+        updatedAt: snapshot.updatedAt,
+        isLoading: false,
+      });
+      return;
+    }
+
     if (snapshot.json === null) {
       write(sessionId, {
         path: snapshot.path,

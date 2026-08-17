@@ -18,6 +18,7 @@ function snapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
     path: "/p/.grokspace/graphs/s1.json",
     exists: true,
     json: JSON.stringify(SAMPLE_GRAPH),
+    tooLarge: false,
     updatedAt: 1000,
     ...overrides,
   };
@@ -135,7 +136,6 @@ describe("a half-written file", () => {
     expect(entry("s1").graph).toBeNull();
     expect(entry("s1").error).toContain("JSON");
   });
-
 });
 
 describe("a file that is valid JSON but not a graph", () => {
@@ -147,6 +147,20 @@ describe("a file that is valid JSON but not a graph", () => {
     expect(entry("s1").error).toContain("nodes");
     // Nothing is half-written here, so a second read would say the same thing.
     // Waiting for one would put that cost on every update of a stably bad file.
+    expect(readSessionGraph).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a file the backend refused for its size", () => {
+  it("is reported rather than shown as a graph that has not arrived", async () => {
+    readSessionGraph.mockResolvedValue(snapshot({ json: null, tooLarge: true }));
+
+    await useGraphStore.getState().load("s1");
+
+    // The empty state would name this file and wait for it, which it is not going
+    // to get: the file is already there.
+    expect(entry("s1").error).toContain("too large");
+    expect(entry("s1").graph).toBeNull();
     expect(readSessionGraph).toHaveBeenCalledTimes(1);
   });
 });

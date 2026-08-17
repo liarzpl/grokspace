@@ -28,6 +28,14 @@ use crate::{db, project, session, AppState};
 /// session exit event this is infrequent, which is what the event system is for.
 const CHANGE_EVENT: &str = "graph-changed";
 
+/// The most a graph file may be before it is refused unread.
+///
+/// A graph is a plan: the bundled fixture is a few kilobytes and a thousand-node
+/// document still sits well under a megabyte. This is high enough that no real
+/// graph meets it, and low enough to stop an agent that redirects a log into
+/// `GROKSPACE_GRAPH_FILE` from being carried across the IPC boundary.
+const MAX_GRAPH_BYTES: u64 = 4 * 1024 * 1024;
+
 /// The skill GrokSpace installs so `grok` knows to write these files at all.
 /// `~/.grok/skills` is the user-level directory Grok Build discovers skills from.
 const SKILL_DIR: &str = ".grok/skills/grokspace-graph";
@@ -82,8 +90,13 @@ pub struct GraphSnapshot {
     /// The file that was read, or the one that is expected to appear.
     pub path: String,
     pub exists: bool,
-    /// The file's contents, absent when the file is missing or still empty.
+    /// The file's contents, absent when the file is missing, still empty, or
+    /// refused for its size.
     pub json: Option<String>,
+    /// True when the file was past `MAX_GRAPH_BYTES` and so was never read. Told
+    /// apart from an absent `json` because the panel has something honest to say
+    /// about a file that is there but will not be opened.
+    pub too_large: bool,
     /// Modification time in milliseconds, matching every other timestamp here.
     pub updated_at: Option<i64>,
 }
@@ -116,15 +129,23 @@ fn snapshot_in(dirs: &[PathBuf], session_id: &str) -> GraphSnapshot {
         if !metadata.is_file() {
             continue;
         }
-        let json = match std::fs::read_to_string(&candidate) {
-            Ok(text) if !text.trim().is_empty() => Some(text),
-            _ => None,
+        // Checked before the read, which is the whole point: the size is already
+        // in hand from the metadata above.
+        let too_large = metadata.len() > MAX_GRAPH_BYTES;
+        let json = if too_large {
+            None
+        } else {
+            match std::fs::read_to_string(&candidate) {
+                Ok(text) if !text.trim().is_empty() => Some(text),
+                _ => None,
+            }
         };
         return GraphSnapshot {
             session_id: session_id.to_string(),
             path: candidate.to_string_lossy().into_owned(),
             exists: true,
             json,
+            too_large,
             updated_at: mtime_ms(&metadata),
         };
     }
@@ -134,6 +155,7 @@ fn snapshot_in(dirs: &[PathBuf], session_id: &str) -> GraphSnapshot {
         path: expected.unwrap_or_default().to_string_lossy().into_owned(),
         exists: false,
         json: None,
+        too_large: false,
         updated_at: None,
     }
 }
@@ -407,6 +429,43 @@ mod tests {
 
         assert!(snapshot.exists);
         assert_eq!(snapshot.json, None);
+        assert!(!snapshot.too_large);
+    }
+
+    /// The bytes need not be a document: this layer hands JSON to the frontend
+    /// unparsed, so only the length decides.
+    fn filler(bytes: u64) -> Vec<u8> {
+        vec![b'x'; bytes as usize]
+    }
+
+    #[test]
+    fn a_graph_past_the_size_cap_is_refused_unread() {
+        let project = dir();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join("s1.json"), filler(MAX_GRAPH_BYTES + 1)).unwrap();
+
+        let snapshot = snapshot(project.path(), "s1");
+
+        // Reported as present but unread, so the panel can say why rather than
+        // waiting for a graph that has already arrived.
+        assert!(snapshot.exists);
+        assert!(snapshot.too_large);
+        assert_eq!(snapshot.json, None);
+    }
+
+    #[test]
+    fn a_graph_at_the_size_cap_is_still_read() {
+        let project = dir();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join("s1.json"), filler(MAX_GRAPH_BYTES)).unwrap();
+
+        let snapshot = snapshot(project.path(), "s1");
+
+        assert!(!snapshot.too_large, "the cap is a ceiling, not a threshold");
+        assert_eq!(
+            snapshot.json.map(|json| json.len() as u64),
+            Some(MAX_GRAPH_BYTES)
+        );
     }
 
     #[test]
