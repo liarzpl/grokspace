@@ -508,17 +508,30 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
 fn close(state: &State<'_, AppState>, id: &str) -> Result<()> {
     let _ = state.pty.kill(id);
     state.pty.remove(id);
-    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    // Before the row goes, since the session is the only way back to the project
-    // whose folder holds the graph. Nothing can surface this file again once the id
-    // is gone from the database, and restarting closes a session too, so leaving it
-    // meant every restart added one.
-    if let Ok(session) = get(&conn, id) {
-        if let Ok(project) = project::get(&conn, &session.project_id) {
-            graph::remove_graph(Path::new(&project.path), id);
-        }
+
+    // The project path is read while the row is still there, since the session is
+    // the only way back to the folder that holds its graph.
+    let project_path = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        let path = get(&conn, id)
+            .ok()
+            .and_then(|session| project::get(&conn, &session.project_id).ok())
+            .map(|project| project.path);
+        // A row that would not delete means the session is still here, and so is
+        // its graph.
+        delete(&conn, id)?;
+        path
+    };
+
+    // Deliberately after the lock is dropped: every command shares this one
+    // connection, and remove_file can block on a slow or networked disk. Nothing
+    // can surface this file again once the id has left the database, and restarting
+    // closes a session too, so leaving it meant every restart added one.
+    if let Some(path) = project_path {
+        graph::remove_graph(Path::new(&path), id);
     }
-    delete(&conn, id)
+
+    Ok(())
 }
 
 #[cfg(test)]
