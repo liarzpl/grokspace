@@ -13,12 +13,19 @@ use tauri::State;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
+use crate::skill::{Skill, SkillStatus};
 use crate::{project, AppState};
 
 const COLUMNS: &str = "project_id, key, content, type, updated_at";
 
 /// The file agents are pointed at, beside the graphs a session writes.
 const MEMORY_FILE: &str = "memory.md";
+
+/// The skill that teaches an agent to read the file before it plans anything.
+const SKILL: Skill = Skill {
+    dir: "grokspace-memory",
+    content: include_str!("../skills/project-memory/SKILL.md"),
+};
 
 /// The most memory a project may hold, in characters of content.
 ///
@@ -281,6 +288,16 @@ pub fn remove_memory(
     })
 }
 
+#[tauri::command]
+pub fn memory_skill_status() -> Result<SkillStatus> {
+    SKILL.status()
+}
+
+#[tauri::command]
+pub fn install_memory_skill() -> Result<SkillStatus> {
+    SKILL.install()
+}
+
 /// The path the panel names, so someone can look at what agents are being given.
 #[tauri::command]
 pub fn memory_file_path(state: State<'_, AppState>, project_id: String) -> Result<String> {
@@ -466,6 +483,23 @@ mod tests {
         let file = memory_file(dir.path());
         assert!(file.ends_with(".grokspace/memory.md"));
         assert!(std::fs::read_to_string(&file).unwrap().contains("Tauri"));
+    }
+
+    #[test]
+    fn the_bundled_skill_names_the_variable_and_the_file_it_relies_on() {
+        // A skill that names the wrong path teaches an agent to read a file nobody
+        // writes, which is a quieter failure than not installing at all.
+        assert!(SKILL.content.contains("GROKSPACE_MEMORY_FILE"));
+        assert!(SKILL.content.contains(MEMORY_FILE));
+        assert!(SKILL.content.starts_with("---\n"));
+        assert_eq!(SKILL.dir, "grokspace-memory");
+    }
+
+    #[test]
+    fn the_skill_tells_the_agent_not_to_write_the_file() {
+        // The projection is one-directional, and an agent that edits it loses the
+        // edit silently. Saying so is the only thing keeping that honest.
+        assert!(SKILL.content.contains("Do not write to it"));
     }
 
     #[test]

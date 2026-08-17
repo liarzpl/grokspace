@@ -68,6 +68,8 @@ pub fn run() {
             memory::put_memory,
             memory::remove_memory,
             memory::memory_file_path,
+            memory::memory_skill_status,
+            memory::install_memory_skill,
             task::list_tasks,
             task::create_task,
             task::update_task,
