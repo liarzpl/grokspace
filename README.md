@@ -57,9 +57,12 @@ telemetry; workspace state lives in `~/.grokspace`.
   launches, project switches, and skill installs from one place, and it opens over a
   focused terminal rather than being swallowed by it. Search matches a subsequence, so
   `sgr` finds "Start Grok in the first free pane".
-- **Settings** — a default pane layout for projects that have never chosen one, and
-  which panel the workspace opens on. Shared by every project, and refused rather than
-  stored when a value is not one this build knows.
+- **Settings** — a default pane layout for projects that have never chosen one, which
+  panel the workspace opens on, and which new session a dispatch reaches for first.
+  Shared by every project, and refused rather than stored when a value is not one this
+  build knows. The dispatch preference reorders what is offered and never picks a
+  target: a setting that chose for you would be one that sends work somewhere nobody
+  looked.
 - **A diff panel** — what the agents have changed, read out of `git`. Modified, new,
   deleted and renamed files, with each file's diff against `HEAD`; a file git has never
   seen is shown as all additions rather than skipped. Read-only, because undoing an
@@ -126,7 +129,8 @@ src/
                   taskStore, memoryStore, settingsStore, diffStore, uiStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
                   the graph document parser, the role presets, the shortcut
-                  table, the palette's commands, and the theme reader
+                  table, the palette's commands, the dispatch targets, and
+                  the theme reader
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
 scripts/          Development helpers; demo-graph.mjs writes a moving graph

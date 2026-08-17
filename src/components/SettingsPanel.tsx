@@ -107,10 +107,19 @@ export default function SettingsPanel() {
             onChoose={(tab) => void setSetting("openingTab", tab)}
           />
 
+          <Choice
+            label="Dispatch reaches for"
+            hint="Which new session is offered first when a task is handed out"
+            options={["pane", "agent"] as const}
+            value={settings.defaultDispatch}
+            onChoose={(target) => void setSetting("defaultDispatch", target)}
+          />
+
           <p className="text-[10px] leading-relaxed text-ink-faint">
             Changing the default layout does not move a project that has already picked
             one. Changing what the workspace opens on takes effect next launch, not now —
             yanking you to another panel mid-thought would be the wrong kind of helpful.
+            Dispatch only reorders what is offered; it never picks a target for you.
           </p>
         </div>
       </div>
