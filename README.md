@@ -10,11 +10,11 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 3 complete.** Projects, a multi-pane terminal grid, a live graph
+> **Status: Phase 4 in progress.** Projects, a multi-pane terminal grid, a live graph
 > per session, a task board that hands work to an agent, agents driven over ACP that
-> report what they are doing, a project memory every session reads, and role presets
-> that can be launched as a swarm. Phase 4 is polish and distribution — see
-> [Roadmap](#roadmap).
+> report what they are doing, a project memory every session reads, role presets that
+> can be launched as a swarm, a command palette, settings, and a diff panel. What
+> remains of Phase 4 is the signed release — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -53,8 +53,23 @@ telemetry; workspace state lives in `~/.grokspace`.
   as `GROKSPACE_SESSION_ROLE`, and is what the agent is told first. One click starts
   one agent per chosen role, each briefed for its job; a role that will not start is
   named rather than losing the rest.
-- **Local persistence** — projects, sessions, tasks, and memory live in SQLite at
-  `~/.grokspace/grokspace.db`.
+- **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
+  launches, project switches, and skill installs from one place, and it opens over a
+  focused terminal rather than being swallowed by it. Search matches a subsequence, so
+  `sgr` finds "Start Grok in the first free pane".
+- **Settings** — a default pane layout for projects that have never chosen one, which
+  panel the workspace opens on, and which new session a dispatch reaches for first.
+  Shared by every project, and refused rather than stored when a value is not one this
+  build knows. The dispatch preference reorders what is offered and never picks a
+  target: a setting that chose for you would be one that sends work somewhere nobody
+  looked.
+- **A diff panel** — what the agents have changed, read out of `git`. Modified, new,
+  deleted and renamed files, with each file's diff against `HEAD`; a file git has never
+  seen is shown as all additions rather than skipped. Read-only, because undoing an
+  agent's work is not something this app should own before it can show that work
+  clearly.
+- **Local persistence** — projects, sessions, tasks, memory, and settings live in
+  SQLite at `~/.grokspace/grokspace.db`.
 
 ## Stack
 
@@ -108,11 +123,15 @@ Tauri needs to compile on Linux.
 .github/          The CI workflow: the same checks, on every pull request
 src/
   components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState, PaneGrid,
-                  TerminalPane, GraphVisualizer, TaskBoard, MemoryPanel, graph/
+                  TerminalPane, GraphVisualizer, TaskBoard, MemoryPanel,
+                  CommandPalette, SettingsPanel, DiffPanel, graph/
   stores/         Zustand stores (projectStore, sessionStore, graphStore,
-                  taskStore, memoryStore)
+                  taskStore, memoryStore, settingsStore, diffStore, uiStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
-                  the graph document parser, the role presets, and helpers
+                  the graph document parser, the role presets, the shortcut
+                  table, the palette's commands, the dispatch targets, and
+                  the theme reader
+  styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
 scripts/          Development helpers; demo-graph.mjs writes a moving graph
 src-tauri/
@@ -123,17 +142,27 @@ src-tauri/
     project.rs    Project model, queries, and Tauri commands
     pty.rs        Pseudo-terminal plumbing; no database, no Tauri
     session.rs    Session model and the commands that drive a pty or an agent
+    program.rs    Finding `grok` and `git` when PATH is not enough
     acp.rs        Agent Client Protocol: status from JSON-RPC, no Tauri, no database
     task.rs       Task model, the board's queries, and dispatch
     memory.rs     Shared project memory, and the file agents read it from
     skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
+    diff.rs       What the agents changed, read out of git; no Tauri needed to test
+    settings.rs   App preferences: key-value in SQLite, typed on the way out
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
 ```
 
 The frontend never spells out raw command names: every backend call goes
 through a typed wrapper in [`src/lib/api.ts`](src/lib/api.ts).
+
+Colour works the same way. Every value the app draws is declared in
+[`src/styles.css`](src/styles.css), including the sixteen ANSI colours a terminal
+paints with. Two places cannot use Tailwind classes — xterm takes a theme object and
+React Flow takes props — so [`src/lib/theme.ts`](src/lib/theme.ts) reads the tokens
+back out of the stylesheet rather than keeping a second copy. Adding a light theme is
+a second block in one file.
 
 ### How terminals work
 
@@ -236,9 +265,17 @@ Migrations are an append-only list in
 that has already shipped.
 
 Migration `0001` creates `projects`, `tasks`, `sessions`, and `memory_entries`.
-Every table written in Phase 0 has since gained its queries without a schema
-change: `tasks` and a third `sessions.kind` in Phase 2, `memory_entries` in Phase 3.
-Two migrations, both from before any of that.
+Phases 1 to 3 needed no schema change at all: `tasks` and a third `sessions.kind` in
+Phase 2, `memory_entries` and `sessions.role` in Phase 3, all of it already reserved.
+Phase 4 ends that streak with `0003`, because a preference belonging to the app rather
+than to a project had no reserved home. It is key-value rather than a column per
+setting, which is the same lesson read backwards: a shape decided now is a shape a
+later phase has to migrate, so the typed surface lives in Rust where changing it is
+free.
+
+`sessions.worktree_path` is the one reserved column still unwritten. Filling it means
+giving each agent its own git worktree, which is what per-session diff attribution
+would need — a phase of its own rather than polish.
 
 ## Roadmap
 
@@ -254,8 +291,10 @@ Two migrations, both from before any of that.
 - **Phase 3 — Memory and roles.** Shared project memory, role presets, and swarm
   launches. Done, with the same caveat Phase 2 carries: a swarm is made of ACP
   sessions, and that path has never run against a real `grok`.
-- **Phase 4 — Polish and distribution.** Command palette, diff preview,
-  settings, and a notarized `.dmg`.
+- **Phase 4 — Polish and distribution.** A command palette, a diff panel, settings,
+  and a notarized `.dmg`. The first three are done. The release pipeline is written but
+  cannot be proven from here: signing and notarizing need Apple Developer credentials
+  and a macOS runner, so the first tagged build is what verifies it.
 
 [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
 verified `grok` CLI surface that Phases 1-3 build on.

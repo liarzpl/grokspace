@@ -12,7 +12,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { api } from "../lib/api";
-import { inferDirection, type GraphDocument, type NodeStatus } from "../lib/graph";
+import { inferDirection, type GraphDocument } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import type { Session } from "../types";
@@ -21,20 +21,20 @@ import GraphNodeCard, {
   NODE_WIDTH,
   type GraphFlowNode,
 } from "./graph/GraphNode";
+import { graphTheme } from "../lib/theme";
 import NodeInspector from "./graph/NodeInspector";
 
 /** Module scope on purpose: React Flow warns when this object's identity changes. */
 const nodeTypes = { graphNode: GraphNodeCard };
 
-const MINIMAP_COLOR: Record<NodeStatus, string> = {
-  pending: "#5b6474",
-  running: "#6d8cff",
-  completed: "#5ad4a0",
-  failed: "#ff6b6b",
-  skipped: "#333b49",
-};
-
-const EDGE_STROKE = "#2f3745";
+/**
+ * The canvas takes colour as props rather than classes, so it reads the tokens out of
+ * the stylesheet. A second copy of the palette here is exactly what made theme
+ * switching a bigger job than styles.css claimed it would be.
+ *
+ * Read once per render rather than at module load: a module body runs before the
+ * stylesheet is applied, and `getComputedStyle` would see nothing.
+ */
 
 /**
  * Typed into the agent's terminal by "Ask for a graph". Naming the variable
@@ -198,6 +198,10 @@ function GraphCanvas({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Read per render rather than at module load: the stylesheet has to be applied
+  // before getComputedStyle can see a variable, and a module body runs too early.
+  const theme = graphTheme();
+
   const direction = useMemo(() => inferDirection(graph.nodes), [graph.nodes]);
 
   const nodes = useMemo<GraphFlowNode[]>(
@@ -223,13 +227,13 @@ function GraphCanvas({
         type: edge.type,
         animated: edge.animated,
         ...(edge.label !== undefined ? { label: edge.label } : {}),
-        style: { stroke: EDGE_STROKE },
-        labelStyle: { fill: "#8c95a6", fontSize: 10 },
-        labelBgStyle: { fill: "#101319" },
+        style: { stroke: theme.edge },
+        labelStyle: { fill: theme.edgeLabel, fontSize: 10 },
+        labelBgStyle: { fill: theme.edgeLabelBackground },
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 3,
       })),
-    [graph.edges],
+    [graph.edges, theme],
   );
 
   // Derived rather than stored, so a node that disappears from a reloaded graph
@@ -270,19 +274,19 @@ function GraphCanvas({
               attributionPosition="bottom-center"
               className="bg-canvas"
             >
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#222835" />
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color={theme.canvasDots} />
               <Controls showInteractive={false} />
               {/* A pane-sized canvas has no room for a minimap next to the graph. */}
               {!compact && (
                 <MiniMap<GraphFlowNode>
                   pannable
                   zoomable
-                  nodeColor={(node) => MINIMAP_COLOR[node.data.node.status]}
-                  nodeStrokeColor="#0b0d12"
+                  nodeColor={(node) => theme.node[node.data.node.status]}
+                  nodeStrokeColor={theme.minimapStroke}
                   nodeStrokeWidth={2}
                   nodeBorderRadius={3}
-                  bgColor="#0e1117"
-                  maskColor="#0b0d12b3"
+                  bgColor={theme.minimapBackground}
+                  maskColor={theme.minimapMask}
                   className="rounded-md border border-line"
                 />
               )}

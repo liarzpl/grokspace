@@ -94,6 +94,45 @@ export interface GraphSnapshot {
   updatedAt: number | null;
 }
 
+/** What happened to one file, in the words `git status` uses. */
+export type FileChange = "added" | "modified" | "deleted" | "renamed" | "untracked";
+
+export interface ChangedFile {
+  path: string;
+  change: FileChange;
+}
+
+/**
+ * What the diff panel has to draw, as one of four things it can honestly say.
+ *
+ * A union rather than a struct of optionals: "git is missing" and "nothing has
+ * changed" are different sentences, and a `files: []` that meant either would leave
+ * the panel guessing.
+ */
+export type DiffState =
+  | { state: "gitMissing" }
+  | { state: "notARepo" }
+  | { state: "clean"; branch: string | null }
+  | { state: "changed"; branch: string | null; files: ChangedFile[] };
+
+/**
+ * Preferences that belong to the app rather than to one project. Missing keys read
+ * as their defaults, so an older database needs no backfill.
+ */
+export interface Settings {
+  /** The pane layout a project that has never chosen one gets. */
+  defaultLayout: PaneLayout;
+  /** The panel the workspace opens on. */
+  openingTab: "terminals" | "graph" | "tasks" | "memory";
+  /**
+   * Which new session a dispatch reaches for first. Only the order of the offer
+   * changes, so nothing is chosen on anyone's behalf — but it decides which chip is
+   * nearest the pointer, and for someone who always dispatches the same way that is
+   * the difference between one click and seven.
+   */
+  defaultDispatch: "pane" | "agent";
+}
+
 /** Whether the skill that teaches `grok` to write graph files is in place. */
 export interface SkillStatus {
   path: string;
@@ -107,6 +146,13 @@ export type PaneLayout = "1x1" | "2x1" | "2x2" | "3x2";
 
 export const PANE_LAYOUTS: readonly PaneLayout[] = ["1x1", "2x1", "2x2", "3x2"];
 
+/**
+ * The layout a project falls back to when nothing else has an opinion.
+ *
+ * Both the frontend's settings store and `settings.rs` name the same value, and this
+ * is the third place it appears — kept because the fallback chain has to end
+ * somewhere that does not depend on a preference having loaded.
+ */
 export const DEFAULT_LAYOUT: PaneLayout = "2x2";
 
 export function paneCount(layout: PaneLayout): number {

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
+import CommandPalette from "./components/CommandPalette";
+import SettingsPanel from "./components/SettingsPanel";
 import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
 import TitleBar from "./components/TitleBar";
@@ -10,6 +12,10 @@ import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useMemoryStore } from "./stores/memoryStore";
 import { useSessionStore } from "./stores/sessionStore";
 import { useTaskStore } from "./stores/taskStore";
+import { useDiffStore } from "./stores/diffStore";
+import { useSettingsStore } from "./stores/settingsStore";
+import { useUiStore } from "./stores/uiStore";
+import { shortcutFor } from "./lib/shortcuts";
 import type { SessionStatus } from "./types";
 
 interface SessionExited {
@@ -39,31 +45,55 @@ export default function App() {
   const sessionError = useSessionStore((state) => state.error);
   const taskError = useTaskStore((state) => state.error);
   const memoryError = useMemoryStore((state) => state.error);
+  const settingsError = useSettingsStore((state) => state.error);
+  const diffError = useDiffStore((state) => state.error);
   const clearProjectError = useProjectStore((state) => state.clearError);
   const clearSessionError = useSessionStore((state) => state.clearError);
   const clearTaskError = useTaskStore((state) => state.clearError);
   const clearMemoryError = useMemoryStore((state) => state.clearError);
+  const clearSettingsError = useSettingsStore((state) => state.clearError);
+  const clearDiffError = useDiffStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
+  const togglePalette = useUiStore((state) => state.togglePalette);
 
   // Every store that can fail has to be named here or its errors are written to a
   // field nothing reads. One banner, so a failure cannot arrive twice.
-  const error = projectError ?? sessionError ?? taskError ?? memoryError;
+  const error =
+    projectError ?? sessionError ?? taskError ?? memoryError ?? settingsError ?? diffError;
 
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
 
   useEffect(() => {
+    // The opening tab is applied once, here, rather than by the settings store on
+    // every load: changing the preference should take effect next launch, not yank
+    // you to another panel while you are reading this one.
+    void useSettingsStore
+      .getState()
+      .loadSettings()
+      .then((settings) => useUiStore.getState().setTab(settings.openingTab));
+  }, []);
+
+  useEffect(() => {
+    // One listener for every shortcut, which is what lib/shortcuts.ts exists for.
+    //
+    // Registered in the capture phase on purpose: a focused terminal hands every
+    // keystroke to xterm, and xterm's own handler sits on its textarea. Capturing
+    // means this runs first and preventDefault stops the terminal seeing it, so
+    // Cmd+K opens the palette instead of being swallowed by whatever the shell
+    // thinks Cmd+K means.
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "o") {
-        event.preventDefault();
-        void pickAndOpenProject();
-      }
+      const shortcut = shortcutFor(event);
+      if (shortcut === undefined) return;
+      event.preventDefault();
+      if (shortcut === "open-project") void pickAndOpenProject();
+      if (shortcut === "command-palette") togglePalette();
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pickAndOpenProject]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [pickAndOpenProject, togglePalette]);
 
   useEffect(() => {
     // Terminal output streams over a channel; exits are infrequent enough to
@@ -129,6 +159,9 @@ export default function App() {
         </main>
       </div>
 
+      <CommandPalette />
+      <SettingsPanel />
+
       {error && (
         <div
           role="alert"
@@ -142,6 +175,8 @@ export default function App() {
               clearSessionError();
               clearTaskError();
               clearMemoryError();
+              clearSettingsError();
+              clearDiffError();
             }}
             className="rounded-sm px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
           >

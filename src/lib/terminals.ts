@@ -5,6 +5,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { api } from "./api";
+import { terminalTheme } from "./theme";
 
 /**
  * Terminals live here rather than in React state, keyed by session id.
@@ -16,31 +17,6 @@ import { api } from "./api";
  */
 
 const FONT_FAMILY = '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace';
-
-/** Kept in step with the design tokens in styles.css. */
-const THEME = {
-  background: "#0e1117",
-  foreground: "#e8ebf2",
-  cursor: "#6d8cff",
-  cursorAccent: "#0b0d12",
-  selectionBackground: "#6d8cff40",
-  black: "#1c2130",
-  red: "#ff6b6b",
-  green: "#5ad4a0",
-  yellow: "#e3c46b",
-  blue: "#6d8cff",
-  magenta: "#c98bff",
-  cyan: "#5ec8d8",
-  white: "#c8cede",
-  brightBlack: "#5b6474",
-  brightRed: "#ff8f8f",
-  brightGreen: "#7ee7bb",
-  brightYellow: "#f2da8a",
-  brightBlue: "#93aaff",
-  brightMagenta: "#daa9ff",
-  brightCyan: "#87dee9",
-  brightWhite: "#f2f5fb",
-};
 
 interface PaneTerminal {
   readonly container: HTMLDivElement;
@@ -89,7 +65,8 @@ export function acquireTerminal(sessionId: string): PaneTerminal {
   container.style.width = "100%";
 
   const term = new Terminal({
-    theme: THEME,
+    // Read from the stylesheet rather than kept in step with it by hand.
+    theme: terminalTheme(),
     fontFamily: FONT_FAMILY,
     fontSize: 12,
     lineHeight: 1.25,
