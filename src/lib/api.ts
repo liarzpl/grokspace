@@ -7,6 +7,8 @@ import type {
   Session,
   SessionKind,
   SkillStatus,
+  Task,
+  TaskStatus,
 } from "../types";
 
 /**
@@ -66,6 +68,43 @@ export const api = {
 
   /** Ends the session and frees its pane. */
   closeSession: (id: string): Promise<void> => invoke<void>("close_session", { id }),
+
+  listTasks: (projectId: string): Promise<Task[]> => invoke<Task[]>("list_tasks", { projectId }),
+
+  /** Adds a task to the project's backlog. */
+  createTask: (input: {
+    projectId: string;
+    title: string;
+    description?: string;
+  }): Promise<Task> =>
+    invoke<Task>("create_task", {
+      projectId: input.projectId,
+      title: input.title,
+      description: input.description ?? null,
+    }),
+
+  updateTask: (
+    id: string,
+    changes: {
+      title?: string;
+      description?: string;
+      status?: TaskStatus;
+      priority?: number;
+    },
+  ): Promise<Task> =>
+    invoke<Task>("update_task", {
+      id,
+      title: changes.title ?? null,
+      description: changes.description ?? null,
+      status: changes.status ?? null,
+      priority: changes.priority ?? null,
+    }),
+
+  /** Hands the task to a session and moves it to `in_progress` together. */
+  dispatchTask: (id: string, sessionId: string): Promise<Task> =>
+    invoke<Task>("dispatch_task", { id, sessionId }),
+
+  removeTask: (id: string): Promise<void> => invoke<void>("remove_task", { id }),
 
   /** Reads the graph file belonging to one session, whether or not it exists. */
   readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>
