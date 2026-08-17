@@ -23,6 +23,21 @@ const COALESCE_MS = 80;
 /** How long to give a writer to finish before broken JSON is believed. */
 const RETRY_MS = 150;
 
+/**
+ * Whether the file was JSON at all, which is the one failure worth reading again.
+ *
+ * `parseGraph` is deliberately not called in here. It reports a document that is
+ * not a graph rather than throwing, so folding it in would make the narrow retry
+ * depend on that staying true instead of on the shape of this code.
+ */
+function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
+
 export interface GraphEntry {
   /** The file that was read, or the one the session has been told to write. */
   path: string;
@@ -107,20 +122,17 @@ export const useGraphStore = create<GraphState>((set, get) => {
       return;
     }
 
-    let parsed: ParseResult;
-    try {
-      parsed = parseGraph(JSON.parse(snapshot.json) as unknown);
-    } catch {
-      if (allowRetry) {
-        // Probably a half-written file. Give the writer a moment, then believe it.
-        // Only broken JSON earns this: a document that parses but is not a graph
-        // will say the same thing a second time, at the price of another read.
-        await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
-        if (!(sessionId in get().bySession)) return;
-        return read(sessionId, false);
-      }
-      parsed = { ok: false, error: "The graph file is not valid JSON." };
+    const document = parseJson(snapshot.json);
+    if (!document.ok && allowRetry) {
+      // Probably a half-written file. Give the writer a moment, then believe it.
+      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+      if (!(sessionId in get().bySession)) return;
+      return read(sessionId, false);
     }
+
+    const parsed: ParseResult = document.ok
+      ? parseGraph(document.value)
+      : { ok: false, error: "The graph file is not valid JSON." };
 
     write(
       sessionId,
