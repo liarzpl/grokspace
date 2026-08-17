@@ -68,7 +68,9 @@ pub struct PermissionRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Incoming {
     /// A reply to something we sent.
-    Response { id: u64 },
+    Response {
+        id: u64,
+    },
     /// The agent asking to be allowed to do something.
     Permission(PermissionRequest),
     Ignored,
@@ -458,11 +460,7 @@ fn handshake(
 }
 
 /// Reports what the agent says until its output ends.
-fn read_loop(
-    mut reader: impl BufRead,
-    tracker: Arc<Mutex<StatusTracker>>,
-    callbacks: Callbacks,
-) {
+fn read_loop(mut reader: impl BufRead, tracker: Arc<Mutex<StatusTracker>>, callbacks: Callbacks) {
     let mut line = String::new();
     loop {
         line.clear();
