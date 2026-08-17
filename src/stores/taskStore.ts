@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import type { Task, TaskStatus } from "../types";
+import type { SessionStatus, Task, TaskStatus } from "../types";
 import { useSessionStore } from "./sessionStore";
 
 /**
@@ -38,6 +38,18 @@ function replaceTask(tasks: Task[], next: Task): Task[] {
   return tasks.map((task) => (task.id === next.id ? next : task));
 }
 
+/**
+ * Whether a session in this state can be given work.
+ *
+ * A terminal only ever reports `running`. An agent reports more, and `idle` is the
+ * state it is most ready in — it means the last turn finished. `needs_input` is
+ * refused: it is already blocked, and a second prompt would queue behind a question
+ * nobody has answered.
+ */
+function canTake(status: SessionStatus): boolean {
+  return status === "running" || status === "idle";
+}
+
 interface TaskState {
   tasks: Task[];
   isLoading: boolean;
@@ -53,8 +65,16 @@ interface TaskState {
   removeTask: (id: string) => Promise<void>;
   /** Sends a task to a session that is already running an agent. */
   dispatch: (taskId: string, sessionId: string) => Promise<boolean>;
-  /** Starts an agent in a free pane and sends the task to it. */
-  dispatchToNewSession: (taskId: string, projectId: string, paneId: string) => Promise<boolean>;
+  /**
+   * Starts something to do the work and sends the task to it. A `paneId` starts a
+   * Grok terminal in that pane; omitting one starts an ACP agent, which needs no
+   * pane and can report what it is doing.
+   */
+  dispatchToNewSession: (
+    taskId: string,
+    projectId: string,
+    paneId: string | null,
+  ) => Promise<boolean>;
   clearError: () => void;
 }
 
@@ -121,11 +141,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       .getState()
       .sessions.find((candidate) => candidate.id === sessionId);
 
-    // Only a running agent. A stopped one would swallow the prompt, and a shell
-    // would try to *run* it — "Fix the login bug" is a command as far as bash is
-    // concerned, which is a worse outcome than refusing.
-    if (!session || session.kind !== "grok" || session.status !== "running") {
-      set({ error: "That pane is not running an agent to hand the task to." });
+    // A shell is refused outright: it would try to *run* the prompt, and "Fix the
+    // login bug" is a command as far as bash is concerned, which is worse than
+    // refusing. A stopped session of either kind would swallow it.
+    if (!session || session.kind === "shell" || !canTake(session.status)) {
+      set({ error: "That session is not running an agent to hand the task to." });
       return false;
     }
 
@@ -133,7 +153,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     try {
       // The prompt goes first: the board should only claim the task was handed
       // over once something has actually received it.
-      await api.writeSession(sessionId, `${dispatchPrompt(task)}\r`);
+      //
+      // An agent is asked rather than typed at. That is the difference the ACP
+      // session buys: a request has a reply, so the session can report going back
+      // to idle, where a terminal can only be written into and hoped at.
+      if (session.kind === "agent") await api.promptSession(sessionId, dispatchPrompt(task));
+      else await api.writeSession(sessionId, `${dispatchPrompt(task)}\r`);
       const dispatched = await api.dispatchTask(taskId, sessionId);
       set((state) => ({ tasks: replaceTask(state.tasks, dispatched) }));
       return true;
@@ -149,7 +174,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const session = await useSessionStore.getState().startSession({
       projectId,
       paneId,
-      kind: "grok",
+      kind: paneId === null ? "agent" : "grok",
       ...FALLBACK_SIZE,
     });
     // startSession has already put its own failure on the session store's error,

@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{graph, project, AppState};
+use crate::{acp, graph, project, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -20,6 +20,13 @@ const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role,
 /// Emitted when a child terminates. Status changes are infrequent, so the event
 /// system is the right fit here; the output stream is not, and uses a channel.
 const EXIT_EVENT: &str = "session-exited";
+
+/// An agent's status changed. Only ACP sessions report these: a terminal has no
+/// way to say what the process inside it is doing.
+const STATUS_EVENT: &str = "session-status";
+
+/// An agent is blocked on a permission it wants granted.
+const PERMISSION_EVENT: &str = "session-permission";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,11 +60,16 @@ impl SessionStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionKind {
-    /// An interactive Grok Build agent.
+    /// An interactive Grok Build agent, rendered as a terminal.
     Grok,
     /// A plain login shell, useful next to the agents and the easiest way to
     /// exercise the pty layer without depending on the `grok` binary.
     Shell,
+    /// A Grok agent driven over ACP rather than shown as a terminal.
+    ///
+    /// It has no pty, so no pane draws it; what it has instead is a status worth
+    /// reading. See [`crate::acp`] for why the two cannot be the same process.
+    Agent,
 }
 
 impl SessionKind {
@@ -65,12 +77,14 @@ impl SessionKind {
         match self {
             Self::Grok => "grok",
             Self::Shell => "shell",
+            Self::Agent => "agent",
         }
     }
 
     fn parse(value: &str) -> Self {
         match value {
             "shell" => Self::Shell,
+            "agent" => Self::Agent,
             _ => Self::Grok,
         }
     }
@@ -79,6 +93,7 @@ impl SessionKind {
         match self {
             Self::Grok => "Grok",
             Self::Shell => "Shell",
+            Self::Agent => "Agent",
         }
     }
 }
@@ -140,10 +155,13 @@ pub fn get(conn: &Connection, id: &str) -> Result<Session> {
     .ok_or_else(|| Error::SessionNotFound(id.to_string()))
 }
 
+/// `pane_id` is absent for an agent, which occupies no pane. Nothing else in the
+/// app has to special-case that: a session with no pane is simply never the one
+/// `session_for_pane` finds.
 pub fn insert(
     conn: &Connection,
     project_id: &str,
-    pane_id: &str,
+    pane_id: Option<&str>,
     kind: SessionKind,
     title: &str,
 ) -> Result<Session> {
@@ -234,19 +252,34 @@ impl OutputSink for ChannelSink {
     }
 }
 
-fn command_for(kind: SessionKind) -> Result<(String, Vec<String>)> {
+/// How a session is actually started, once its kind has been resolved to a
+/// program. Split from `start` so a program that cannot be found fails before a
+/// row is written for it.
+enum Launch {
+    /// On a pty, drawn in a pane.
+    Terminal { program: String, args: Vec<String> },
+    /// Over ACP, with no pane at all.
+    Agent { program: String },
+}
+
+fn command_for(kind: SessionKind) -> Result<Launch> {
     match kind {
-        SessionKind::Grok => Ok((
-            resolve_program("grok")?,
+        SessionKind::Grok => Ok(Launch::Terminal {
+            program: resolve_program("grok")?,
             // The working directory is set on the process itself, so `--cwd`
             // would be a second source of truth. `--no-auto-update` keeps
             // background update checks out of an automated session.
-            vec!["--no-auto-update".to_string()],
-        )),
-        SessionKind::Shell => Ok((
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
-            Vec::new(),
-        )),
+            args: vec!["--no-auto-update".to_string()],
+        }),
+        SessionKind::Shell => Ok(Launch::Terminal {
+            program: std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string()),
+            args: Vec::new(),
+        }),
+        // The subcommand and its flags belong to the ACP layer, which is what
+        // knows the protocol it is about to speak.
+        SessionKind::Agent => Ok(Launch::Agent {
+            program: resolve_program("grok")?,
+        }),
     }
 }
 
@@ -338,9 +371,84 @@ fn exit_handler(app: AppHandle, id: String) -> ExitHandler {
     })
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionStatusChanged {
+    id: String,
+    status: SessionStatus,
+}
+
+/// What the agent's permission request is called on the frontend. Infrequent, and
+/// nothing moves until it is answered, so the event system is the right fit.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PermissionAsked {
+    id: String,
+    request_id: u64,
+    summary: String,
+}
+
+/// The three things a live agent reports, each landing in the database first and on
+/// the event system second, so a webview that reloads reads the same story.
+fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
+    let status_app = app.clone();
+    let status_id = id.clone();
+    let permission_app = app.clone();
+    let permission_id = id.clone();
+
+    acp::Callbacks {
+        on_status: Box::new(move |status| {
+            let status = match status {
+                acp::AgentStatus::Idle => SessionStatus::Idle,
+                acp::AgentStatus::Running => SessionStatus::Running,
+                acp::AgentStatus::NeedsInput => SessionStatus::NeedsInput,
+            };
+            let state = status_app.state::<AppState>();
+            if let Ok(conn) = state.db.lock() {
+                // The exit code stays as it is: this is a change of what the agent
+                // is doing, not of whether its process is alive.
+                let _ = set_status(&conn, &status_id, status, None);
+            }
+            let _ = status_app.emit(
+                STATUS_EVENT,
+                SessionStatusChanged {
+                    id: status_id.clone(),
+                    status,
+                },
+            );
+        }),
+        on_permission: Box::new(move |request| {
+            let _ = permission_app.emit(
+                PERMISSION_EVENT,
+                PermissionAsked {
+                    id: permission_id.clone(),
+                    request_id: request.id,
+                    summary: request.summary,
+                },
+            );
+        }),
+        on_closed: Box::new(move || {
+            let state = app.state::<AppState>();
+            state.acp.remove(&id);
+            if let Ok(conn) = state.db.lock() {
+                let _ = set_status(&conn, &id, SessionStatus::Stopped, None);
+            }
+            // Reported as an exit like any other, so the frontend needs no second
+            // path for an agent going away.
+            let _ = app.emit(
+                EXIT_EVENT,
+                SessionExited {
+                    id: id.clone(),
+                    exit_code: None,
+                },
+            );
+        }),
+    }
+}
+
 struct StartRequest {
     project_id: String,
-    pane_id: String,
+    pane_id: Option<String>,
     kind: SessionKind,
     title: Option<String>,
     cols: u16,
@@ -351,7 +459,7 @@ struct StartRequest {
 /// exits immediately would fire its exit handler before the row it needs to
 /// update exists.
 fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) -> Result<Session> {
-    let (program, args) = command_for(request.kind)?;
+    let launch = command_for(request.kind)?;
 
     let (session, cwd) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
@@ -363,7 +471,7 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
             insert(
                 &conn,
                 &request.project_id,
-                &request.pane_id,
+                request.pane_id.as_deref(),
                 request.kind,
                 &title,
             )?,
@@ -372,18 +480,32 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
     };
 
     let cwd = PathBuf::from(cwd);
-    let spawned = state.pty.spawn(
-        SpawnOptions {
-            id: session.id.clone(),
-            program,
-            args,
-            env: graph_env(&cwd, &session.id),
-            cwd,
-            cols: request.cols,
-            rows: request.rows,
-        },
-        exit_handler(app.clone(), session.id.clone()),
-    );
+    let env = graph_env(&cwd, &session.id);
+    // An agent is told where its graph belongs the same way a terminal is, which is
+    // what lets the Graph tab draw a plan for a session that has no pane.
+    let spawned = match launch {
+        Launch::Terminal { program, args } => state.pty.spawn(
+            SpawnOptions {
+                id: session.id.clone(),
+                program,
+                args,
+                env,
+                cwd,
+                cols: request.cols,
+                rows: request.rows,
+            },
+            exit_handler(app.clone(), session.id.clone()),
+        ),
+        Launch::Agent { program } => state.acp.start(
+            acp::StartOptions {
+                id: session.id.clone(),
+                program,
+                cwd,
+                env,
+            },
+            acp_callbacks(app.clone(), session.id.clone()),
+        ),
+    };
 
     match spawned {
         Ok(process_id) => {
@@ -415,7 +537,7 @@ pub fn create_session(
     app: AppHandle,
     state: State<'_, AppState>,
     project_id: String,
-    pane_id: String,
+    pane_id: Option<String>,
     kind: SessionKind,
     cols: u16,
     rows: u16,
@@ -455,8 +577,38 @@ pub fn resize_session(state: State<'_, AppState>, id: String, cols: u16, rows: u
     state.pty.resize(&id, cols, rows)
 }
 
+/// Sends a prompt to an ACP session.
+///
+/// The terminal equivalent is `write_session`, which types into a pty and cannot
+/// know whether anything read it. This one is a request, so the agent's reply is
+/// what moves the session back to `idle`.
+#[tauri::command]
+pub fn prompt_session(state: State<'_, AppState>, id: String, text: String) -> Result<()> {
+    if text.trim().is_empty() {
+        return Err(Error::Invalid("an empty prompt has nothing to ask".into()));
+    }
+    state.acp.prompt(&id, text.trim())
+}
+
+/// Answers a permission the agent is blocked on. Until this arrives the session
+/// stays `needs_input` and the agent does nothing.
+#[tauri::command]
+pub fn answer_session_permission(
+    state: State<'_, AppState>,
+    id: String,
+    request_id: u64,
+    allow: bool,
+) -> Result<()> {
+    state.acp.answer_permission(&id, request_id, allow)
+}
+
 #[tauri::command]
 pub fn stop_session(state: State<'_, AppState>, id: String) -> Result<()> {
+    // An agent has no pty to signal. Killing it is the same intent, and `cancel`
+    // is not: that interrupts the turn and leaves the session open.
+    if state.acp.is_running(&id) {
+        return state.acp.kill(&id);
+    }
     state.pty.kill(&id)
 }
 
@@ -482,7 +634,9 @@ pub fn restart_session(
         &app,
         &state,
         StartRequest {
-            pane_id: previous.pane_id.unwrap_or_else(|| "0".to_string()),
+            // Preserved as it was, including absent: an agent restarted into pane
+            // zero would displace whatever terminal is actually there.
+            pane_id: previous.pane_id,
             project_id: previous.project_id,
             kind: previous.kind,
             title: previous.title,
@@ -506,6 +660,11 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
 }
 
 fn close(state: &State<'_, AppState>, id: &str) -> Result<()> {
+    // Both are asked without checking which kind this is: whichever manager does
+    // not hold the session says so and nothing happens, which is cheaper than
+    // reading the row back to find out.
+    let _ = state.acp.kill(id);
+    state.acp.remove(id);
     let _ = state.pty.kill(id);
     state.pty.remove(id);
 
@@ -551,7 +710,7 @@ mod tests {
     fn a_new_session_starts_running_in_its_pane() {
         let (conn, project_id) = fixture();
 
-        let session = insert(&conn, &project_id, "1", SessionKind::Grok, "Grok").unwrap();
+        let session = insert(&conn, &project_id, Some("1"), SessionKind::Grok, "Grok").unwrap();
 
         assert_eq!(session.status, SessionStatus::Running);
         assert_eq!(session.kind, SessionKind::Grok);
@@ -560,13 +719,30 @@ mod tests {
     }
 
     #[test]
+    fn an_agent_holds_no_pane_and_so_never_displaces_a_terminal() {
+        let (conn, project_id) = fixture();
+        let terminal = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
+
+        let agent = insert(&conn, &project_id, None, SessionKind::Agent, "Agent").unwrap();
+
+        assert_eq!(agent.pane_id, None);
+        assert_eq!(agent.kind, SessionKind::Agent);
+        assert_eq!(
+            terminal.pane_id.as_deref(),
+            Some("0"),
+            "the agent is beside the grid, not in it"
+        );
+        assert_eq!(list(&conn, &project_id).unwrap().len(), 2);
+    }
+
+    #[test]
     fn sessions_are_listed_per_project_in_creation_order() {
         let (conn, project_id) = fixture();
         let other = project::upsert_by_path(&conn, "/tmp/other", "other").unwrap();
 
-        insert(&conn, &project_id, "0", SessionKind::Grok, "First").unwrap();
-        insert(&conn, &project_id, "1", SessionKind::Shell, "Second").unwrap();
-        insert(&conn, &other.id, "0", SessionKind::Grok, "Elsewhere").unwrap();
+        insert(&conn, &project_id, Some("0"), SessionKind::Grok, "First").unwrap();
+        insert(&conn, &project_id, Some("1"), SessionKind::Shell, "Second").unwrap();
+        insert(&conn, &other.id, Some("0"), SessionKind::Grok, "Elsewhere").unwrap();
 
         let titles: Vec<_> = list(&conn, &project_id)
             .unwrap()
@@ -579,7 +755,7 @@ mod tests {
     #[test]
     fn an_exit_records_the_status_and_the_code() {
         let (conn, project_id) = fixture();
-        let session = insert(&conn, &project_id, "0", SessionKind::Shell, "Shell").unwrap();
+        let session = insert(&conn, &project_id, Some("0"), SessionKind::Shell, "Shell").unwrap();
 
         set_status(&conn, &session.id, SessionStatus::Stopped, Some(130)).unwrap();
 
@@ -591,7 +767,7 @@ mod tests {
     #[test]
     fn renaming_rejects_an_empty_title() {
         let (conn, project_id) = fixture();
-        let session = insert(&conn, &project_id, "0", SessionKind::Grok, "Grok").unwrap();
+        let session = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
 
         assert!(set_title(&conn, &session.id, "   ").is_err());
         assert_eq!(
@@ -606,9 +782,10 @@ mod tests {
     #[test]
     fn startup_marks_every_surviving_session_stopped() {
         let (conn, project_id) = fixture();
-        let running = insert(&conn, &project_id, "0", SessionKind::Grok, "Grok").unwrap();
+        let running = insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
         set_process_id(&conn, &running.id, Some(4242)).unwrap();
-        let already_stopped = insert(&conn, &project_id, "1", SessionKind::Shell, "Shell").unwrap();
+        let already_stopped =
+            insert(&conn, &project_id, Some("1"), SessionKind::Shell, "Shell").unwrap();
         set_status(&conn, &already_stopped.id, SessionStatus::Stopped, Some(0)).unwrap();
 
         let reconciled = reconcile_on_start(&conn).unwrap();
@@ -625,7 +802,7 @@ mod tests {
     #[test]
     fn removing_a_project_takes_its_sessions_with_it() {
         let (conn, project_id) = fixture();
-        insert(&conn, &project_id, "0", SessionKind::Grok, "Grok").unwrap();
+        insert(&conn, &project_id, Some("0"), SessionKind::Grok, "Grok").unwrap();
 
         project::remove(&conn, &project_id).unwrap();
 
@@ -682,12 +859,26 @@ mod tests {
 
     #[test]
     fn a_shell_session_resolves_to_a_real_program() {
-        let (program, _) = command_for(SessionKind::Shell).unwrap();
+        let Launch::Terminal { program, .. } = command_for(SessionKind::Shell).unwrap() else {
+            panic!("a shell is a terminal");
+        };
 
         assert!(
             PathBuf::from(&program).is_file(),
             "expected a runnable shell, got {program}"
         );
+    }
+
+    #[test]
+    fn an_agent_session_is_not_launched_as_a_terminal() {
+        // The kind decides which manager runs it, and an agent has no pty at all.
+        // Which branch it takes is what this pins; whether `grok` is installed on
+        // the machine running the tests is not this test's business.
+        match command_for(SessionKind::Agent) {
+            Ok(Launch::Agent { .. }) => {}
+            Ok(Launch::Terminal { .. }) => panic!("an agent must not be started on a pty"),
+            Err(_) => {} // No `grok` here, which is a different failure.
+        }
     }
 
     #[test]

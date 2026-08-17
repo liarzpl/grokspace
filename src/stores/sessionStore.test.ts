@@ -8,6 +8,7 @@ const stopSession = vi.fn();
 const restartSession = vi.fn();
 const renameSession = vi.fn();
 const closeSession = vi.fn();
+const answerSessionPermission = vi.fn();
 const disposeTerminal = vi.fn();
 
 // Mocked wholesale: the real module pulls in xterm and its stylesheet, neither
@@ -18,7 +19,15 @@ vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { listSessions, createSession, stopSession, restartSession, renameSession, closeSession },
+    api: {
+      listSessions,
+      createSession,
+      stopSession,
+      restartSession,
+      renameSession,
+      closeSession,
+      answerSessionPermission,
+    },
   };
 });
 
@@ -231,6 +240,89 @@ describe("renameSession", () => {
     const state = useSessionStore.getState();
     expect(state.error).toBe("a session needs a title");
     expect(state.sessions[0]?.title).toBe("Grok");
+  });
+});
+
+describe("markStatus", () => {
+  it("takes the agent's own account of what it is doing", async () => {
+    // A terminal never sends these; only an ACP session can say more than running.
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null }), session({ id: "s2", paneId: "1" })],
+    });
+
+    useSessionStore.getState().markStatus("s1", "needs_input");
+
+    const [agent, terminal] = useSessionStore.getState().sessions;
+    expect(agent?.status).toBe("needs_input");
+    expect(terminal?.status).toBe("running");
+  });
+});
+
+describe("permissions", () => {
+  const asked = { requestId: 9, summary: "Run `git push`" };
+
+  it("keeps one per request, since an agent can be blocked on several", () => {
+    useSessionStore.getState().askPermission("s1", asked);
+    useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
+
+    expect(useSessionStore.getState().permissions["s1"]).toHaveLength(2);
+  });
+
+  it("drops only the one that was answered", async () => {
+    useSessionStore.getState().askPermission("s1", asked);
+    useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
+    answerSessionPermission.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().answerPermission("s1", 9, true);
+
+    expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true);
+    expect(useSessionStore.getState().permissions["s1"]?.map((p) => p.requestId)).toEqual([10]);
+  });
+
+  it("leaves the question standing when the answer could not be sent", async () => {
+    // The agent is still waiting either way, so the buttons have to stay.
+    useSessionStore.getState().askPermission("s1", asked);
+    answerSessionPermission.mockRejectedValue("that session is no longer running");
+
+    await useSessionStore.getState().answerPermission("s1", 9, true);
+
+    expect(useSessionStore.getState().permissions["s1"]).toHaveLength(1);
+    expect(useSessionStore.getState().error).toBe("that session is no longer running");
+  });
+
+  it("forgets what a session that has gone was asking", () => {
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
+    useSessionStore.getState().askPermission("s1", asked);
+
+    useSessionStore.getState().markExited("s1", null);
+
+    expect(useSessionStore.getState().permissions["s1"]).toBeUndefined();
+  });
+});
+
+describe("startSession", () => {
+  it("does not invent a pane for an agent that has none", async () => {
+    createSession.mockResolvedValue(session({ id: "a1", kind: "agent", paneId: null }));
+
+    await useSessionStore
+      .getState()
+      .startSession({ projectId: "p1", paneId: null, kind: "agent", cols: 80, rows: 24 });
+
+    const state = useSessionStore.getState();
+    expect(state.busyPanes).toEqual({});
+    expect(state.paneViews).toEqual({});
+  });
+
+  it("lets two agents coexist rather than displacing each other", async () => {
+    // Both have no pane, and a null pane must not read as the same pane.
+    useSessionStore.setState({ sessions: [session({ id: "a1", kind: "agent", paneId: null })] });
+    createSession.mockResolvedValue(session({ id: "a2", kind: "agent", paneId: null }));
+
+    await useSessionStore
+      .getState()
+      .startSession({ projectId: "p1", paneId: null, kind: "agent", cols: 80, rows: 24 });
+
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["a1", "a2"]);
   });
 });
 

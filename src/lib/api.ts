@@ -39,9 +39,10 @@ export const api = {
   listSessions: (projectId: string): Promise<Session[]> =>
     invoke<Session[]>("list_sessions", { projectId }),
 
+  /** `paneId` is absent for an `agent`, which runs beside the grid rather than in it. */
   createSession: (input: {
     projectId: string;
-    paneId: string;
+    paneId: string | null;
     kind: SessionKind;
     cols: number;
     rows: number;
@@ -68,6 +69,18 @@ export const api = {
 
   /** Ends the session and frees its pane. */
   closeSession: (id: string): Promise<void> => invoke<void>("close_session", { id }),
+
+  /**
+   * Sends a prompt to an `agent` session. `writeSession` is the terminal
+   * equivalent and cannot know whether anything read what it typed; this is a
+   * request, and the agent's reply is what returns the session to `idle`.
+   */
+  promptSession: (id: string, text: string): Promise<void> =>
+    invoke<void>("prompt_session", { id, text }),
+
+  /** Answers what an agent is blocked on, which is what lets it carry on. */
+  answerSessionPermission: (id: string, requestId: number, allow: boolean): Promise<void> =>
+    invoke<void>("answer_session_permission", { id, requestId, allow }),
 
   listTasks: (projectId: string): Promise<Task[]> => invoke<Task[]>("list_tasks", { projectId }),
 

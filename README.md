@@ -10,10 +10,10 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 2 (board and dispatch).** Projects, a multi-pane terminal grid,
-> a live graph per session, and a task board that hands work to an agent are in
-> place. Richer session status than running/stopped, shared memory, and agent
-> roles arrive next — see [Roadmap](#roadmap).
+> **Status: Phase 2 complete.** Projects, a multi-pane terminal grid, a live graph
+> per session, a task board that hands work to an agent, and agents driven over ACP
+> that report what they are doing. Shared memory and agent roles are next — see
+> [Roadmap](#roadmap).
 
 ## What works today
 
@@ -29,6 +29,11 @@ telemetry; workspace state lives in `~/.grokspace`.
 - **Session lifecycle** — start a Grok agent or a plain shell in any pane, then
   stop, restart, rename, clear, or close it. Sessions left running when the app
   quits come back marked as stopped, ready to restart.
+- **Agents that report themselves** — a session can be a Grok agent driven over
+  ACP instead of a terminal. It holds no pane, and in exchange it says whether it
+  is `running`, `idle`, or `needs_input`; a permission it is blocked on appears on
+  the card of the task it concerns, with Allow and Deny. A terminal can only ever
+  report `running` or `stopped`, because a pty carries pixels.
 - **Live graphs, one per session** — every session has its own graph file, and
   the panel redraws the moment an agent writes to it. Watch a plan from the Graph
   tab, or flip a single pane from `term` to `graph` and keep working in the
@@ -36,8 +41,8 @@ telemetry; workspace state lives in `~/.grokspace`.
 - **Task board** — a Kanban board per project, in the columns `backlog`,
   `in_progress`, `review`, and `done`. Cards can be dragged between columns or
   moved with the arrows on the card, and each card can be handed to an agent:
-  either one already running in a pane, or a fresh one started in a free pane.
-  Dispatching types the task into that agent and records which session took it.
+  one already running, a fresh terminal in a free pane, or a new ACP agent, which
+  needs no pane at all. Dispatching records which session took the task.
 - **Local persistence** — projects, sessions, and tasks live in SQLite at
   `~/.grokspace/grokspace.db`.
 
@@ -107,7 +112,8 @@ src-tauri/
     db.rs         Database location, pragmas, migration runner
     project.rs    Project model, queries, and Tauri commands
     pty.rs        Pseudo-terminal plumbing; no database, no Tauri
-    session.rs    Session model and the commands that drive a pty
+    session.rs    Session model and the commands that drive a pty or an agent
+    acp.rs        Agent Client Protocol: status from JSON-RPC, no Tauri, no database
     task.rs       Task model, the board's queries, and dispatch
     graph.rs      Graph file locations, reads, and the change watcher
     error.rs      Error type; serializes to a plain string for the frontend
@@ -185,20 +191,21 @@ Migrations are an append-only list in
 that has already shipped.
 
 Migration `0001` creates `projects`, `tasks`, `sessions`, and `memory_entries`.
-`tasks` gained its queries in Phase 2 without a schema change, which is what
-writing it in Phase 0 bought. `memory_entries` is still unused, reserved the same
-way for Phase 3.
+`tasks` gained its queries in Phase 2 without a schema change, and `sessions` took
+a third `kind` without one either, which is what writing both in Phase 0 bought.
+`memory_entries` is still unused, reserved the same way for Phase 3.
 
 ## Roadmap
 
 - **Phase 0 — Foundation.** Scaffold, window shell, SQLite, project CRUD. Done.
 - **Phase 1 — Terminal core.** Pty-backed sessions, xterm.js panes, the grid
   layout, the session lifecycle, and a live graph per session. Done.
-- **Phase 2 — Kanban and dispatch.** The board, and dispatch onto a running agent
-  or a freshly spawned one: done. Richer session status than running/stopped is
-  the other half and is not: telling `idle` from `needs_input` needs the ACP
-  event stream, and an ACP session is not a terminal, which
-  [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) explains.
+- **Phase 2 — Kanban and dispatch.** The board, dispatch, and ACP-driven agents
+  whose status is richer than running/stopped. Done, with one caveat worth knowing:
+  the ACP path has never run against a real `grok`, since the binary needs a
+  subscription and an interactive sign-in.
+  [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records what that
+  leaves unproven.
 - **Phase 3 — Memory and roles.** Shared project memory, role presets
   (Planner, Coder, Reviewer, Tester, Scout), and swarm launches.
 - **Phase 4 — Polish and distribution.** Command palette, diff preview,
