@@ -4,7 +4,14 @@ import { homeRelative } from "../lib/paths";
 import { entriesOfType, MEMORY_TYPES, memorySize, useMemoryStore } from "../stores/memoryStore";
 import type { MemoryEntry, MemoryEntryType, Project } from "../types";
 
-/** Matches the cap the backend enforces, so the panel can warn before it refuses. */
+/**
+ * A copy of the cap `memory.rs` enforces, used only to warn before it bites.
+ *
+ * Deliberately not fetched from the backend: it would be a command and a round trip
+ * to render one sentence. The two drifting apart makes the warning early or late,
+ * never wrong about whether a write is refused — the backend is what refuses, and it
+ * says so.
+ */
 const MAX_MEMORY_CHARS = 32 * 1024;
 
 function PanelButton({

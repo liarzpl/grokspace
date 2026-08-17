@@ -237,6 +237,29 @@ wired to it:
 - **Subagents** are parallel children Grok spawns inside one session. GrokSpace's
   sessions are the ones the user can see and stop.
 
+## How a role reaches an agent
+
+A role's brief is the first thing its session is asked. `--rules` (alias
+`--append-system-prompt`) would put it in the system prompt, which is the better
+place for it, and it is not used for two reasons:
+
+- Every flag GrokSpace adds is a way for a session to fail to start on a `grok` that
+  does not recognise it. That is the same reasoning that kept the graph contract in a
+  skill rather than a flag.
+- The documented options for `grok agent` are `-m`, `--always-approve`, `--reauth`,
+  and `--agent-profile`. `--rules` is not among them, so it would not reach the ACP
+  sessions a swarm is made of — and those are the ones that most need a role.
+
+A prompt works identically for a terminal and an ACP session, cannot stop either
+starting, and can be tested by asserting what was sent. The brief is flattened to one
+line for the same reason a dispatched task is, and it names `$GROKSPACE_MEMORY_FILE`
+rather than pasting the memory, so its length does not grow with the project.
+
+`--agent-profile` remains the untried option worth knowing about: it is designed for
+custom agent definitions and does work in agent mode. It was not used because its
+file format is undocumented in what is published, and a role that is a paragraph does
+not need a format.
+
 ## Notes for later phases
 
 - A dispatched headless run should capture `sessionId` from

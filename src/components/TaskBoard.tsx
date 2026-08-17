@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { ROLES, rolesInPlay } from "../lib/roles";
 import { layoutOf } from "../stores/projectStore";
 import { sessionForPane, useSessionStore } from "../stores/sessionStore";
 import { tasksInColumn, useTaskStore } from "../stores/taskStore";
@@ -503,6 +504,108 @@ function DispatchRow({
           </div>
         );
       })}
+
+      <div className="flex-1" />
+      <SwarmLauncher project={project} />
+    </div>
+  );
+}
+
+/**
+ * Starts one agent per chosen role, each told what it is for.
+ *
+ * Here rather than in its own tab because this is where the sessions that do the
+ * work are chosen: the row above already lists what a task can be handed to, and a
+ * swarm is how that row gets something worth handing to.
+ */
+function SwarmLauncher({ project }: { project: Project }) {
+  const launchSwarm = useSessionStore((state) => state.launchSwarm);
+  const sessions = useSessionStore((state) => state.sessions);
+  const [open, setOpen] = useState(false);
+  const [chosen, setChosen] = useState<readonly string[]>([]);
+  const [launching, setLaunching] = useState(false);
+
+  // Which roles are already covered. Without this, pressing the button twice would
+  // quietly start a second Planner beside the first — five agents is a decision, and
+  // ten by accident is not.
+  const running = rolesInPlay(sessions);
+
+  const start = () => {
+    // Chosen when the row opens rather than once at mount, so the default reflects
+    // what is running now. Everything already covered starts unticked, which means a
+    // full swarm reopens with nothing selected — correctly saying there is nothing to
+    // add.
+    setChosen(ROLES.filter((role) => !running.has(role.name)).map((role) => role.name));
+    setOpen(true);
+  };
+
+  const toggle = (name: string) =>
+    setChosen((current) =>
+      current.includes(name) ? current.filter((held) => held !== name) : [...current, name],
+    );
+
+  const launch = async () => {
+    setLaunching(true);
+    // In ROLES order rather than the order they were clicked, so a swarm always
+    // starts Planner first and reads the same however it was picked.
+    const roles = ROLES.filter((role) => chosen.includes(role.name));
+    const failed = await launchSwarm(project.id, roles);
+    setLaunching(false);
+
+    // Closed only when every role started. Otherwise the row stays open with just
+    // the ones that did not selected, so the retry is one click and does not restart
+    // the agents that are already running. The banner says why; this says which.
+    if (failed.length === 0) setOpen(false);
+    else setChosen(failed);
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={start}
+        className="shrink-0 rounded-md border border-line-strong px-2 py-0.5 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink"
+      >
+        Launch a swarm
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+      {ROLES.map((role) => (
+        <button
+          key={role.name}
+          type="button"
+          onClick={() => toggle(role.name)}
+          title={running.has(role.name) ? `${role.name} is already running` : role.summary}
+          className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+            chosen.includes(role.name)
+              ? "border-accent bg-accent-soft text-ink"
+              : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
+          }`}
+        >
+          {role.name}
+          {/* Still tickable: a second Reviewer is a reasonable thing to want, just not
+              something to get by accident. */}
+          {running.has(role.name) && <span className="ml-1 text-ink-faint">·on</span>}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => void launch()}
+        disabled={launching || chosen.length === 0}
+        className="rounded-md bg-accent px-2 py-0.5 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-40"
+      >
+        {launching ? "Starting…" : `Start ${chosen.length}`}
+      </button>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:text-ink-muted"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

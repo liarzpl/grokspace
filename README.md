@@ -10,10 +10,11 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 3, shared memory.** Projects, a multi-pane terminal grid, a live
-> graph per session, a task board that hands work to an agent, agents driven over ACP
-> that report what they are doing, and a project memory every session reads. Role
-> presets and swarm launches are next — see [Roadmap](#roadmap).
+> **Status: Phase 3 complete.** Projects, a multi-pane terminal grid, a live graph
+> per session, a task board that hands work to an agent, agents driven over ACP that
+> report what they are doing, a project memory every session reads, and role presets
+> that can be launched as a swarm. Phase 4 is polish and distribution — see
+> [Roadmap](#roadmap).
 
 ## What works today
 
@@ -47,6 +48,11 @@ telemetry; workspace state lives in `~/.grokspace`.
   `decisions`, `notes`, and `artifacts`. It is projected into a Markdown file every
   session is told to read, so what you would otherwise repeat to each agent gets
   said once. A bundled skill is what teaches agents to read it before they plan.
+- **Roles, and swarms of them** — a session can be started as a Planner, Coder,
+  Reviewer, Tester, or Scout. The role is remembered, titles the session, is exported
+  as `GROKSPACE_SESSION_ROLE`, and is what the agent is told first. One click starts
+  one agent per chosen role, each briefed for its job; a role that will not start is
+  named rather than losing the rest.
 - **Local persistence** — projects, sessions, tasks, and memory live in SQLite at
   `~/.grokspace/grokspace.db`.
 
@@ -106,7 +112,7 @@ src/
   stores/         Zustand stores (projectStore, sessionStore, graphStore,
                   taskStore, memoryStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
-                  the graph document parser, and helpers
+                  the graph document parser, the role presets, and helpers
   types.ts        Mirrors the Rust structs, which serialize as camelCase
 scripts/          Development helpers; demo-graph.mjs writes a moving graph
 src-tauri/
@@ -245,8 +251,9 @@ Two migrations, both from before any of that.
   subscription and an interactive sign-in.
   [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records what that
   leaves unproven.
-- **Phase 3 — Memory and roles.** Shared project memory: done. Role presets
-  (Planner, Coder, Reviewer, Tester, Scout) and swarm launches are the other half.
+- **Phase 3 — Memory and roles.** Shared project memory, role presets, and swarm
+  launches. Done, with the same caveat Phase 2 carries: a swarm is made of ACP
+  sessions, and that path has never run against a real `grok`.
 - **Phase 4 — Polish and distribution.** Command palette, diff preview,
   settings, and a notarized `.dmg`.
 

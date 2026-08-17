@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { briefPrompt, type Role } from "../lib/roles";
 import { disposeTerminal } from "../lib/terminals";
 import type { PermissionRequest, Session, SessionKind, SessionStatus } from "../types";
 import { useGraphStore } from "./graphStore";
@@ -26,9 +27,14 @@ interface StartInput {
   /** Absent for an agent, which runs beside the grid rather than in it. */
   paneId: string | null;
   kind: SessionKind;
+  /** What it is being started as, when it is being started as anything. */
+  role?: string;
   cols: number;
   rows: number;
 }
+
+/** A session started for a role has not been measured, so it starts classic. */
+const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
 /** A pane shows either its terminal or the graph the session is reporting. */
 export type PaneView = "terminal" | "graph";
@@ -50,6 +56,11 @@ interface SessionState {
 
   loadSessions: (projectId: string) => Promise<void>;
   startSession: (input: StartInput) => Promise<Session | null>;
+  /**
+   * Starts one agent per role and tells each what it is for. Returns the roles that
+   * would not start, so the caller can say which rather than only that some did.
+   */
+  launchSwarm: (projectId: string, roles: readonly Role[]) => Promise<string[]>;
   stopSession: (id: string) => Promise<void>;
   restartSession: (id: string, cols: number, rows: number) => Promise<Session | null>;
   renameSession: (id: string, title: string) => Promise<void>;
@@ -125,6 +136,38 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } finally {
       set(() => busy(false));
     }
+  },
+
+  launchSwarm: async (projectId, roles) => {
+    const failed: string[] = [];
+    for (const role of roles) {
+      // Sequential, and one role's failure does not stop the rest: five roles are
+      // five independent sessions, and throwing four away because the fifth could
+      // not start would be the wrong trade. They are agents rather than terminals
+      // because five of them do not fit in a six-pane grid, and because an agent is
+      // the kind that can report what it is doing.
+      const session = await get().startSession({
+        projectId,
+        paneId: null,
+        kind: "agent",
+        role: role.name,
+        ...FALLBACK_SIZE,
+      });
+      if (session === null) {
+        failed.push(role.name);
+        continue;
+      }
+
+      try {
+        await api.promptSession(session.id, briefPrompt(role));
+      } catch (error) {
+        // Started but never briefed, which is worse than not started: it would sit
+        // there looking ready while knowing nothing about its job.
+        set({ error: errorMessage(error) });
+        failed.push(role.name);
+      }
+    }
+    return failed;
   },
 
   stopSession: async (id) => {

@@ -9,6 +9,7 @@ const restartSession = vi.fn();
 const renameSession = vi.fn();
 const closeSession = vi.fn();
 const answerSessionPermission = vi.fn();
+const promptSession = vi.fn();
 const disposeTerminal = vi.fn();
 
 // Mocked wholesale: the real module pulls in xterm and its stylesheet, neither
@@ -27,6 +28,7 @@ vi.mock("../lib/api", async () => {
       renameSession,
       closeSession,
       answerSessionPermission,
+      promptSession,
     },
   };
 });
@@ -323,6 +325,65 @@ describe("startSession", () => {
       .startSession({ projectId: "p1", paneId: null, kind: "agent", cols: 80, rows: 24 });
 
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["a1", "a2"]);
+  });
+});
+
+describe("launchSwarm", () => {
+  const roles = [
+    { name: "Planner", summary: "plans", brief: "You are the planner." },
+    { name: "Reviewer", summary: "reviews", brief: "You are reviewing." },
+  ];
+
+  it("starts one paneless agent per role and tells each what it is for", async () => {
+    // Five roles do not fit a six-pane grid, and an agent is the kind that can report
+    // what it is doing, so a swarm is agents rather than terminals.
+    createSession.mockImplementation((input: { role?: string }) =>
+      Promise.resolve(session({ id: `s-${input.role ?? "?"}`, kind: "agent", paneId: null })),
+    );
+    promptSession.mockResolvedValue(undefined);
+
+    const failed = await useSessionStore.getState().launchSwarm("p1", roles);
+
+    expect(failed).toEqual([]);
+    expect(createSession).toHaveBeenCalledTimes(2);
+    expect(createSession).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ paneId: null, kind: "agent", role: "Planner" }),
+    );
+    expect(promptSession).toHaveBeenNthCalledWith(1, "s-Planner", expect.stringContaining("planner"));
+    // The memory is named in every brief, since the file always exists for a session
+    // GrokSpace started.
+    expect(promptSession).toHaveBeenNthCalledWith(
+      2,
+      "s-Reviewer",
+      expect.stringContaining("GROKSPACE_MEMORY_FILE"),
+    );
+  });
+
+  it("keeps going when one role will not start, and says which", async () => {
+    // Throwing the other four away because the fifth failed would be the wrong trade.
+    createSession.mockImplementation((input: { role?: string }) =>
+      input.role === "Planner"
+        ? Promise.reject("could not find `grok` on PATH")
+        : Promise.resolve(session({ id: "s-reviewer", kind: "agent", paneId: null })),
+    );
+    promptSession.mockResolvedValue(undefined);
+
+    const failed = await useSessionStore.getState().launchSwarm("p1", roles);
+
+    expect(failed).toEqual(["Planner"]);
+    expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["s-reviewer"]);
+  });
+
+  it("counts a session that started but could not be briefed as failed", async () => {
+    // Worse than not starting: it would sit there looking ready and knowing nothing.
+    createSession.mockResolvedValue(session({ id: "s-planner", kind: "agent", paneId: null }));
+    promptSession.mockRejectedValue("that session is no longer running");
+
+    const failed = await useSessionStore.getState().launchSwarm("p1", [roles[0]!]);
+
+    expect(failed).toEqual(["Planner"]);
+    expect(useSessionStore.getState().error).toBe("that session is no longer running");
   });
 });
 

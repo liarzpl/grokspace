@@ -41,14 +41,22 @@ export const api = {
   listSessions: (projectId: string): Promise<Session[]> =>
     invoke<Session[]>("list_sessions", { projectId }),
 
-  /** `paneId` is absent for an `agent`, which runs beside the grid rather than in it. */
+  /**
+   * Starts a session. `paneId` is absent for an `agent`, which runs beside the grid
+   * rather than in it, and `role` for one nobody started as anything in particular.
+   *
+   * Sent as one nested value because the backend takes it as one: the argument list
+   * had grown past what a reader can follow.
+   */
   createSession: (input: {
     projectId: string;
     paneId: string | null;
     kind: SessionKind;
+    role?: string;
     cols: number;
     rows: number;
-  }): Promise<Session> => invoke<Session>("create_session", input),
+  }): Promise<Session> =>
+    invoke<Session>("create_session", { session: { ...input, role: input.role ?? null } }),
 
   /** Routes the session's output into `onOutput`, replaying buffered scrollback. */
   attachSession: (id: string, onOutput: Channel<ArrayBuffer>): Promise<void> =>
