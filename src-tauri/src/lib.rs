@@ -2,6 +2,7 @@ mod acp;
 mod db;
 mod error;
 mod graph;
+mod memory;
 mod project;
 mod pty;
 mod session;
@@ -62,6 +63,10 @@ pub fn run() {
             session::close_session,
             session::prompt_session,
             session::answer_session_permission,
+            memory::list_memory,
+            memory::put_memory,
+            memory::remove_memory,
+            memory::memory_file_path,
             task::list_tasks,
             task::create_task,
             task::update_task,
