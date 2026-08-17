@@ -44,35 +44,18 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           TAG: ${{ github.ref_name }}
         run: |
-          # Three files carry the version, and they are not derived from one another.
-          # tauri.conf.json names the app and the DMG, Cargo.toml is what the binary
-          # reports, and package.json is what `npm version` would bump. Any two
-          # disagreeing ships a release whose files contradict each other.
-          config="$(jq -er .version src-tauri/tauri.conf.json)"
-          package="$(jq -er .version package.json)"
-          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)"
-
-          echo "tauri.conf.json  $config"
-          echo "package.json     $package"
-          echo "Cargo.toml       $cargo"
-          echo "version=$config" >> "$GITHUB_OUTPUT"
-
-          if [ "$config" != "$package" ] || [ "$config" != "$cargo" ]; then
-            echo "::error::These three versions must match. Bump all of them together."
-            exit 1
-          fi
-
-          if [ "$REF_TYPE" != "tag" ]; then
+          # The script, not lines inline here, because this workflow cannot be run to
+          # find out whether it works. Shell in a `run:` block is checked by shellcheck
+          # for syntax and by nothing at all for behaviour; scripts/release.test.ts runs
+          # this one against crafted version files, including every disagreement.
+          if [ "$REF_TYPE" = "tag" ]; then
+            version="$(./scripts/release-version.sh "$TAG")"
+          else
             echo "Not a tag, so there is no tag to disagree with."
-            exit 0
+            version="$(./scripts/release-version.sh)"
           fi
-
-          if [ "$TAG" != "v$config" ]; then
-            echo "::error::Tag $TAG does not match version $config."
-            echo "::error::Bump the three files and re-tag, or tag v$config instead."
-            exit 1
-          fi
-          echo "Tag $TAG matches."
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version, and everything carrying it agrees."
 
   macos:
     needs: [checks, version]
@@ -105,60 +88,36 @@ jobs:
 
       - run: npm ci
 
-      # Everything the release step needs is decided here, in shell, rather than in
-      # nested `${{ }}` conditionals. The reason is a real trap: in GitHub expressions
-      # `condition && '' || other` does not do what it looks like, because an empty
-      # string is falsy and the `||` therefore takes the other branch — a dry run built
-      # that way would publish. Computing it here removes the class of mistake.
+      # What this build is — signed or not, published or not, what its notes say — is
+      # decided by a script rather than by nested `${{ }}` conditionals, because the
+      # obvious way to write it in YAML is wrong. `dry-run && '' || tag` takes the other
+      # branch, since an empty string is falsy, so a dry run written that way publishes.
+      # scripts/release.test.ts covers all of it, including that one.
       - id: plan
         name: Work out what this build is
         env:
-          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          DRY_RUN: ${{ inputs.dry-run }}
           VERSION: ${{ needs.version.outputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
         run: |
-          # An unsigned DMG still builds and is still useful for testing. What it must
-          # not do is arrive looking signed: Gatekeeper refuses it, and the app then
-          # looks broken rather than unsigned.
-          if [ -n "$IDENTITY" ] && [ -n "$CERTIFICATE" ] && [ -n "$APPLE_ID" ]; then
-            signed=true
+          # Once, into a file. Running it twice would risk the log describing a
+          # different build from the one the outputs configure.
+          ./scripts/release-plan.sh > plan.txt
+          cat plan.txt >> "$GITHUB_OUTPUT"
+
+          # Said out loud too, since $GITHUB_OUTPUT appears in no log.
+          if grep -qx 'signed=true' plan.txt; then
             echo "Signing and notarizing: the Apple secrets are present."
           else
-            signed=false
             echo "::warning::No Apple secrets, so this build will be unsigned. \
             docs/releasing.md lists which ones are needed."
           fi
-          echo "signed=$signed" >> "$GITHUB_OUTPUT"
-
-          # tauri-action publishes nothing when tagName and releaseName are both empty,
-          # which is what a dry run wants.
           if [ "$DRY_RUN" = "true" ]; then
-            echo "tag=" >> "$GITHUB_OUTPUT"
-            echo "name=" >> "$GITHUB_OUTPUT"
             echo "Dry run: building and signing, publishing nothing."
-          else
-            echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-            echo "name=GrokSpace v$VERSION" >> "$GITHUB_OUTPUT"
           fi
-
-          if [ "$signed" = "true" ]; then
-            opening="Signed with a Developer ID certificate and notarized by Apple, so it opens by double-clicking."
-          else
-            opening="**This build is unsigned.** macOS will refuse to open it by double-clicking. Right-click the app and choose Open, or run \`xattr -dr com.apple.quarantine /Applications/GrokSpace.app\`. Use it for testing only."
-          fi
-
-          {
-            echo "notes<<RELEASE_NOTES_END"
-            echo "$opening"
-            echo
-            echo "Requires macOS 11 or later. Universal, so one download covers Apple Silicon and Intel."
-            echo
-            echo "GrokSpace runs \`grok\` from your own machine and keeps everything in \`~/.grokspace\`."
-            echo "Agent sessions need the [\`grok\` CLI](https://docs.x.ai/build); the terminal grid works without it."
-            echo "RELEASE_NOTES_END"
-          } >> "$GITHUB_OUTPUT"
+          rm plan.txt
 
       - uses: tauri-apps/tauri-action@v0
         env:

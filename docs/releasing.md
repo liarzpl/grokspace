@@ -22,6 +22,30 @@ tag matching `v*`:
 The release is always a draft. Somebody reads the inspection output before anyone
 downloads anything.
 
+## What of this is actually tested
+
+The Apple half is not, and cannot be. The decisions around it are.
+
+Everything in the workflow that *decides* something lives in
+[`scripts/release-version.sh`](../scripts/release-version.sh) and
+[`scripts/release-plan.sh`](../scripts/release-plan.sh) rather than inline in the YAML,
+because shell in a `run:` block is checked by shellcheck for syntax and by nothing at
+all for behaviour. [`scripts/release.test.ts`](../scripts/release.test.ts) runs both —
+eighteen cases covering every version disagreement, the tag mismatch, each Apple secret
+missing on its own, and that a dry run publishes nothing.
+
+That last one matters most. Written the obvious way in YAML it would not work:
+
+```yaml
+tagName: ${{ inputs.dry-run && '' || format('v{0}', version) }}
+```
+
+An empty string is falsy in GitHub expressions, so `||` takes the other branch and the
+dry run publishes a release. Hence a script, and hence a test.
+
+CI also runs `actionlint` over both workflows, which includes shellcheck on every
+remaining `run:` block.
+
 ## What has to be set up first
 
 An Apple Developer account, paid tier. The free tier cannot issue the certificate this

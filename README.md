@@ -133,7 +133,9 @@ src/
                   the theme reader
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
-scripts/          Development helpers; demo-graph.mjs writes a moving graph
+scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
+                  the release-*.sh pair holds the release workflow's decisions so
+                  they can be tested
 src-tauri/
   migrations/     Append-only SQL migrations
   skills/         The Grok skills GrokSpace installs on request

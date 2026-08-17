@@ -27,6 +27,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // `scripts/` is here for the release workflow's shell. That workflow cannot be run
+    // to find out whether it works — it needs a macOS runner, Apple credentials and a
+    // tag it would then publish — so the parts of it that decide anything live in
+    // scripts and are tested like anything else. One test command for the repository.
+    include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
   },
 });
