@@ -4,6 +4,7 @@ mod graph;
 mod project;
 mod pty;
 mod session;
+mod task;
 
 use std::sync::Mutex;
 
@@ -54,6 +55,11 @@ pub fn run() {
             session::restart_session,
             session::rename_session,
             session::close_session,
+            task::list_tasks,
+            task::create_task,
+            task::update_task,
+            task::dispatch_task,
+            task::remove_task,
             graph::read_session_graph,
             graph::watch_project_graphs,
             graph::graph_skill_status,

@@ -23,6 +23,9 @@ pub enum Error {
     #[error("no session found with id {0}")]
     SessionNotFound(String),
 
+    #[error("no task found with id {0}")]
+    TaskNotFound(String),
+
     #[error("that session is no longer running")]
     SessionNotRunning,
 
