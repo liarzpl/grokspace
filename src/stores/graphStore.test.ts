@@ -1,13 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SAMPLE_GRAPH } from "../lib/graphFixture";
-import type { GraphSnapshot } from "../types";
+import type { GraphSnapshot, SkillStatus } from "../types";
 
 const readSessionGraph = vi.fn();
+const graphSkillStatus = vi.fn();
+const installGraphSkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-  return { errorMessage: actual.errorMessage, api: { readSessionGraph } };
+  return {
+    errorMessage: actual.errorMessage,
+    api: { readSessionGraph, graphSkillStatus, installGraphSkill },
+  };
 });
 
 const { graphFor, useGraphStore } = await import("./graphStore");
@@ -18,6 +23,7 @@ function snapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
     path: "/p/.grokspace/graphs/s1.json",
     exists: true,
     json: JSON.stringify(SAMPLE_GRAPH),
+    tooLarge: false,
     updatedAt: 1000,
     ...overrides,
   };
@@ -135,7 +141,6 @@ describe("a half-written file", () => {
     expect(entry("s1").graph).toBeNull();
     expect(entry("s1").error).toContain("JSON");
   });
-
 });
 
 describe("a file that is valid JSON but not a graph", () => {
@@ -147,6 +152,20 @@ describe("a file that is valid JSON but not a graph", () => {
     expect(entry("s1").error).toContain("nodes");
     // Nothing is half-written here, so a second read would say the same thing.
     // Waiting for one would put that cost on every update of a stably bad file.
+    expect(readSessionGraph).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a file the backend refused for its size", () => {
+  it("is reported rather than shown as a graph that has not arrived", async () => {
+    readSessionGraph.mockResolvedValue(snapshot({ json: null, tooLarge: true }));
+
+    await useGraphStore.getState().load("s1");
+
+    // The empty state would name this file and wait for it, which it is not going
+    // to get: the file is already there.
+    expect(entry("s1").error).toContain("too large");
+    expect(entry("s1").graph).toBeNull();
     expect(readSessionGraph).toHaveBeenCalledTimes(1);
   });
 });
@@ -243,5 +262,58 @@ describe("forget", () => {
     await inFlight;
 
     expect(useGraphStore.getState().bySession).toEqual({});
+  });
+});
+
+const skill = (overrides: Partial<SkillStatus> = {}): SkillStatus => ({
+  path: "/home/dev/.grok/skills/grokspace-graph/SKILL.md",
+  installed: true,
+  current: true,
+  ...overrides,
+});
+
+describe("loadSkill", () => {
+  it("asks the backend once however many panes want to know", async () => {
+    // Six empty panes share one answer; that is why the status is not per-pane.
+    graphSkillStatus.mockResolvedValue(skill({ installed: false, current: false }));
+
+    await useGraphStore.getState().loadSkill();
+    await useGraphStore.getState().loadSkill();
+
+    expect(graphSkillStatus).toHaveBeenCalledTimes(1);
+    expect(useGraphStore.getState().skill?.installed).toBe(false);
+  });
+
+  it("stays quiet when the backend cannot answer", async () => {
+    // This only decides whether to offer the install button, so a failure must not
+    // put an error over a panel that is otherwise working.
+    graphSkillStatus.mockRejectedValue("no home directory");
+
+    await useGraphStore.getState().loadSkill();
+
+    expect(useGraphStore.getState().skill).toBeNull();
+  });
+});
+
+describe("installSkill", () => {
+  it("takes the status the install reports back", async () => {
+    useGraphStore.setState({ skill: skill({ installed: false, current: false }) });
+    installGraphSkill.mockResolvedValue(skill());
+
+    await useGraphStore.getState().installSkill();
+
+    expect(useGraphStore.getState().skill?.current).toBe(true);
+    expect(useGraphStore.getState().isInstallingSkill).toBe(false);
+  });
+
+  it("leaves the button usable when the install fails", async () => {
+    const before = skill({ installed: false, current: false });
+    useGraphStore.setState({ skill: before });
+    installGraphSkill.mockRejectedValue("permission denied");
+
+    await useGraphStore.getState().installSkill();
+
+    expect(useGraphStore.getState().skill).toEqual(before);
+    expect(useGraphStore.getState().isInstallingSkill).toBe(false);
   });
 });

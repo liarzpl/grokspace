@@ -76,9 +76,15 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
+Those are the same checks [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
+runs on every pull request, so a green run locally is a green run there. CI adds
+`cargo fmt --check` in place of `cargo fmt`, and installs the WebKitGTK packages
+Tauri needs to compile on Linux.
+
 ### Where things live
 
 ```
+.github/          The CI workflow: the same checks, on every pull request
 src/
   components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState,
                   PaneGrid, TerminalPane, GraphVisualizer, graph/

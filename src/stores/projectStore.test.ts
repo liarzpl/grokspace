@@ -18,7 +18,7 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { useProjectStore } = await import("./projectStore");
+const { layoutOf, useProjectStore } = await import("./projectStore");
 
 function project(overrides: Partial<Project> = {}): Project {
   return {
@@ -128,6 +128,55 @@ describe("selectProject", () => {
     const state = useProjectStore.getState();
     expect(state.activeProjectId).toBe("b");
     expect(state.projects.map((p) => p.id)).toEqual(["b", "a"]);
+  });
+});
+
+describe("renameProject", () => {
+  it("replaces the project with the renamed one the backend returns", async () => {
+    useProjectStore.setState({ projects: [project({ name: "acme-api" })] });
+    updateProject.mockResolvedValue(project({ name: "acme" }));
+
+    await useProjectStore.getState().renameProject("p1", "acme");
+
+    expect(updateProject).toHaveBeenCalledWith("p1", { name: "acme" });
+    expect(useProjectStore.getState().projects[0]?.name).toBe("acme");
+  });
+
+  it("leaves the old name in place when the backend refuses the new one", async () => {
+    useProjectStore.setState({ projects: [project({ name: "acme-api" })] });
+    updateProject.mockRejectedValue("a project needs a name");
+
+    await useProjectStore.getState().renameProject("p1", "   ");
+
+    const state = useProjectStore.getState();
+    expect(state.error).toBe("a project needs a name");
+    expect(state.projects[0]?.name).toBe("acme-api");
+  });
+});
+
+describe("setLayout", () => {
+  it("keeps the settings it is not changing", async () => {
+    // The layout rides along in the settings blob, so writing it must not become a
+    // way to drop everything else kept there.
+    const settings = { terminalLayout: "2x2", lastGraphSession: "s7" };
+    useProjectStore.setState({ projects: [project({ settings })] });
+    updateProject.mockResolvedValue(
+      project({ settings: { ...settings, terminalLayout: "3x2" } }),
+    );
+
+    await useProjectStore.getState().setLayout("p1", "3x2");
+
+    expect(updateProject).toHaveBeenCalledWith("p1", {
+      settings: { terminalLayout: "3x2", lastGraphSession: "s7" },
+    });
+    expect(layoutOf(useProjectStore.getState().projects[0] ?? null)).toBe("3x2");
+  });
+
+  it("does nothing for a project it has never heard of", async () => {
+    // The layout is read off the project in hand, so there is nothing to merge into.
+    await useProjectStore.getState().setLayout("missing", "1x1");
+
+    expect(updateProject).not.toHaveBeenCalled();
   });
 });
 

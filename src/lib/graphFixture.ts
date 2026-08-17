@@ -1,14 +1,14 @@
 /**
- * A stand-in for `current-graph.json` until the file watcher lands.
+ * The graph the tests read, standing in for one an agent wrote.
  *
- * This is an Idea Generation graph caught mid-run. It is exported as `unknown`
- * on purpose: the panel has to put it through `parseGraph` exactly as it will
- * put a real file, so the fixture exercises the same code path rather than a
- * shortcut around it.
+ * This is an Idea Generation graph caught mid-run. It is exported as `unknown` on
+ * purpose: the tests put it through `parseGraph` exactly as the store puts a real
+ * file, so they exercise that path rather than a shortcut around it.
  *
- * It covers all eight node types and all five node statuses, so every visual
- * state in the panel is reachable without waiting for a real graph to fail or
- * skip a node.
+ * It covers all eight node types and all five node statuses in one document, which
+ * is what makes it worth keeping as a fixture: every state the parser and the panel
+ * have to handle is reachable without waiting for a real graph to fail or skip a
+ * node.
  */
 export const SAMPLE_GRAPH: unknown = {
   id: "graph-idea-gen-4f2a",

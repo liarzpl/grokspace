@@ -7,7 +7,7 @@ import type { SkillStatus } from "../types";
 /**
  * One graph per session, kept in step with the files on disk.
  *
- * The backend watches the graph directories and says which session changed; this
+ * The backend watches the graph directory and says which session changed; this
  * store re-reads that session's file. Two timings matter:
  *
  * - A burst of writes (a run updating several node statuses at once) is coalesced,
@@ -22,6 +22,21 @@ const COALESCE_MS = 80;
 
 /** How long to give a writer to finish before broken JSON is believed. */
 const RETRY_MS = 150;
+
+/**
+ * Whether the file was JSON at all, which is the one failure worth reading again.
+ *
+ * `parseGraph` is deliberately not called in here. It reports a document that is
+ * not a graph rather than throwing, so folding it in would make the narrow retry
+ * depend on that staying true instead of on the shape of this code.
+ */
+function parseJson(text: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
 
 export interface GraphEntry {
   /** The file that was read, or the one the session has been told to write. */
@@ -95,6 +110,21 @@ export const useGraphStore = create<GraphState>((set, get) => {
       return;
     }
 
+    // Ahead of the missing-graph branch, which an unread file also lands in: a
+    // file refused for its size is there, so reporting it as no graph yet would
+    // leave the pane waiting for something that has already arrived.
+    if (snapshot.tooLarge) {
+      write(sessionId, {
+        path: snapshot.path,
+        graph: null,
+        warnings: [],
+        error: "The graph file is too large to read.",
+        updatedAt: snapshot.updatedAt,
+        isLoading: false,
+      });
+      return;
+    }
+
     if (snapshot.json === null) {
       write(sessionId, {
         path: snapshot.path,
@@ -107,20 +137,17 @@ export const useGraphStore = create<GraphState>((set, get) => {
       return;
     }
 
-    let parsed: ParseResult;
-    try {
-      parsed = parseGraph(JSON.parse(snapshot.json) as unknown);
-    } catch {
-      if (allowRetry) {
-        // Probably a half-written file. Give the writer a moment, then believe it.
-        // Only broken JSON earns this: a document that parses but is not a graph
-        // will say the same thing a second time, at the price of another read.
-        await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
-        if (!(sessionId in get().bySession)) return;
-        return read(sessionId, false);
-      }
-      parsed = { ok: false, error: "The graph file is not valid JSON." };
+    const document = parseJson(snapshot.json);
+    if (!document.ok && allowRetry) {
+      // Probably a half-written file. Give the writer a moment, then believe it.
+      await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+      if (!(sessionId in get().bySession)) return;
+      return read(sessionId, false);
     }
+
+    const parsed: ParseResult = document.ok
+      ? parseGraph(document.value)
+      : { ok: false, error: "The graph file is not valid JSON." };
 
     write(
       sessionId,

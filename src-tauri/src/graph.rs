@@ -28,6 +28,14 @@ use crate::{db, project, session, AppState};
 /// session exit event this is infrequent, which is what the event system is for.
 const CHANGE_EVENT: &str = "graph-changed";
 
+/// The most a graph file may be before it is refused unread.
+///
+/// A graph is a plan: the bundled fixture is a few kilobytes and a thousand-node
+/// document still sits well under a megabyte. This is high enough that no real
+/// graph meets it, and low enough to stop an agent that redirects a log into
+/// `GROKSPACE_GRAPH_FILE` from being carried across the IPC boundary.
+const MAX_GRAPH_BYTES: u64 = 4 * 1024 * 1024;
+
 /// The skill GrokSpace installs so `grok` knows to write these files at all.
 /// `~/.grok/skills` is the user-level directory Grok Build discovers skills from.
 const SKILL_DIR: &str = ".grok/skills/grokspace-graph";
@@ -82,8 +90,13 @@ pub struct GraphSnapshot {
     /// The file that was read, or the one that is expected to appear.
     pub path: String,
     pub exists: bool,
-    /// The file's contents, absent when the file is missing or still empty.
+    /// The file's contents, absent when the file is missing, still empty, or
+    /// refused for its size.
     pub json: Option<String>,
+    /// True when the file was past `MAX_GRAPH_BYTES` and so was never read. Told
+    /// apart from an absent `json` because the panel has something honest to say
+    /// about a file that is there but will not be opened.
+    pub too_large: bool,
     /// Modification time in milliseconds, matching every other timestamp here.
     pub updated_at: Option<i64>,
 }
@@ -116,15 +129,23 @@ fn snapshot_in(dirs: &[PathBuf], session_id: &str) -> GraphSnapshot {
         if !metadata.is_file() {
             continue;
         }
-        let json = match std::fs::read_to_string(&candidate) {
-            Ok(text) if !text.trim().is_empty() => Some(text),
-            _ => None,
+        // Checked before the read, which is the whole point: the size is already
+        // in hand from the metadata above.
+        let too_large = metadata.len() > MAX_GRAPH_BYTES;
+        let json = if too_large {
+            None
+        } else {
+            match std::fs::read_to_string(&candidate) {
+                Ok(text) if !text.trim().is_empty() => Some(text),
+                _ => None,
+            }
         };
         return GraphSnapshot {
             session_id: session_id.to_string(),
             path: candidate.to_string_lossy().into_owned(),
             exists: true,
             json,
+            too_large,
             updated_at: mtime_ms(&metadata),
         };
     }
@@ -134,12 +155,28 @@ fn snapshot_in(dirs: &[PathBuf], session_id: &str) -> GraphSnapshot {
         path: expected.unwrap_or_default().to_string_lossy().into_owned(),
         exists: false,
         json: None,
+        too_large: false,
         updated_at: None,
     }
 }
 
 pub fn snapshot(project_path: &Path, session_id: &str) -> GraphSnapshot {
     snapshot_in(&graph_dirs(project_path), session_id)
+}
+
+/// Removes the graph of a session that is going away for good.
+///
+/// Both directories are tried, for the same reason reading does: a graph written
+/// during a spell when the project folder could not be written to is in the
+/// fallback. Only the file named for this session is touched.
+///
+/// A failure is deliberately not reported. The caller is closing a terminal, and a
+/// graph that would not delete is not worth refusing that over.
+pub fn remove_graph(project_path: &Path, session_id: &str) {
+    let file_name = graph_file_name(session_id);
+    for dir in graph_dirs(project_path) {
+        let _ = std::fs::remove_file(dir.join(&file_name));
+    }
 }
 
 /// A graph file's session id, or `None` for anything else in the directory —
@@ -216,6 +253,24 @@ fn watch_dirs(
     Ok(watcher)
 }
 
+/// The directories a project's watcher covers.
+///
+/// Exactly one: the directory its sessions are being told to write into, which is
+/// what `ensure_graph_dir` decides — creating it on the way, since notify cannot
+/// watch a directory that does not exist and the first graph of a run creates the
+/// directory along with the file.
+///
+/// Watching the fallback as well would put a watcher on `~/.grokspace/graphs` for
+/// every open project, because they all share it, and so report every write landing
+/// there once per project. A graph left in the fallback from a spell when the
+/// project folder could not be written to is still found by `snapshot`, which reads
+/// both; it is only no longer reported live.
+fn watched_dirs(project_path: &Path) -> Vec<PathBuf> {
+    ensure_graph_dir(project_path)
+        .map(|dir| vec![dir])
+        .unwrap_or_default()
+}
+
 /// One watcher per project, keyed by project id.
 ///
 /// Asking again replaces that project's watcher rather than stacking a second one
@@ -238,16 +293,13 @@ impl GraphWatchers {
         Self::default()
     }
 
-    /// Starts watching a project's graph directories and returns the ones that
-    /// could be watched.
+    /// Starts watching a project's graph directory and returns what could be
+    /// watched, which is empty when the directory could not be prepared at all.
     fn watch(&self, app: AppHandle, project_id: &str, project_path: &Path) -> Result<Vec<String>> {
-        let dirs = graph_dirs(project_path);
-        // notify cannot watch a directory that does not exist yet, and the first
-        // graph of a run creates the directory along with the file.
-        for dir in &dirs {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        let existing: Vec<PathBuf> = dirs.into_iter().filter(|dir| dir.is_dir()).collect();
+        let existing: Vec<PathBuf> = watched_dirs(project_path)
+            .into_iter()
+            .filter(|dir| dir.is_dir())
+            .collect();
         if existing.is_empty() {
             return Ok(Vec::new());
         }
@@ -407,6 +459,43 @@ mod tests {
 
         assert!(snapshot.exists);
         assert_eq!(snapshot.json, None);
+        assert!(!snapshot.too_large);
+    }
+
+    /// The bytes need not be a document: this layer hands JSON to the frontend
+    /// unparsed, so only the length decides.
+    fn filler(bytes: u64) -> Vec<u8> {
+        vec![b'x'; bytes as usize]
+    }
+
+    #[test]
+    fn a_graph_past_the_size_cap_is_refused_unread() {
+        let project = dir();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join("s1.json"), filler(MAX_GRAPH_BYTES + 1)).unwrap();
+
+        let snapshot = snapshot(project.path(), "s1");
+
+        // Reported as present but unread, so the panel can say why rather than
+        // waiting for a graph that has already arrived.
+        assert!(snapshot.exists);
+        assert!(snapshot.too_large);
+        assert_eq!(snapshot.json, None);
+    }
+
+    #[test]
+    fn a_graph_at_the_size_cap_is_still_read() {
+        let project = dir();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join("s1.json"), filler(MAX_GRAPH_BYTES)).unwrap();
+
+        let snapshot = snapshot(project.path(), "s1");
+
+        assert!(!snapshot.too_large, "the cap is a ceiling, not a threshold");
+        assert_eq!(
+            snapshot.json.map(|json| json.len() as u64),
+            Some(MAX_GRAPH_BYTES)
+        );
     }
 
     #[test]
@@ -425,6 +514,33 @@ mod tests {
             Some(r#"{"name":"second"}"#)
         );
         assert!(!snapshot(project.path(), "s3").exists);
+    }
+
+    #[test]
+    fn removing_a_session_takes_its_graph_and_nothing_else() {
+        let project = dir();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join("going.json"), r#"{"nodes":[]}"#).unwrap();
+        std::fs::write(graphs.join("staying.json"), r#"{"nodes":[]}"#).unwrap();
+        std::fs::write(graphs.join("notes.md"), "an artifact").unwrap();
+
+        remove_graph(project.path(), "going");
+
+        assert!(!snapshot(project.path(), "going").exists);
+        assert!(
+            snapshot(project.path(), "staying").exists,
+            "a neighbour's plan is not this session's to delete"
+        );
+        assert!(graphs.join("notes.md").is_file());
+    }
+
+    #[test]
+    fn removing_a_session_that_wrote_no_graph_is_quiet() {
+        let project = dir();
+        ensure_graph_dir(project.path()).unwrap();
+
+        // A session can be closed before an agent ever reports a plan.
+        remove_graph(project.path(), "never-wrote-one");
     }
 
     #[test]
@@ -452,6 +568,26 @@ mod tests {
 
         assert_eq!(graphs, project_graph_dir(project.path()));
         assert!(graphs.is_dir());
+    }
+
+    #[test]
+    fn a_project_is_watched_in_one_directory_only() {
+        let project = dir();
+
+        let watched = watched_dirs(project.path());
+
+        // Not the fallback as well: every project shares it, so a watch on it here
+        // would report each write landing there once per open project.
+        assert_eq!(watched, vec![project_graph_dir(project.path())]);
+    }
+
+    #[test]
+    fn a_project_that_cannot_hold_graphs_is_watched_in_the_fallback() {
+        // /proc rejects the directory, which is what a read-only project folder
+        // does too, and is where the writer will have been sent instead.
+        let watched = watched_dirs(Path::new("/proc/nonexistent-project"));
+
+        assert_eq!(watched, vec![home_graph_dir().unwrap()]);
     }
 
     #[test]

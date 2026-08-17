@@ -181,6 +181,59 @@ describe("markExited", () => {
   });
 });
 
+describe("stopSession", () => {
+  it("leaves the status to the exit event rather than guessing it", async () => {
+    // A kill is asynchronous: the child is still running when this resolves, and
+    // the pane would lie if it went grey before the process actually went away.
+    useSessionStore.setState({ sessions: [session({ status: "running" })] });
+    stopSession.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().stopSession("s1");
+
+    expect(stopSession).toHaveBeenCalledWith("s1");
+    const stopped = useSessionStore.getState().sessions[0];
+    expect(stopped?.status).toBe("running");
+    expect(stopped?.processId).toBe(4242);
+  });
+
+  it("surfaces a failed kill instead of throwing", async () => {
+    useSessionStore.setState({ sessions: [session()] });
+    stopSession.mockRejectedValue("no such session");
+
+    await useSessionStore.getState().stopSession("s1");
+
+    expect(useSessionStore.getState().error).toBe("no such session");
+  });
+});
+
+describe("renameSession", () => {
+  it("replaces only the session that was renamed", async () => {
+    useSessionStore.setState({
+      sessions: [session(), session({ id: "s2", paneId: "1", title: "Shell" })],
+    });
+    renameSession.mockResolvedValue(session({ title: "Reviewer" }));
+
+    await useSessionStore.getState().renameSession("s1", "Reviewer");
+
+    expect(renameSession).toHaveBeenCalledWith("s1", "Reviewer");
+    expect(useSessionStore.getState().sessions.map((s) => s.title)).toEqual([
+      "Reviewer",
+      "Shell",
+    ]);
+  });
+
+  it("keeps the old title when the backend refuses the new one", async () => {
+    useSessionStore.setState({ sessions: [session({ title: "Grok" })] });
+    renameSession.mockRejectedValue("a session needs a title");
+
+    await useSessionStore.getState().renameSession("s1", "   ");
+
+    const state = useSessionStore.getState();
+    expect(state.error).toBe("a session needs a title");
+    expect(state.sessions[0]?.title).toBe("Grok");
+  });
+});
+
 describe("restartSession", () => {
   it("swaps in the new session and disposes the old terminal", async () => {
     useSessionStore.setState({ sessions: [session({ id: "old", paneId: "1" })] });

@@ -66,8 +66,16 @@ export interface GraphSnapshot {
   /** The file that was read, or the one that is expected to appear. */
   path: string;
   exists: boolean;
-  /** Absent when the file is missing, or present but still empty. */
+  /**
+   * Absent when the file is missing, present but still empty, or refused for its
+   * size.
+   */
   json: string | null;
+  /**
+   * True when the file was too big to read, which is a different report than no
+   * graph yet: the file is there, it just will not be opened.
+   */
+  tooLarge: boolean;
   updatedAt: number | null;
 }
 
