@@ -11,7 +11,11 @@ import { DEFAULT_LAYOUT, type Settings } from "../types";
  * key with the same defaults, so the two agree even before they have spoken.
  */
 
-const DEFAULTS: Settings = { defaultLayout: DEFAULT_LAYOUT, openingTab: "terminals" };
+const DEFAULTS: Settings = {
+  defaultLayout: DEFAULT_LAYOUT,
+  openingTab: "terminals",
+  defaultDispatch: "pane",
+};
 
 interface SettingsState {
   settings: Settings;

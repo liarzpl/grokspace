@@ -124,6 +124,13 @@ export interface Settings {
   defaultLayout: PaneLayout;
   /** The panel the workspace opens on. */
   openingTab: "terminals" | "graph" | "tasks" | "memory";
+  /**
+   * Which new session a dispatch reaches for first. Only the order of the offer
+   * changes, so nothing is chosen on anyone's behalf — but it decides which chip is
+   * nearest the pointer, and for someone who always dispatches the same way that is
+   * the difference between one click and seven.
+   */
+  defaultDispatch: "pane" | "agent";
 }
 
 /** Whether the skill that teaches `grok` to write graph files is in place. */

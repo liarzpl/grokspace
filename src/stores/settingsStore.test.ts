@@ -15,6 +15,7 @@ const { useSettingsStore } = await import("./settingsStore");
 const settings = (overrides: Partial<Settings> = {}): Settings => ({
   defaultLayout: "2x2",
   openingTab: "terminals",
+  defaultDispatch: "pane",
   ...overrides,
 });
 

@@ -24,6 +24,9 @@ const LAYOUTS: [&str; 4] = ["1x1", "2x1", "2x2", "3x2"];
 const DEFAULT_TAB: &str = "terminals";
 const TABS: [&str; 4] = ["terminals", "graph", "tasks", "memory"];
 
+const DEFAULT_DISPATCH: &str = "pane";
+const DISPATCH: [&str; 2] = ["pane", "agent"];
+
 /// Every preference, with the defaults filled in.
 ///
 /// Values are validated on the way out as well as in: a row edited by hand should
@@ -36,6 +39,10 @@ pub struct Settings {
     /// The panel the workspace opens on. Somebody who works from the board should
     /// not have to click past the terminals every time.
     pub opening_tab: String,
+    /// Which new session a dispatch reaches for first: a Grok terminal in a free pane,
+    /// or a paneless agent. Only the ordering of the offer changes — nothing is chosen
+    /// on the user's behalf — but it decides which chip is nearest the pointer.
+    pub default_dispatch: String,
 }
 
 impl Settings {
@@ -43,6 +50,7 @@ impl Settings {
         Self {
             default_layout: one_of(rows.get("defaultLayout"), &LAYOUTS, DEFAULT_LAYOUT),
             opening_tab: one_of(rows.get("openingTab"), &TABS, DEFAULT_TAB),
+            default_dispatch: one_of(rows.get("defaultDispatch"), &DISPATCH, DEFAULT_DISPATCH),
         }
     }
 }
@@ -79,6 +87,7 @@ pub fn put(conn: &Connection, key: &str, value: &str) -> Result<Settings> {
     let allowed: &[&str] = match key {
         "defaultLayout" => &LAYOUTS,
         "openingTab" => &TABS,
+        "defaultDispatch" => &DISPATCH,
         _ => return Err(Error::Invalid(format!("`{key}` is not a setting"))),
     };
     if !allowed.contains(&value) {
@@ -131,6 +140,7 @@ mod tests {
 
         assert_eq!(settings.default_layout, "2x2");
         assert_eq!(settings.opening_tab, "terminals");
+        assert_eq!(settings.default_dispatch, "pane");
     }
 
     #[test]
@@ -141,6 +151,7 @@ mod tests {
 
         assert_eq!(after.opening_tab, "tasks");
         assert_eq!(after.default_layout, "2x2");
+        assert_eq!(after.default_dispatch, "pane");
     }
 
     #[test]
@@ -167,6 +178,10 @@ mod tests {
         let conn = conn();
 
         assert!(put(&conn, "colourOfTheSky", "blue").is_err());
+        assert!(matches!(
+            put(&conn, "defaultDispatch", "carrier-pigeon"),
+            Err(Error::Invalid(_))
+        ));
         assert!(matches!(
             put(&conn, "openingTab", "nonesuch"),
             Err(Error::Invalid(_))
