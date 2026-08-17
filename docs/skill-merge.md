@@ -83,6 +83,27 @@ prompt skeleton, and the anti-patterns are the hand-written skill's, near enough
 verbatim. They are the half GrokSpace's own skill did not have: it knew how to draw a
 graph and had no opinion on whether the work deserved one.
 
+## Refined after a first real run
+
+Grok was asked, on the machine both skills came from, what it would still deviate from
+once the merged contract was installed. Two of its answers were right, and the contract
+changed rather than the answer:
+
+- **The cadence rule needed a sense of proportion.** "Write on every node start and
+  finish" is about a panel being watched. A sequential job that finishes in twenty
+  seconds was never watched mid-flight, and fourteen atomic writes in that time is
+  bookkeeping nobody reads. The rule now says so, and says to assume you are being
+  watched when unsure — otherwise it was a rule that would be quietly broken on every
+  small job, which is how a contract loses its authority over the large ones.
+- **The trigger conditions read as a threshold for building a graph.** The description
+  said to use the skill when work has "more than a couple of steps", while the catalogue
+  said to stay with one loop unless three parallel lanes can be drawn. Loading the skill
+  and deciding to build a graph are different decisions, and the description now says
+  which one it is.
+
+Both had survived the merge because they came from opposite sides of it: the cadence from
+GrokSpace's skill, the napkin test from the hand-written one.
+
 ## What the merge does not fix
 
 - **`grokspace-memory` is not installed on that machine**, though

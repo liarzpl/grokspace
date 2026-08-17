@@ -43,8 +43,14 @@ Every write replaces the whole file. Keep `id` and `createdAt`; set `updatedAt` 
 
 **Write on every node start and finish, not only at layer joins.** A panel is watching
 this file, and a graph that only moves when a whole layer completes looks stuck for
-minutes at a time. This is the one rule most worth obeying, because the cost of
-breaking it is invisible to you and obvious to the person watching.
+minutes at a time. The cost of breaking this is invisible to you and obvious to the
+person watching, which is why it is worth stating twice.
+
+The rule is about being watched, not about arithmetic. A run that finishes in seconds
+was never watched mid-flight, and fourteen writes in twenty seconds is bookkeeping
+nobody reads — one snapshot and a final write is honest there. A run with agents in it,
+or one that will take minutes, gets the write per node. If you are unsure which you are
+in, assume you are being watched.
 
 Do not rewrite on every inner tool call. A node starting and finishing is the unit.
 

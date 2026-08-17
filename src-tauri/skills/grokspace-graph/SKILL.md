@@ -1,11 +1,12 @@
 ---
 name: grokspace-graph
 description: >
-  Design the right agent graph for a job, then report it as a live execution graph
-  that GrokSpace draws. Decide loop versus graph, pick a topology, write node
-  contracts, emit the graph file GrokSpace watches, and join fail-closed. Use
+  Decide what shape a job deserves — usually one loop, sometimes a graph — then report
+  it as a live execution graph that GrokSpace draws. Pick a topology, write node
+  contracts, emit the graph file GrokSpace watches, and join fail-closed. Load this
   whenever work has more than a couple of steps, fans out to parallel workers, needs
-  review or approval, or the user asks about the plan, the graph, or the progress.
+  review or approval, or the user asks about the plan, the graph, or the progress;
+  loading it is not a decision to build a graph, and most work should stay a loop.
   Trigger on graph engineering, agent graph, topoloji, multi-agent, parallel
   subagent, Arena, workflow graph, fan-out, orchestrator, "kaç ajan", "graph mi loop
   mu", graph visualizer, live graph, plan this out, show me the graph, visualise the
