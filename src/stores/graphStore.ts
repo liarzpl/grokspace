@@ -88,8 +88,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
     try {
       snapshot = await api.readSessionGraph(sessionId);
     } catch (error) {
-      // A session the backend has already forgotten is not an error worth
-      // showing; the pane it belonged to is going away too.
+      // Shown rather than swallowed: this is the only report a pane gets that the
+      // file it is pointing at could not be read. The one case that stays quiet is
+      // a session already forgotten here, and `write` is what drops it.
       write(sessionId, { isLoading: false, error: errorMessage(error) });
       return;
     }
