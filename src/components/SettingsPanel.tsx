@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+
+import { subscribeEscape } from "../lib/shortcuts";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { PANE_LAYOUTS, type Settings } from "../types";
@@ -61,6 +64,8 @@ export default function SettingsPanel() {
   const settings = useSettingsStore((state) => state.settings);
   const setSetting = useSettingsStore((state) => state.setSetting);
 
+  useEffect(() => subscribeEscape(isOpen, closeSettings), [isOpen, closeSettings]);
+
   if (!isOpen) return null;
 
   return (
@@ -72,9 +77,6 @@ export default function SettingsPanel() {
         role="dialog"
         aria-label="Settings"
         onMouseDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") closeSettings();
-        }}
         className="flex max-h-[70vh] w-[30rem] flex-col overflow-hidden rounded-lg border border-line-strong bg-panel shadow-2xl shadow-black/60"
       >
         <header className="flex shrink-0 items-baseline gap-2 border-b border-line px-4 py-2.5">

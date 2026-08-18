@@ -315,5 +315,6 @@ describe("installSkill", () => {
 
     expect(useGraphStore.getState().skill).toEqual(before);
     expect(useGraphStore.getState().isInstallingSkill).toBe(false);
+    expect(useGraphStore.getState().error).toBe("permission denied");
   });
 });

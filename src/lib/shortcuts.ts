@@ -64,3 +64,45 @@ export function shortcutFor(event: KeyboardEvent): ShortcutId | undefined {
     (shortcut) => shortcut.mod === mod && shortcut.key === event.key.toLowerCase(),
   )?.id;
 }
+
+/** What App does with a matched shortcut. Open-project closes the palette first. */
+export function runGlobalShortcut(
+  id: ShortcutId,
+  deps: {
+    closePalette: () => void;
+    togglePalette: () => void;
+    openProject: () => void;
+  },
+): void {
+  if (id === "open-project") {
+    deps.closePalette();
+    deps.openProject();
+    return;
+  }
+  deps.togglePalette();
+}
+
+/** A window-like target, so Escape can be subscribed without a real DOM. */
+export interface KeyTarget {
+  addEventListener: (type: "keydown", handler: (event: KeyboardEvent) => void) => void;
+  removeEventListener: (type: "keydown", handler: (event: KeyboardEvent) => void) => void;
+}
+
+/**
+ * Escape on the window, not on a div that is never focused. Settings is an overlay
+ * whose dialog has no autofocus; without this the key does nothing.
+ */
+export function subscribeEscape(
+  enabled: boolean,
+  onEscape: () => void,
+  target: KeyTarget | undefined = typeof window === "undefined" ? undefined : window,
+): () => void {
+  if (!enabled || target === undefined) return () => {};
+  const handler = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    onEscape();
+  };
+  target.addEventListener("keydown", handler);
+  return () => target.removeEventListener("keydown", handler);
+}

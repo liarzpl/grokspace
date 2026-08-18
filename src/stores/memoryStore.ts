@@ -96,11 +96,11 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   },
 
   installSkill: async () => {
-    set({ isInstallingSkill: true });
+    set({ isInstallingSkill: true, error: null });
     try {
       set({ skill: await api.installMemorySkill() });
-    } catch {
-      // Left as it was, so the button stays available to try again.
+    } catch (error) {
+      set({ error: errorMessage(error) });
     } finally {
       set({ isInstallingSkill: false });
     }

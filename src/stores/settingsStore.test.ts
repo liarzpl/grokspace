@@ -61,6 +61,15 @@ describe("settings", () => {
     expect(useSettingsStore.getState().settings.openingTab).toBe("memory");
   });
 
+  it("accepts the diff tab, which is one of the five the settings panel offers", async () => {
+    writeSetting.mockResolvedValue(settings({ openingTab: "diff" }));
+
+    await useSettingsStore.getState().setSetting("openingTab", "diff");
+
+    expect(writeSetting).toHaveBeenCalledWith("openingTab", "diff");
+    expect(useSettingsStore.getState().settings.openingTab).toBe("diff");
+  });
+
   it("report a refused write and change nothing", async () => {
     writeSetting.mockRejectedValue("`9x9` is not one of the values `defaultLayout` can take");
 

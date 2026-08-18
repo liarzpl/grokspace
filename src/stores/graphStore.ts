@@ -58,6 +58,8 @@ interface GraphState {
    */
   skill: SkillStatus | null;
   isInstallingSkill: boolean;
+  /** Skill install failures; per-session graph errors live on each entry. */
+  error: string | null;
 
   /** Reads a session's graph now; safe to call repeatedly. */
   load: (sessionId: string) => Promise<void>;
@@ -71,6 +73,7 @@ interface GraphState {
   forget: (sessionId: string) => void;
   loadSkill: () => Promise<void>;
   installSkill: () => Promise<void>;
+  clearError: () => void;
 }
 
 const EMPTY: GraphEntry = {
@@ -175,6 +178,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     bySession: {},
     skill: null,
     isInstallingSkill: false,
+    error: null,
 
     load: async (sessionId) => {
       set((state) =>
@@ -230,15 +234,19 @@ export const useGraphStore = create<GraphState>((set, get) => {
     },
 
     installSkill: async () => {
-      set({ isInstallingSkill: true });
+      set({ isInstallingSkill: true, error: null });
       try {
         set({ skill: await api.installGraphSkill() });
-      } catch {
-        // Left as it was, so the button stays available to try again.
+      } catch (error) {
+        // Left as it was, so the button stays available to try again — but said,
+        // because a silent failure looks exactly like a successful no-op.
+        set({ error: errorMessage(error) });
       } finally {
         set({ isInstallingSkill: false });
       }
     },
+
+    clearError: () => set({ error: null }),
   };
 });
 

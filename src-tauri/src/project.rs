@@ -6,6 +6,7 @@ use tauri::State;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
+use crate::session;
 use crate::AppState;
 
 const COLUMNS: &str = "id, name, path, last_opened, settings, created_at";
@@ -186,7 +187,28 @@ pub fn touch_project(state: State<'_, AppState>, id: String) -> Result<Project> 
 
 #[tauri::command]
 pub fn remove_project(state: State<'_, AppState>, id: String) -> Result<()> {
-    with_db(&state, |conn| remove(conn, &id))
+    remove_and_stop_sessions(&state, &id)
+}
+
+/// Stops every session that belongs to the project, then forgets the project.
+///
+/// The folder on disk is left alone; the processes are not. CASCADE would drop
+/// the rows and leave `grok` running.
+pub(crate) fn remove_and_stop_sessions(state: &AppState, id: &str) -> Result<()> {
+    let session_ids = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        // Unknown project: fail here rather than succeeding at closing nothing.
+        let _ = get(&conn, id)?;
+        session::list(&conn, id)?
+            .into_iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>()
+    };
+    for session_id in session_ids {
+        session::close(state, &session_id)?;
+    }
+    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+    remove(&conn, id)
 }
 
 #[cfg(test)]
@@ -321,5 +343,49 @@ mod tests {
             remove(&conn, "nope"),
             Err(Error::ProjectNotFound(_))
         ));
+    }
+
+    #[test]
+    fn forgetting_a_project_closes_its_sessions() {
+        // CASCADE would drop the rows and leave a graph file — and a live child —
+        // behind. Closing first is what stops the agent.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project_path = dir.path().join("acme");
+        std::fs::create_dir(&project_path).unwrap();
+        let conn = conn();
+        let project = upsert_by_path(&conn, project_path.to_str().unwrap(), "acme").unwrap();
+        let session = crate::session::insert(
+            &conn,
+            &project.id,
+            None,
+            crate::session::SessionKind::Agent,
+            "Planner",
+            Some("Planner"),
+        )
+        .unwrap();
+        let graph_dir = project_path.join(".grokspace").join("graphs");
+        std::fs::create_dir_all(&graph_dir).unwrap();
+        let graph_file = graph_dir.join(format!("{}.json", session.id));
+        std::fs::write(&graph_file, "{}").unwrap();
+
+        let state = crate::AppState {
+            db: std::sync::Mutex::new(conn),
+            pty: crate::pty::PtyManager::new(),
+            acp: crate::acp::AcpManager::new(),
+            graphs: crate::graph::GraphWatchers::new(),
+        };
+
+        remove_and_stop_sessions(&state, &project.id).unwrap();
+
+        let conn = state.db.lock().unwrap();
+        assert!(matches!(
+            get(&conn, &project.id),
+            Err(Error::ProjectNotFound(_))
+        ));
+        assert!(crate::session::list(&conn, &project.id).unwrap().is_empty());
+        assert!(
+            !graph_file.exists(),
+            "close deletes the graph; a cascade-only forget would leave it"
+        );
     }
 }

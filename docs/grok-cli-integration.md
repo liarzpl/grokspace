@@ -199,10 +199,21 @@ What that means in practice, for whoever runs it first:
 - The handshake assumes `session/new` answers with `result.sessionId`. If Grok nests
   it differently, `start` fails with "opened a session without giving it an id",
   which is the error to look for.
-- The permission reply sends `{ "outcome": "selected", "optionId": "allow" }`.
-  ACP lets an agent offer its own option ids, so a real request may name something
-  other than `allow`, in which case the option would have to be read from the
-  request rather than assumed.
+- The permission reply is the ACP v1 nested result, with `optionId` taken from
+  the request (`allow-once` / `reject-once` when those kinds are offered):
+
+  ```json
+  {
+    "jsonrpc": "2.0",
+    "id": "<the request id>",
+    "result": {
+      "outcome": { "outcome": "selected", "optionId": "<from the request>" }
+    }
+  }
+  ```
+
+  Deny is a selected reject option, not a cancelled prompt. A real agent that
+  uses other option ids is already handled as long as it sets `kind`.
 - Status derivation depends on a prompt's reply carrying the same id it was sent
   with, which JSON-RPC requires but only a real run proves.
 

@@ -22,7 +22,7 @@ const DEFAULT_LAYOUT: &str = "2x2";
 const LAYOUTS: [&str; 4] = ["1x1", "2x1", "2x2", "3x2"];
 
 const DEFAULT_TAB: &str = "terminals";
-const TABS: [&str; 4] = ["terminals", "graph", "tasks", "memory"];
+const TABS: [&str; 5] = ["terminals", "graph", "tasks", "memory", "diff"];
 
 const DEFAULT_DISPATCH: &str = "pane";
 const DISPATCH: [&str; 2] = ["pane", "agent"];
@@ -186,6 +186,18 @@ mod tests {
             put(&conn, "openingTab", "nonesuch"),
             Err(Error::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn the_diff_panel_is_a_valid_opening_tab() {
+        // The workspace has five tabs; refusing `diff` made Settings offer a
+        // control that always failed.
+        let conn = conn();
+
+        let after = put(&conn, "openingTab", "diff").unwrap();
+
+        assert_eq!(after.opening_tab, "diff");
+        assert_eq!(get(&conn).unwrap().opening_tab, "diff");
     }
 
     #[test]

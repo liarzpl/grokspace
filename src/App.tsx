@@ -15,7 +15,7 @@ import { useTaskStore } from "./stores/taskStore";
 import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
-import { shortcutFor } from "./lib/shortcuts";
+import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
 import type { SessionStatus } from "./types";
 
 interface SessionExited {
@@ -45,22 +45,31 @@ export default function App() {
   const sessionError = useSessionStore((state) => state.error);
   const taskError = useTaskStore((state) => state.error);
   const memoryError = useMemoryStore((state) => state.error);
+  const graphError = useGraphStore((state) => state.error);
   const settingsError = useSettingsStore((state) => state.error);
   const diffError = useDiffStore((state) => state.error);
   const clearProjectError = useProjectStore((state) => state.clearError);
   const clearSessionError = useSessionStore((state) => state.clearError);
   const clearTaskError = useTaskStore((state) => state.clearError);
   const clearMemoryError = useMemoryStore((state) => state.clearError);
+  const clearGraphError = useGraphStore((state) => state.clearError);
   const clearSettingsError = useSettingsStore((state) => state.clearError);
   const clearDiffError = useDiffStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
   const togglePalette = useUiStore((state) => state.togglePalette);
+  const closePalette = useUiStore((state) => state.closePalette);
 
   // Every store that can fail has to be named here or its errors are written to a
   // field nothing reads. One banner, so a failure cannot arrive twice.
   const error =
-    projectError ?? sessionError ?? taskError ?? memoryError ?? settingsError ?? diffError;
+    projectError ??
+    sessionError ??
+    taskError ??
+    memoryError ??
+    graphError ??
+    settingsError ??
+    diffError;
 
   useEffect(() => {
     void loadProjects();
@@ -88,12 +97,15 @@ export default function App() {
       const shortcut = shortcutFor(event);
       if (shortcut === undefined) return;
       event.preventDefault();
-      if (shortcut === "open-project") void pickAndOpenProject();
-      if (shortcut === "command-palette") togglePalette();
+      runGlobalShortcut(shortcut, {
+        closePalette,
+        togglePalette,
+        openProject: () => void pickAndOpenProject(),
+      });
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [pickAndOpenProject, togglePalette]);
+  }, [closePalette, pickAndOpenProject, togglePalette]);
 
   useEffect(() => {
     // Terminal output streams over a channel; exits are infrequent enough to
@@ -175,6 +187,7 @@ export default function App() {
               clearSessionError();
               clearTaskError();
               clearMemoryError();
+              clearGraphError();
               clearSettingsError();
               clearDiffError();
             }}

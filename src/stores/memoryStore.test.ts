@@ -160,6 +160,7 @@ describe("the memory skill", () => {
 
     expect(useMemoryStore.getState().skill).toEqual(before);
     expect(useMemoryStore.getState().isInstallingSkill).toBe(false);
+    expect(useMemoryStore.getState().error).toBe("permission denied");
   });
 });
 

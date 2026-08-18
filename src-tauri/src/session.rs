@@ -388,7 +388,7 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
     let permission_id = id.clone();
 
     acp::Callbacks {
-        on_status: Box::new(move |status| {
+        on_status: std::sync::Arc::new(move |status| {
             let status = match status {
                 acp::AgentStatus::Idle => SessionStatus::Idle,
                 acp::AgentStatus::Running => SessionStatus::Running,
@@ -680,7 +680,11 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
     close(&state, &id)
 }
 
-fn close(state: &State<'_, AppState>, id: &str) -> Result<()> {
+/// Ends the session, kills its process, and drops its graph file.
+///
+/// `remove_project` calls this for every session it is about to forget, so a
+/// project leaving the sidebar cannot leave `grok` running behind it.
+pub(crate) fn close(state: &crate::AppState, id: &str) -> Result<()> {
     // Both are asked without checking which kind this is: whichever manager does
     // not hold the session says so and nothing happens, which is cheaper than
     // reading the row back to find out.
