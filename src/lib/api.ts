@@ -228,6 +228,10 @@ export const api = {
   approveSessionSteps: (sessionId: string): Promise<SessionSteps> =>
     invoke<SessionSteps>("approve_session_steps", { sessionId }),
 
+  /** Puts an approved list back to `proposed` when the follow-up prompt failed. */
+  reopenSessionSteps: (sessionId: string): Promise<SessionSteps> =>
+    invoke<SessionSteps>("reopen_session_steps", { sessionId }),
+
   /**
    * Watches the directory the project's sessions write their step lists into so
    * changes are reported. Asking twice is harmless.

@@ -8,6 +8,7 @@ const updateSessionStep = vi.fn();
 const removeSessionStep = vi.fn();
 const reorderSessionSteps = vi.fn();
 const approveSessionSteps = vi.fn();
+const reopenSessionSteps = vi.fn();
 const stepsSkillStatus = vi.fn();
 const installStepsSkill = vi.fn();
 
@@ -22,6 +23,7 @@ vi.mock("../lib/api", async () => {
       removeSessionStep,
       reorderSessionSteps,
       approveSessionSteps,
+      reopenSessionSteps,
       stepsSkillStatus,
       installStepsSkill,
     },
@@ -217,10 +219,32 @@ describe("reset", () => {
     expect(entry("s1").steps).toEqual([]);
     expect(entry("s1").isLoading).toBe(false);
   });
+
+  it("drops an in-flight read so dispatch cannot bring the last job back", async () => {
+    let release: (value: SessionSteps) => void = () => {};
+    listSessionSteps.mockReturnValue(
+      new Promise<SessionSteps>((resolve) => {
+        release = resolve;
+      }),
+    );
+
+    const inFlight = useStepStore.getState().load("s1");
+    useStepStore.getState().reset("s1");
+    release(snapshot({ phase: "approved" }));
+    await inFlight;
+
+    expect(entry("s1").phase).toBe("none");
+    expect(entry("s1").steps).toEqual([]);
+  });
 });
 
 describe("mutations", () => {
   it("replaces the session with the snapshot the backend returns", async () => {
+    useStepStore.setState({
+      bySession: {
+        s1: { sessionId: "s1", phase: "proposed", steps: snapshot().steps, isLoading: false },
+      },
+    });
     addSessionStep.mockResolvedValue(
       snapshot({
         steps: [
@@ -248,7 +272,26 @@ describe("mutations", () => {
     ]);
   });
 
+  it("does not resurrect a session that was forgotten while a write was in flight", async () => {
+    useStepStore.setState({
+      bySession: {
+        s1: { sessionId: "s1", phase: "proposed", steps: snapshot().steps, isLoading: false },
+      },
+    });
+    addSessionStep.mockResolvedValue(snapshot());
+
+    useStepStore.getState().forget("s1");
+    await useStepStore.getState().add("s1", "Also the tests");
+
+    expect(useStepStore.getState().bySession).toEqual({});
+  });
+
   it("approve locks the list and returns it for the caller to prompt with", async () => {
+    useStepStore.setState({
+      bySession: {
+        s1: { sessionId: "s1", phase: "proposed", steps: snapshot().steps, isLoading: false },
+      },
+    });
     approveSessionSteps.mockResolvedValue(snapshot({ phase: "approved" }));
 
     const frozen = await useStepStore.getState().approve("s1");
@@ -272,6 +315,20 @@ describe("mutations", () => {
     expect(frozen).toBeNull();
     expect(entry("s1").phase).toBe("proposed");
     expect(useStepStore.getState().error).toBe("nothing to approve");
+  });
+
+  it("reopen puts an approved list back so Approve can be tried again", async () => {
+    useStepStore.setState({
+      bySession: {
+        s1: { sessionId: "s1", phase: "approved", steps: snapshot().steps, isLoading: false },
+      },
+    });
+    reopenSessionSteps.mockResolvedValue(snapshot({ phase: "proposed" }));
+
+    await useStepStore.getState().reopen("s1");
+
+    expect(reopenSessionSteps).toHaveBeenCalledWith("s1");
+    expect(entry("s1").phase).toBe("proposed");
   });
 });
 

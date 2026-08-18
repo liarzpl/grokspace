@@ -9,6 +9,7 @@ import {
   sessionsWithSteps,
   stepProgress,
 } from "../lib/steps";
+import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
 
@@ -265,12 +266,19 @@ export default function SessionSteps({
   const atCap = entry.steps.length >= MAX_STEPS;
 
   const onApprove = async () => {
+    const live =
+      useSessionStore.getState().sessions.find((candidate) => candidate.id === session.id) ??
+      session;
+    const latest = stepsFor(useStepStore.getState().bySession, live.id);
+    if (!canApproveSteps(live, latest.phase, latest.steps.length)) return;
+
     setApproving(true);
     try {
-      const frozen = await approve(session.id);
+      const frozen = await approve(live.id);
       if (frozen === null) return;
-      await sendApproval(session, frozen.steps);
+      await sendApproval(live, frozen.steps);
     } catch (error) {
+      await useStepStore.getState().reopen(live.id);
       useStepStore.setState({ error: errorMessage(error) });
     } finally {
       setApproving(false);

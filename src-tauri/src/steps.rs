@@ -18,6 +18,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
+use crate::session::{SessionKind, SessionStatus};
 use crate::skill::{Skill, SkillFile, SkillStatus};
 use crate::{db, project, session, AppState};
 
@@ -259,13 +260,16 @@ fn clean_title(title: &str) -> Result<String> {
 }
 
 fn replace_rows(conn: &Connection, session_id: &str, steps: &[SessionStep]) -> Result<()> {
-    conn.execute(
+    // One transaction so a duplicate id cannot DELETE the list and then fail
+    // the INSERT, leaving the panel empty.
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "DELETE FROM session_steps WHERE session_id = ?1",
         [session_id],
     )?;
     let now = now_ms();
     for (index, step) in steps.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "INSERT INTO session_steps
                  (id, session_id, sort_index, title, status, origin, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -281,6 +285,7 @@ fn replace_rows(conn: &Connection, session_id: &str, steps: &[SessionStep]) -> R
             ],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -372,14 +377,18 @@ fn merge_proposed(
     incoming: &[ParsedStep],
     session_id: &str,
 ) -> Vec<SessionStep> {
-    let mut used_ids = std::collections::HashSet::new();
+    let mut used_ids = HashSet::new();
     let mut merged = Vec::new();
 
     for parsed in incoming {
         let matched = parsed
             .id
             .as_ref()
-            .and_then(|id| existing.iter().find(|step| step.id == *id))
+            .and_then(|id| {
+                existing
+                    .iter()
+                    .find(|step| step.id == *id && !used_ids.contains(&step.id))
+            })
             .or_else(|| {
                 existing
                     .iter()
@@ -403,6 +412,7 @@ fn merge_proposed(
             let id = parsed
                 .id
                 .clone()
+                .filter(|id| !used_ids.contains(id))
                 .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             used_ids.insert(id.clone());
             merged.push(new_step(
@@ -429,13 +439,16 @@ fn merge_proposed(
 
 fn merge_approved(existing: &[SessionStep], incoming: &[ParsedStep]) -> Vec<SessionStep> {
     let mut next = existing.to_vec();
-    let mut claimed = std::collections::HashSet::new();
+    let mut claimed = HashSet::new();
 
     for parsed in incoming {
         let position = parsed
             .id
             .as_ref()
-            .and_then(|id| next.iter().position(|step| step.id == *id))
+            .and_then(|id| {
+                next.iter()
+                    .position(|step| step.id == *id && !claimed.contains(&step.id))
+            })
             .or_else(|| {
                 next.iter()
                     .position(|step| step.title == parsed.title && !claimed.contains(&step.id))
@@ -486,9 +499,22 @@ pub fn ingest_from_disk(
     ingest(conn, session_id, &json)
 }
 
+/// Watch-start recovery: fold a leftover file only when this session has no list
+/// yet. Re-reading while `proposed` would restore agent rows the user had deleted.
+fn ingest_if_none(
+    conn: &Connection,
+    project_path: &Path,
+    session_id: &str,
+) -> Result<SessionSteps> {
+    if phase_of(conn, session_id)? != StepsPhase::None {
+        return snapshot(conn, session_id);
+    }
+    ingest_from_disk(conn, project_path, session_id)
+}
+
 /// Drops a session's steps because a new job was handed to it, or because the
-/// session itself is gone. The file is the caller's to remove — this only owns
-/// the rows.
+/// session itself is gone. The inbound file is removed too: leaving it would
+/// let the watcher fold the last job back in as a fresh proposal.
 pub fn clear(conn: &Connection, session_id: &str) -> Result<()> {
     conn.execute(
         "DELETE FROM session_steps WHERE session_id = ?1",
@@ -497,6 +523,11 @@ pub fn clear(conn: &Connection, session_id: &str) -> Result<()> {
     // A session that has already been deleted is a successful clear: CASCADE
     // already took the rows, and rewriting steps_phase would fail the FK dance.
     let _ = set_phase(conn, session_id, StepsPhase::None);
+    if let Ok(live) = session::get(conn, session_id) {
+        if let Ok(proj) = project::get(conn, &live.project_id) {
+            remove_steps_file(Path::new(&proj.path), session_id);
+        }
+    }
     Ok(())
 }
 
@@ -603,8 +634,32 @@ pub fn approve(conn: &Connection, session_id: &str) -> Result<SessionSteps> {
     if current.steps.is_empty() {
         return Err(Error::Invalid("nothing to approve".into()));
     }
+    gate_approve(conn, session_id)?;
     set_phase(conn, session_id, StepsPhase::Approved)?;
     snapshot(conn, session_id)
+}
+
+/// Puts an approved list back to `proposed` when the follow-up prompt never
+/// landed, so Approve can be tried again.
+pub fn reopen(conn: &Connection, session_id: &str) -> Result<SessionSteps> {
+    if phase_of(conn, session_id)? == StepsPhase::Approved {
+        set_phase(conn, session_id, StepsPhase::Proposed)?;
+    }
+    snapshot(conn, session_id)
+}
+
+fn gate_approve(conn: &Connection, session_id: &str) -> Result<()> {
+    let live = session::get(conn, session_id)?;
+    match live.kind {
+        SessionKind::Shell => Err(Error::Invalid("a shell has no steps to approve".into())),
+        SessionKind::Grok if live.status != SessionStatus::Running => {
+            Err(Error::Invalid("that session is not running".into()))
+        }
+        SessionKind::Agent if live.status != SessionStatus::Idle => {
+            Err(Error::Invalid("approve when the agent is idle".into()))
+        }
+        _ => Ok(()),
+    }
 }
 
 fn session_id_for(path: &Path, watched: &[PathBuf]) -> Option<String> {
@@ -681,17 +736,23 @@ impl StepWatchers {
         let path = project_path.to_path_buf();
         let watcher = watch_dirs(&existing, move |session_id| {
             let state = app.state::<AppState>();
+            let mut live = false;
             if let Ok(conn) = state.db.lock() {
                 if session::get(&conn, &session_id).is_ok() {
+                    live = true;
                     let _ = ingest_from_disk(&conn, &path, &session_id);
                 }
             }
-            let _ = app.emit(
-                CHANGE_EVENT,
-                StepsChanged {
-                    session_id: session_id.clone(),
-                },
-            );
+            // A close deletes the row and then the file. Emitting for a gone
+            // session would make the frontend re-read it and banner SessionNotFound.
+            if live {
+                let _ = app.emit(
+                    CHANGE_EVENT,
+                    StepsChanged {
+                        session_id: session_id.clone(),
+                    },
+                );
+            }
         })?;
 
         let mut watchers = self.watchers.lock().map_err(|_| Error::StatePoisoned)?;
@@ -765,6 +826,14 @@ pub fn approve_session_steps(
 }
 
 #[tauri::command]
+pub fn reopen_session_steps(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> Result<SessionSteps> {
+    with_db(&state, |conn| reopen(conn, &session_id))
+}
+
+#[tauri::command]
 pub fn watch_project_steps(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -777,11 +846,12 @@ pub fn watch_project_steps(
     let path = Path::new(&project_path);
     let watched = state.steps.watch(app, &project_id, path)?;
     // Files written while nothing was watching have to land in SQLite too, or the
-    // panel would sit empty until the next save.
+    // panel would sit empty until the next save. A list already in SQLite is left
+    // alone: re-folding the file would restore agent rows the user had deleted.
     if let Ok(conn) = state.db.lock() {
         let sessions = session::list(&conn, &project_id).unwrap_or_default();
         for live in sessions {
-            let _ = ingest_from_disk(&conn, path, &live.id);
+            let _ = ingest_if_none(&conn, path, &live.id);
         }
     }
     Ok(watched)
@@ -964,6 +1034,116 @@ mod tests {
             path,
             PathBuf::from("/tmp/acme/.grokspace/steps/abc-123.json")
         );
+    }
+
+    #[test]
+    fn duplicate_incoming_ids_do_not_wipe_the_list() {
+        let (conn, _, session_id) = fixture();
+        let snap = ingest(
+            &conn,
+            &session_id,
+            r#"{"steps":[{"id":"a","title":"One"},{"id":"a","title":"Two"}]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(snap.steps.len(), 2);
+        assert_ne!(snap.steps[0].id, snap.steps[1].id);
+        assert_eq!(snap.steps[0].title, "One");
+        assert_eq!(snap.steps[1].title, "Two");
+    }
+
+    #[test]
+    fn clear_deletes_the_steps_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let project = project::upsert_by_path(
+            &conn,
+            dir.path().to_str().expect("utf-8 path"),
+            "steps-clear",
+        )
+        .unwrap();
+        let session = session::insert(
+            &conn,
+            &project.id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        let steps = ensure_steps_dir(dir.path()).unwrap();
+        let file = steps.join(steps_file_name(&session.id));
+        std::fs::write(&file, r#"{"steps":[{"title":"The last job"}]}"#).unwrap();
+        ingest_from_disk(&conn, dir.path(), &session.id).unwrap();
+
+        clear(&conn, &session.id).unwrap();
+
+        assert!(!file.exists(), "the leftover file would be re-proposed");
+        let snap = snapshot(&conn, &session.id).unwrap();
+        assert_eq!(snap.phase, StepsPhase::None);
+        assert!(snap.steps.is_empty());
+    }
+
+    #[test]
+    fn approve_refuses_an_agent_that_is_still_working() {
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let project =
+            project::upsert_by_path(&conn, "/tmp/grokspace-steps-agent", "steps-agent").unwrap();
+        let session =
+            session::insert(&conn, &project.id, None, SessionKind::Agent, "Agent", None).unwrap();
+        session::set_status(&conn, &session.id, session::SessionStatus::Running, None).unwrap();
+        ingest(&conn, &session.id, r#"{"steps":[{"title":"Read it"}]}"#).unwrap();
+
+        let error = approve(&conn, &session.id).unwrap_err();
+        assert!(error.to_string().contains("idle"));
+    }
+
+    #[test]
+    fn reopen_puts_an_approved_list_back_to_proposed() {
+        let (conn, _, session_id) = fixture();
+        ingest(&conn, &session_id, r#"{"steps":[{"title":"Read it"}]}"#).unwrap();
+        approve(&conn, &session_id).unwrap();
+
+        let snap = reopen(&conn, &session_id).unwrap();
+
+        assert_eq!(snap.phase, StepsPhase::Proposed);
+        assert_eq!(snap.steps.len(), 1);
+    }
+
+    #[test]
+    fn watch_start_does_not_restore_rows_the_user_deleted() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let project = project::upsert_by_path(
+            &conn,
+            dir.path().to_str().expect("utf-8 path"),
+            "steps-watch-start",
+        )
+        .unwrap();
+        let session = session::insert(
+            &conn,
+            &project.id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        let steps = ensure_steps_dir(dir.path()).unwrap();
+        let file = steps.join(steps_file_name(&session.id));
+        std::fs::write(
+            &file,
+            r#"{"steps":[{"id":"a","title":"Keep me"},{"id":"b","title":"Delete me"}]}"#,
+        )
+        .unwrap();
+        ingest_from_disk(&conn, dir.path(), &session.id).unwrap();
+        remove(&conn, "b").unwrap();
+
+        let snap = ingest_if_none(&conn, dir.path(), &session.id).unwrap();
+
+        assert_eq!(snap.phase, StepsPhase::Proposed);
+        assert_eq!(snap.steps.len(), 1);
+        assert_eq!(snap.steps[0].title, "Keep me");
     }
 
     #[test]

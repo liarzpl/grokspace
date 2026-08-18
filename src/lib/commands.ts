@@ -210,11 +210,25 @@ export function commands(project: Project | null): Command[] {
       run: () => {
         useUiStore.getState().closePalette();
         void (async () => {
-          const frozen = await useStepStore.getState().approve(session.id);
+          const current = useSessionStore
+            .getState()
+            .sessions.find((candidate) => candidate.id === session.id);
+          const latest = stepsFor(useStepStore.getState().bySession, session.id);
+          if (
+            current === undefined ||
+            !canApproveSteps(current, latest.phase, latest.steps.length)
+          ) {
+            useStepStore.setState({
+              error: "That session is not ready to approve.",
+            });
+            return;
+          }
+          const frozen = await useStepStore.getState().approve(current.id);
           if (frozen === null) return;
           try {
-            await sendApproval(session, frozen.steps);
+            await sendApproval(current, frozen.steps);
           } catch (error) {
+            await useStepStore.getState().reopen(current.id);
             useStepStore.setState({ error: errorMessage(error) });
           }
         })();

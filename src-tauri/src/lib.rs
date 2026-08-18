@@ -97,6 +97,7 @@ pub fn run() {
             steps::remove_session_step,
             steps::reorder_session_steps,
             steps::approve_session_steps,
+            steps::reopen_session_steps,
             steps::watch_project_steps,
             steps::steps_skill_status,
             steps::install_steps_skill,

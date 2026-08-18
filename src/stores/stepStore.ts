@@ -18,6 +18,13 @@ const COALESCE_MS = 80;
 /** Drops in-flight `syncSessions` work that a newer project switch has replaced. */
 let syncGeneration = 0;
 
+/** Bumped on reset/forget so an in-flight `load` cannot restore a list we cleared. */
+const epochs = new Map<string, number>();
+
+function bump(sessionId: string): void {
+  epochs.set(sessionId, (epochs.get(sessionId) ?? 0) + 1);
+}
+
 export interface StepEntry {
   sessionId: string;
   phase: StepsPhase;
@@ -63,6 +70,8 @@ interface StepState {
   reorder: (sessionId: string, ids: string[]) => Promise<void>;
   /** Locks titles and order. The caller is the one that then prompts the agent. */
   approve: (sessionId: string) => Promise<SessionSteps | null>;
+  /** Undoes Approve when the prompt never landed, so the button comes back. */
+  reopen: (sessionId: string) => Promise<void>;
   loadSkill: () => Promise<void>;
   installSkill: () => Promise<void>;
   clearError: () => void;
@@ -101,12 +110,16 @@ export const useStepStore = create<StepState>((set, get) => {
     });
 
   const put = (snapshot: SessionSteps) =>
-    set((state) => ({
-      bySession: {
-        ...state.bySession,
-        [snapshot.sessionId]: fromSnapshot(snapshot),
-      },
-    }));
+    set((state) => {
+      // Forgotten on purpose: an in-flight add/approve must not resurrect it.
+      if (!(snapshot.sessionId in state.bySession)) return state;
+      return {
+        bySession: {
+          ...state.bySession,
+          [snapshot.sessionId]: fromSnapshot(snapshot),
+        },
+      };
+    });
 
   return {
     bySession: {},
@@ -117,6 +130,7 @@ export const useStepStore = create<StepState>((set, get) => {
     clearError: () => set({ error: null }),
 
     load: async (sessionId) => {
+      const epoch = epochs.get(sessionId) ?? 0;
       set((state) =>
         sessionId in state.bySession
           ? state
@@ -124,8 +138,10 @@ export const useStepStore = create<StepState>((set, get) => {
       );
       try {
         const snapshot = await api.listSessionSteps(sessionId);
+        if ((epochs.get(sessionId) ?? 0) !== epoch) return;
         write(sessionId, fromSnapshot(snapshot));
       } catch (error) {
+        if ((epochs.get(sessionId) ?? 0) !== epoch) return;
         write(sessionId, { isLoading: false });
         if (sessionId in get().bySession) set({ error: errorMessage(error) });
       }
@@ -163,6 +179,7 @@ export const useStepStore = create<StepState>((set, get) => {
     },
 
     forget: (sessionId) => {
+      bump(sessionId);
       const queued = pending.get(sessionId);
       if (queued !== undefined) {
         clearTimeout(queued);
@@ -177,6 +194,7 @@ export const useStepStore = create<StepState>((set, get) => {
     },
 
     reset: (sessionId) => {
+      bump(sessionId);
       const queued = pending.get(sessionId);
       if (queued !== undefined) {
         clearTimeout(queued);
@@ -232,6 +250,14 @@ export const useStepStore = create<StepState>((set, get) => {
       } catch (error) {
         set({ error: errorMessage(error) });
         return null;
+      }
+    },
+
+    reopen: async (sessionId) => {
+      try {
+        put(await api.reopenSessionSteps(sessionId));
+      } catch (error) {
+        set({ error: errorMessage(error) });
       }
     },
 
