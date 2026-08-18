@@ -74,6 +74,17 @@ export interface Session {
 }
 
 /**
+ * One visible thing an ACP agent said. `prompt` is GrokSpace's own, recorded
+ * when a follow-up is sent; the rest arrive as `session-update` events.
+ */
+export type AgentUpdateKind = "message" | "thought" | "tool" | "plan" | "prompt";
+
+export interface AgentUpdate {
+  kind: AgentUpdateKind;
+  text: string;
+}
+
+/**
  * A session's graph file as the backend found it. The JSON is handed over
  * unparsed: the schema is a model's output, so `lib/graph.ts` is the one place
  * that decides what a usable graph is.

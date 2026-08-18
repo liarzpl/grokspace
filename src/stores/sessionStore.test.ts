@@ -10,11 +10,13 @@ const renameSession = vi.fn();
 const closeSession = vi.fn();
 const answerSessionPermission = vi.fn();
 const promptSession = vi.fn();
+const cancelSession = vi.fn();
 const disposeTerminal = vi.fn();
+const detachTerminal = vi.fn();
 
 // Mocked wholesale: the real module pulls in xterm and its stylesheet, neither
 // of which belongs in a store test.
-vi.mock("../lib/terminals", () => ({ disposeTerminal }));
+vi.mock("../lib/terminals", () => ({ disposeTerminal, detachTerminal }));
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -29,11 +31,12 @@ vi.mock("../lib/api", async () => {
       closeSession,
       answerSessionPermission,
       promptSession,
+      cancelSession,
     },
   };
 });
 
-const { sessionForPane, useSessionStore } = await import("./sessionStore");
+const { sessionForPane, sessionsForProject, useSessionStore } = await import("./sessionStore");
 const { useGraphStore } = await import("./graphStore");
 
 function session(overrides: Partial<Session> = {}): Session {
@@ -169,6 +172,75 @@ describe("loadSessions", () => {
     await useSessionStore.getState().loadSessions("p1");
 
     expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s1"]);
+    expect(detachTerminal).not.toHaveBeenCalled();
+  });
+
+  it("empties the previous project's panes before the next list arrives", async () => {
+    useSessionStore.setState({
+      sessions: [session()],
+      permissions: { s1: [{ requestId: 1, summary: "Write a file" }] },
+      transcript: { s1: [{ kind: "message", text: "hello" }] },
+    });
+    useGraphStore.setState({ bySession: { s1: graphEntry() } });
+    let resolveNext: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((resolve) => {
+          resolveNext = resolve;
+        }),
+    );
+
+    const pending = useSessionStore.getState().loadSessions("p2");
+
+    expect(useSessionStore.getState().sessions).toEqual([]);
+    expect(useSessionStore.getState().permissions).toEqual({});
+    expect(detachTerminal).toHaveBeenCalledWith("s1");
+    expect(useGraphStore.getState().bySession).toEqual({});
+    // The conversation is still running; coming back should not start from blank.
+    expect(useSessionStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
+
+    resolveNext([session({ id: "s2", projectId: "p2" })]);
+    await pending;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s2"]);
+    expect(useSessionStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
+  });
+
+  it("does not blank the current project's panes while re-reading them", async () => {
+    useSessionStore.setState({ sessions: [session()] });
+    let resolveList: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+
+    const pending = useSessionStore.getState().loadSessions("p1");
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1"]);
+    expect(detachTerminal).not.toHaveBeenCalled();
+
+    resolveList([session()]);
+    await pending;
+  });
+
+  it("drops transcripts of sessions that disappeared from the same project", async () => {
+    useSessionStore.setState({
+      sessions: [session(), session({ id: "s2", paneId: "1" })],
+      transcript: {
+        s1: [{ kind: "message", text: "keep" }],
+        s2: [{ kind: "message", text: "gone" }],
+      },
+    });
+    listSessions.mockResolvedValue([session()]);
+
+    await useSessionStore.getState().loadSessions("p1");
+
+    expect(useSessionStore.getState().transcript).toEqual({
+      s1: [{ kind: "message", text: "keep" }],
+    });
+    expect(detachTerminal).not.toHaveBeenCalled();
   });
 });
 
@@ -451,7 +523,10 @@ describe("launchSwarm", () => {
 
 describe("restartSession", () => {
   it("swaps in the new session and disposes the old terminal", async () => {
-    useSessionStore.setState({ sessions: [session({ id: "old", paneId: "1" })] });
+    useSessionStore.setState({
+      sessions: [session({ id: "old", paneId: "1" })],
+      transcript: { old: [{ kind: "message", text: "previous run" }] },
+    });
     restartSession.mockResolvedValue(session({ id: "fresh", paneId: "1" }));
 
     await useSessionStore.getState().restartSession("old", 100, 30);
@@ -460,6 +535,7 @@ describe("restartSession", () => {
     // Restarting mints a new id, so the old xterm instance has to go.
     expect(disposeTerminal).toHaveBeenCalledWith("old");
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["fresh"]);
+    expect(useSessionStore.getState().transcript["old"]).toBeUndefined();
   });
 
   it("does not carry the previous run's graph over to the new session", async () => {
@@ -475,13 +551,18 @@ describe("restartSession", () => {
 
 describe("closeSession", () => {
   it("frees the pane and disposes the terminal", async () => {
-    useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
+    useSessionStore.setState({
+      sessions: [session(), session({ id: "s2", paneId: "1" })],
+      transcript: { s1: [{ kind: "message", text: "hello" }], s2: [{ kind: "tool", text: "Read" }] },
+    });
     closeSession.mockResolvedValue(undefined);
 
     await useSessionStore.getState().closeSession("s1");
 
     expect(disposeTerminal).toHaveBeenCalledWith("s1");
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["s2"]);
+    expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
+    expect(useSessionStore.getState().transcript["s2"]?.[0]?.text).toBe("Read");
   });
 
   it("drops the closed session's graph and leaves the other pane's alone", async () => {
@@ -544,5 +625,71 @@ describe("sessionForPane", () => {
 
     expect(sessionForPane(sessions, "3")?.id).toBe("b");
     expect(sessionForPane(sessions, "1")).toBeUndefined();
+  });
+});
+
+describe("sessionsForProject", () => {
+  it("hides another project's sessions so a sidebar click cannot keep drawing them", () => {
+    const sessions = [session(), session({ id: "s2", projectId: "p2", paneId: "0" })];
+    expect(sessionsForProject(sessions, "p2").map((item) => item.id)).toEqual(["s2"]);
+  });
+});
+
+describe("appendUpdate", () => {
+  it("folds consecutive message chunks into one line", () => {
+    useSessionStore.getState().appendUpdate("s1", { kind: "message", text: "Hel" });
+    useSessionStore.getState().appendUpdate("s1", { kind: "message", text: "lo" });
+    useSessionStore.getState().appendUpdate("s1", { kind: "tool", text: "Read src/lib.rs" });
+
+    expect(useSessionStore.getState().transcript["s1"]).toEqual([
+      { kind: "message", text: "Hello" },
+      { kind: "tool", text: "Read src/lib.rs" },
+    ]);
+  });
+});
+
+describe("promptSession", () => {
+  it("records the follow-up after the backend accepts it", async () => {
+    promptSession.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().promptSession("s1", "  what leaked?  ");
+
+    expect(promptSession).toHaveBeenCalledWith("s1", "what leaked?");
+    expect(useSessionStore.getState().transcript["s1"]).toEqual([
+      { kind: "prompt", text: "what leaked?" },
+    ]);
+  });
+
+  it("does not record a follow-up the backend refused", async () => {
+    promptSession.mockRejectedValue("that session is no longer running");
+
+    await useSessionStore.getState().promptSession("s1", "hello");
+
+    expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
+    expect(useSessionStore.getState().error).toBe("that session is no longer running");
+  });
+
+  it("ignores an empty prompt rather than asking the backend", async () => {
+    await useSessionStore.getState().promptSession("s1", "   ");
+    expect(promptSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("cancelSession", () => {
+  it("asks the backend to interrupt the turn", async () => {
+    cancelSession.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().cancelSession("s1");
+
+    expect(cancelSession).toHaveBeenCalledWith("s1");
+    expect(useSessionStore.getState().error).toBeNull();
+  });
+
+  it("surfaces a failed cancel instead of throwing", async () => {
+    cancelSession.mockRejectedValue("that session is no longer running");
+
+    await useSessionStore.getState().cancelSession("s1");
+
+    expect(useSessionStore.getState().error).toBe("that session is no longer running");
   });
 });

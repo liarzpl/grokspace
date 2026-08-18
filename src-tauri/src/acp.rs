@@ -23,6 +23,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
@@ -77,6 +78,24 @@ pub struct PermissionRequest {
     pub options: Vec<PermissionOption>,
 }
 
+/// One visible thing the agent said during a turn. Status does not depend on
+/// these; the frontend does, because an ACP session has no pane to watch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentUpdate {
+    pub kind: UpdateKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateKind {
+    Message,
+    Thought,
+    Tool,
+    Plan,
+}
+
 /// What one incoming line means to GrokSpace. Everything the status does not
 /// depend on collapses into `Ignored`, which is most of the protocol.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +106,8 @@ pub enum Incoming {
     },
     /// The agent asking to be allowed to do something.
     Permission(PermissionRequest),
+    /// Output the UI can show: a message chunk, a thought, a tool, or a plan.
+    Update(AgentUpdate),
     Ignored,
 }
 
@@ -124,10 +145,82 @@ pub fn classify(line: &str) -> Incoming {
                 options: permission_options(&message),
             })
         }
+        (Some("session/update"), _, _) => parse_session_update(&message)
+            .map(Incoming::Update)
+            .unwrap_or(Incoming::Ignored),
         // A reply to us: an id and no method.
         (None, Some(id), _) => Incoming::Response { id },
         _ => Incoming::Ignored,
     }
+}
+
+/// Pulls a displayable line out of `session/update`. Most of the schema is still
+/// Ignored — available commands, usage, mode — because nothing in the UI draws it.
+fn parse_session_update(message: &Value) -> Option<AgentUpdate> {
+    let params = message.get("params")?;
+    // Spec puts the payload under `params.update`; a flatter shape is accepted
+    // so a slightly different agent still shows up rather than going silent.
+    let update = params.get("update").unwrap_or(params);
+    let kind = update.get("sessionUpdate")?.as_str()?;
+    match kind {
+        "agent_message_chunk" => Some(AgentUpdate {
+            kind: UpdateKind::Message,
+            text: content_text(update)?,
+        }),
+        "agent_thought_chunk" => Some(AgentUpdate {
+            kind: UpdateKind::Thought,
+            text: content_text(update)?,
+        }),
+        "tool_call" | "tool_call_update" => Some(AgentUpdate {
+            kind: UpdateKind::Tool,
+            text: tool_text(update)?,
+        }),
+        "plan" => Some(AgentUpdate {
+            kind: UpdateKind::Plan,
+            text: plan_text(update)?,
+        }),
+        _ => None,
+    }
+}
+
+fn content_text(update: &Value) -> Option<String> {
+    let content = update.get("content")?;
+    let text = content
+        .as_str()
+        .map(str::to_string)
+        .or_else(|| content.get("text").and_then(Value::as_str).map(str::to_string))?;
+    let text = text.trim_end_matches('\0').to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+fn tool_text(update: &Value) -> Option<String> {
+    for key in ["title", "kind", "status"] {
+        if let Some(text) = update.get(key).and_then(Value::as_str) {
+            if !text.trim().is_empty() {
+                return Some(text.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+fn plan_text(update: &Value) -> Option<String> {
+    let entries = update.get("entries")?.as_array()?;
+    let lines: Vec<String> = entries
+        .iter()
+        .filter_map(|entry| {
+            let content = entry.get("content")?.as_str()?.trim();
+            if content.is_empty() {
+                return None;
+            }
+            let status = entry
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("pending");
+            Some(format!("{status} {content}"))
+        })
+        .collect();
+    (!lines.is_empty()).then_some(lines.join("\n"))
 }
 
 /// The best sentence available for a permission prompt.
@@ -292,7 +385,7 @@ impl StatusTracker {
                 // A second in-flight prompt must not steal the first's id.
                 self.prompts.remove(id);
             }
-            Incoming::Ignored => {}
+            Incoming::Update(_) | Incoming::Ignored => {}
         }
         let after = self.status();
         (after != before).then_some(after)
@@ -303,6 +396,7 @@ impl StatusTracker {
 pub struct Callbacks {
     pub on_status: Arc<dyn Fn(AgentStatus) + Send + Sync>,
     pub on_permission: Box<dyn Fn(PermissionRequest) + Send + Sync>,
+    pub on_update: Arc<dyn Fn(AgentUpdate) + Send + Sync>,
     /// The agent's stdout ended, which for a child process means it is gone.
     pub on_closed: Box<dyn FnOnce() + Send>,
 }
@@ -686,6 +780,9 @@ fn read_loop(mut reader: impl BufRead, tracker: Arc<Mutex<StatusTracker>>, callb
         if let Incoming::Permission(request) = &incoming {
             (callbacks.on_permission)(request.clone());
         }
+        if let Incoming::Update(update) = &incoming {
+            (callbacks.on_update)(update.clone());
+        }
         let changed = lock(&tracker).observe(&incoming);
         if let Some(status) = changed {
             (callbacks.on_status)(status);
@@ -727,6 +824,7 @@ mod tests {
         Callbacks {
             on_status: Arc::new(|_| {}),
             on_permission: Box::new(|_| {}),
+            on_update: Arc::new(|_| {}),
             on_closed: Box::new(|| {}),
         }
     }
@@ -802,14 +900,88 @@ mod tests {
 
     #[test]
     fn a_notification_and_a_stray_line_are_both_ignored() {
-        // session/update carries the agent's output, which the status does not
-        // depend on, and stdout is shared with whatever else decides to print.
+        // An empty session/update has nothing to show, and stdout is shared with
+        // whatever else decides to print.
         assert_eq!(
             classify(r#"{"jsonrpc":"2.0","method":"session/update","params":{}}"#),
             Incoming::Ignored
         );
         assert_eq!(classify("warning: something unrelated"), Incoming::Ignored);
         assert_eq!(classify(""), Incoming::Ignored);
+    }
+
+    #[test]
+    fn a_thought_chunk_and_a_flat_payload_are_updates() {
+        let nested = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hmm"}}}}"#,
+        );
+        assert_eq!(
+            nested,
+            Incoming::Update(AgentUpdate {
+                kind: UpdateKind::Thought,
+                text: "hmm".into(),
+            })
+        );
+
+        // Spec nests under `params.update`; a flatter agent still has to show up.
+        let flat = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionUpdate":"agent_message_chunk","content":"hello"}}"#,
+        );
+        assert_eq!(
+            flat,
+            Incoming::Update(AgentUpdate {
+                kind: UpdateKind::Message,
+                text: "hello".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn an_empty_message_chunk_is_ignored() {
+        assert_eq!(
+            classify(
+                r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":""}}}}"#
+            ),
+            Incoming::Ignored
+        );
+    }
+
+    #[test]
+    fn a_message_chunk_is_an_update_rather_than_ignored() {
+        let incoming = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello"}}}}"#,
+        );
+        assert_eq!(
+            incoming,
+            Incoming::Update(AgentUpdate {
+                kind: UpdateKind::Message,
+                text: "hello".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_tool_call_and_a_plan_are_readable_updates() {
+        let tool = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","title":"Read src/lib.rs"}}}"#,
+        );
+        assert_eq!(
+            tool,
+            Incoming::Update(AgentUpdate {
+                kind: UpdateKind::Tool,
+                text: "Read src/lib.rs".into(),
+            })
+        );
+
+        let plan = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"plan","entries":[{"content":"Find the leak","status":"in_progress"},{"content":"Write a test","status":"pending"}]}}}"#,
+        );
+        let Incoming::Update(update) = plan else {
+            panic!("a plan is visible output");
+        };
+        assert_eq!(update.kind, UpdateKind::Plan);
+        assert!(update.text.contains("Find the leak"));
+        assert!(update.text.contains("Write a test"));
     }
 
     #[test]
@@ -1098,6 +1270,7 @@ mod tests {
                 on_permission: Box::new(move |request| {
                     let _ = permissions.send(request);
                 }),
+                on_update: Arc::new(|_| {}),
                 on_closed: Box::new(move || {
                     let _ = closed.send(());
                 }),
@@ -1114,6 +1287,42 @@ mod tests {
         );
         assert_eq!(lock(&tracker).status(), AgentStatus::NeedsInput);
         ended.recv().expect("the close should be reported");
+    }
+
+    #[test]
+    fn the_reader_reports_visible_updates() {
+        let tracker = Arc::new(Mutex::new(StatusTracker::new()));
+        let (updates, seen) = mpsc::channel();
+
+        let lines = concat!(
+            "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hi\"}}}}\n",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{}}\n",
+        );
+
+        read_loop(
+            BufReader::new(lines.as_bytes()),
+            Arc::clone(&tracker),
+            Callbacks {
+                on_status: Arc::new(|_| {}),
+                on_permission: Box::new(|_| {}),
+                on_update: Arc::new(move |update| {
+                    let _ = updates.send(update);
+                }),
+                on_closed: Box::new(|| {}),
+            },
+        );
+
+        assert_eq!(
+            seen.recv().unwrap(),
+            AgentUpdate {
+                kind: UpdateKind::Message,
+                text: "hi".into(),
+            }
+        );
+        assert!(
+            seen.try_recv().is_err(),
+            "an empty session/update is not visible output"
+        );
     }
 
     #[test]

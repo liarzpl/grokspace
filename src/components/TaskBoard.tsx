@@ -8,7 +8,7 @@ import {
   type DispatchTarget,
 } from "../lib/dispatch";
 import { ROLES, rolesInPlay } from "../lib/roles";
-import { useSessionStore } from "../stores/sessionStore";
+import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { tasksInColumn, useTaskStore } from "../stores/taskStore";
 import {
   type PermissionRequest,
@@ -465,7 +465,9 @@ function DispatchRow({
  */
 function SwarmLauncher({ project }: { project: Project }) {
   const launchSwarm = useSessionStore((state) => state.launchSwarm);
-  const sessions = useSessionStore((state) => state.sessions);
+  const sessions = useSessionStore((state) =>
+    sessionsForProject(state.sessions, project.id),
+  );
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState<readonly string[]>([]);
   const [launching, setLaunching] = useState(false);
@@ -557,7 +559,9 @@ function SwarmLauncher({ project }: { project: Project }) {
 
 export default function TaskBoard({ project }: { project: Project }) {
   const tasks = useTaskStore((state) => state.tasks);
-  const sessions = useSessionStore((state) => state.sessions);
+  const sessions = useSessionStore((state) =>
+    sessionsForProject(state.sessions, project.id),
+  );
   const [dragging, setDragging] = useState<string | null>(null);
 
   const targets = dispatchTargets(project, sessions);

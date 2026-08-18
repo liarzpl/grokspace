@@ -16,7 +16,7 @@ import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
-import type { SessionStatus } from "./types";
+import type { SessionStatus, AgentUpdateKind } from "./types";
 
 interface SessionExited {
   id: string;
@@ -37,6 +37,12 @@ interface PermissionAsked {
   id: string;
   requestId: number;
   summary: string;
+}
+
+interface SessionUpdated {
+  id: string;
+  kind: AgentUpdateKind;
+  text: string;
 }
 
 export default function App() {
@@ -136,6 +142,19 @@ export default function App() {
     const unlisten = listen<PermissionAsked>("session-permission", (event) => {
       const { id, requestId, summary } = event.payload;
       useSessionStore.getState().askPermission(id, { requestId, summary });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    // ACP has no pane; these are the words, tools, and plans that would otherwise
+    // only exist on the agent's stdout.
+    const unlisten = listen<SessionUpdated>("session-update", (event) => {
+      const { id, kind, text } = event.payload;
+      if (text === "" || kind === "prompt") return;
+      useSessionStore.getState().appendUpdate(id, { kind, text });
     });
     return () => {
       void unlisten.then((stop) => stop());

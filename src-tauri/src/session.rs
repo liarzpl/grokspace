@@ -28,6 +28,9 @@ const STATUS_EVENT: &str = "session-status";
 /// An agent is blocked on a permission it wants granted.
 const PERMISSION_EVENT: &str = "session-permission";
 
+/// An ACP session produced visible output: a message, a thought, a tool, or a plan.
+const UPDATE_EVENT: &str = "session-update";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -477,6 +480,14 @@ struct PermissionAsked {
     summary: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionUpdated {
+    id: String,
+    kind: acp::UpdateKind,
+    text: String,
+}
+
 /// The three things a live agent reports, each landing in the database first and on
 /// the event system second, so a webview that reloads reads the same story.
 fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
@@ -484,6 +495,8 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
     let status_id = id.clone();
     let permission_app = app.clone();
     let permission_id = id.clone();
+    let update_app = app.clone();
+    let update_id = id.clone();
 
     acp::Callbacks {
         on_status: std::sync::Arc::new(move |status| {
@@ -517,6 +530,16 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
                     id: permission_id.clone(),
                     request_id: request.id,
                     summary: request.summary,
+                },
+            );
+        }),
+        on_update: std::sync::Arc::new(move |update| {
+            let _ = update_app.emit(
+                UPDATE_EVENT,
+                SessionUpdated {
+                    id: update_id.clone(),
+                    kind: update.kind,
+                    text: update.text,
                 },
             );
         }),
@@ -722,6 +745,13 @@ pub fn prompt_session(state: State<'_, AppState>, id: String, text: String) -> R
         return Err(Error::Invalid("an empty prompt has nothing to ask".into()));
     }
     state.acp.prompt(&id, text.trim())
+}
+
+/// Interrupts the current turn without ending the session. Stop is the other
+/// button: that kills the process.
+#[tauri::command]
+pub fn cancel_session(state: State<'_, AppState>, id: String) -> Result<()> {
+    state.acp.cancel(&id)
 }
 
 /// Answers a permission the agent is blocked on. Until this arrives the session

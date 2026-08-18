@@ -4,7 +4,7 @@ import type { Project, Session } from "../types";
 
 // The real terminal registry pulls in xterm, which a list of dispatch targets has no
 // business dragging into its tests.
-vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn() }));
+vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: vi.fn() }));
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");

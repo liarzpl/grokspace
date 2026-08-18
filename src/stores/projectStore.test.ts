@@ -11,7 +11,7 @@ const removeProject = vi.fn();
 const listSessions = vi.fn();
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openFolderDialog }));
-vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn() }));
+vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: vi.fn() }));
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
