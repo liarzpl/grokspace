@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by release.yml, so a tagged build runs exactly the checks a pull request
+  # does rather than a second copy of them that can drift.
+  workflow_call:
 
 # A newer push to the same branch makes the run already going for it pointless.
 concurrency:
@@ -32,6 +35,19 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # The release workflow cannot be run to see whether it works: it needs a macOS
+  # runner and Apple credentials, and a tag it would then publish. Static checking is
+  # the only automated safety net it has, so it gets one. actionlint also runs
+  # shellcheck over every `run:` block, which is where the release job does its real
+  # work.
+  workflows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint the workflows
+        uses: raven-actions/actionlint@v2
 
   backend:
     runs-on: ubuntu-24.04

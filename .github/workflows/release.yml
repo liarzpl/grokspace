@@ -1,0 +1,189 @@
+name: Release
+
+# Tag-driven. Pushing `v0.1.0` builds that version and nothing else does, so a release
+# is always something somebody deliberately named.
+#
+# `workflow_dispatch` is here for the dry run: everything except publishing, which is
+# the only way to learn whether signing works without also shipping the answer.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build and sign, but publish nothing"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Never cancelled. A half-finished notarization submission is worse than a slow one,
+  # and two releases of the same tag do not race in practice.
+  cancel-in-progress: false
+
+jobs:
+  # The same checks a pull request gets, not a second copy of them. A tagged build that
+  # skipped the tests would be the one build where skipping them matters.
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  # Cheap, and before anything is built. `tauri.conf.json` carries the version that
+  # ends up in the bundle and in the DMG's name, so a tag disagreeing with it produces
+  # a `v0.2.0` release containing an app that calls itself 0.1.0 — the kind of mistake
+  # nobody notices until a user reports the wrong version.
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: read
+        name: Check every version agrees with the tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The script, not lines inline here, because this workflow cannot be run to
+          # find out whether it works. Shell in a `run:` block is checked by shellcheck
+          # for syntax and by nothing at all for behaviour; scripts/release.test.ts runs
+          # this one against crafted version files, including every disagreement.
+          if [ "$REF_TYPE" = "tag" ]; then
+            version="$(./scripts/release-version.sh "$TAG")"
+          else
+            echo "Not a tag, so there is no tag to disagree with."
+            version="$(./scripts/release-version.sh)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version $version, and everything carrying it agrees."
+
+  macos:
+    needs: [checks, version]
+    # Unpinned on purpose. `minimumSystemVersion` sets the deployment target
+    # explicitly, so a newer SDK on the runner does not narrow what the app runs on,
+    # and the notarization tools ship with every supported image. Pinning would buy
+    # reproducibility this job does not need, at the cost of an image retirement it
+    # would eventually hit.
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # One universal binary rather than a DMG per architecture. It is the larger
+      # download and the simpler instruction: there is no wrong file to pick, which
+      # matters more for something installed once.
+      - name: Add both Apple targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: universal-apple-darwin
+
+      - run: npm ci
+
+      # What this build is — signed or not, published or not, what its notes say — is
+      # decided by a script rather than by nested `${{ }}` conditionals, because the
+      # obvious way to write it in YAML is wrong. `dry-run && '' || tag` takes the other
+      # branch, since an empty string is falsy, so a dry run written that way publishes.
+      # scripts/release.test.ts covers all of it, including that one.
+      - id: plan
+        name: Work out what this build is
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          # Once, into a file. Running it twice would risk the log describing a
+          # different build from the one the outputs configure.
+          ./scripts/release-plan.sh > plan.txt
+          cat plan.txt >> "$GITHUB_OUTPUT"
+
+          # Said out loud too, since $GITHUB_OUTPUT appears in no log.
+          if grep -qx 'signed=true' plan.txt; then
+            echo "Signing and notarizing: the Apple secrets are present."
+          else
+            echo "::warning::No Apple secrets, so this build will be unsigned. \
+            docs/releasing.md lists which ones are needed."
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: building and signing, publishing nothing."
+          fi
+          rm plan.txt
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # tauri-action imports the certificate into a temporary keychain, signs,
+          # submits for notarization and staples the ticket — but only when all of
+          # these are set. Any one missing and it quietly produces an unsigned bundle,
+          # which is why the step above checks rather than trusting.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          # An app-specific password, not the account password. The account password
+          # fails notarization with an authentication error that reads like a typo.
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          args: --target universal-apple-darwin
+          tagName: ${{ steps.plan.outputs.tag }}
+          releaseName: ${{ steps.plan.outputs.name }}
+          releaseBody: ${{ steps.plan.outputs.notes }}
+          # A draft, always. Somebody reads the inspection below before anyone
+          # downloads anything.
+          releaseDraft: true
+          prerelease: false
+
+      # Every failure mode here is quiet: an unsigned app, and a signed one that was
+      # never notarized, both build cleanly and only fail on a user's machine. So the
+      # bundle is inspected rather than trusted.
+      #
+      # Informational, never fatal. Which of the .app and the .dmg carries the stapled
+      # ticket is a detail of the bundler, and a check that guessed wrong would fail a
+      # release that is fine. docs/releasing.md says what good output looks like.
+      - name: Inspect what was actually produced
+        if: always()
+        continue-on-error: true
+        run: |
+          bundle="src-tauri/target/universal-apple-darwin/release/bundle"
+          app="$bundle/macos/GrokSpace.app"
+          [ -d "$app" ] || { echo "No app bundle, so there is nothing to inspect."; exit 0; }
+
+          echo "::group::Signature and hardened runtime"
+          # `flags=0x10000(runtime)` in this output is the hardened runtime, which
+          # notarization requires. Tauri enables it by default.
+          codesign -dv --verbose=4 "$app" 2>&1 || echo "codesign could not read it"
+          echo "::endgroup::"
+
+          echo "::group::Does Gatekeeper accept it"
+          spctl --assess --type execute --verbose "$app" 2>&1 || echo "spctl refused it"
+          echo "::endgroup::"
+
+          echo "::group::Is the notarization ticket stapled"
+          for target in "$app" $(find "$bundle/dmg" -name '*.dmg' 2>/dev/null); do
+            printf '%s: ' "$(basename "$target")"
+            xcrun stapler validate "$target" 2>&1 || true
+          done
+          echo "::endgroup::"
+
+          echo "::group::Architectures"
+          # Both must be listed, or the universal build silently became a single-arch
+          # one and half the users get nothing.
+          lipo -archs "$app/Contents/MacOS/GrokSpace" 2>&1 || true
+          echo "::endgroup::"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grokspace-macos-universal
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error

@@ -13,7 +13,7 @@ use tauri::State;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
-use crate::skill::{Skill, SkillStatus};
+use crate::skill::{Skill, SkillFile, SkillStatus};
 use crate::{project, AppState};
 
 const COLUMNS: &str = "project_id, key, content, type, updated_at";
@@ -24,7 +24,10 @@ const MEMORY_FILE: &str = "memory.md";
 /// The skill that teaches an agent to read the file before it plans anything.
 const SKILL: Skill = Skill {
     dir: "grokspace-memory",
-    content: include_str!("../skills/project-memory/SKILL.md"),
+    files: &[SkillFile {
+        path: "SKILL.md",
+        content: include_str!("../skills/project-memory/SKILL.md"),
+    }],
 };
 
 /// The most memory a project may hold, in characters of content.
@@ -506,9 +509,10 @@ mod tests {
     fn the_bundled_skill_names_the_variable_and_the_file_it_relies_on() {
         // A skill that names the wrong path teaches an agent to read a file nobody
         // writes, which is a quieter failure than not installing at all.
-        assert!(SKILL.content.contains("GROKSPACE_MEMORY_FILE"));
-        assert!(SKILL.content.contains(MEMORY_FILE));
-        assert!(SKILL.content.starts_with("---\n"));
+        let runbook = SKILL.content("SKILL.md").expect("a skill needs a SKILL.md");
+        assert!(runbook.contains("GROKSPACE_MEMORY_FILE"));
+        assert!(runbook.contains(MEMORY_FILE));
+        assert!(runbook.starts_with("---\n"));
         assert_eq!(SKILL.dir, "grokspace-memory");
     }
 
@@ -516,7 +520,9 @@ mod tests {
     fn the_skill_tells_the_agent_not_to_write_the_file() {
         // The projection is one-directional, and an agent that edits it loses the
         // edit silently. Saying so is the only thing keeping that honest.
-        assert!(SKILL.content.contains("Do not write to it"));
+        assert!(SKILL
+            .content("SKILL.md")
+            .is_some_and(|runbook| runbook.contains("Do not write to it")));
     }
 
     #[test]

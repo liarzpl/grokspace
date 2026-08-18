@@ -133,10 +133,13 @@ src/
                   the theme reader
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
-scripts/          Development helpers; demo-graph.mjs writes a moving graph
+scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
+                  the release-*.sh pair holds the release workflow's decisions so
+                  they can be tested
 src-tauri/
   migrations/     Append-only SQL migrations
-  skills/         The Grok skills GrokSpace installs on request
+  skills/         The Grok skills GrokSpace installs on request; grokspace-graph
+                  is a runbook plus two references read on demand
   src/
     db.rs         Database location, pragmas, migration runner
     project.rs    Project model, queries, and Tauri commands
@@ -209,7 +212,12 @@ what makes the graphs live rather than a snapshot.
 
 What makes `grok` write one is a bundled skill, installed to `~/.grok/skills/`
 from the button in the Graph panel's empty state. That empty state also names the
-file the pane is watching, and can ask a running agent for a graph directly.
+directory installing writes to, and can ask a running agent for a graph directly.
+
+The skill is three files: a short runbook, a catalogue of topologies for deciding
+whether the work deserves a graph at all, and the file contract. It carries no node
+positions on purpose — the panel lays a graph out by longest-path layering, which can
+see how many nodes landed in each column when a formula in a prompt cannot.
 
 [`docs/graph-engineering.md`](docs/graph-engineering.md) has the file contract,
 the reasoning behind the watcher's filters, and how to test the panel by hand —
@@ -296,8 +304,13 @@ would need — a phase of its own rather than polish.
   cannot be proven from here: signing and notarizing need Apple Developer credentials
   and a macOS runner, so the first tagged build is what verifies it.
 
+[`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
+merged with a hand-written one, every conflict, and which side won.
+
 [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
-verified `grok` CLI surface that Phases 1-3 build on.
+verified `grok` CLI surface that Phases 1-3 build on, and
+[`docs/releasing.md`](docs/releasing.md) covers signing, notarizing and what to check
+the first time a real release runs.
 
 ## Platform notes
 
