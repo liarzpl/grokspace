@@ -19,6 +19,9 @@ export const MEMORY_TYPES: readonly { type: MemoryEntryType; label: string; hint
   { type: "artifact", label: "Artifacts", hint: "Where things ended up: paths, outputs, endpoints" },
 ];
 
+/** Drops in-flight `loadMemory` results that a newer project switch has replaced. */
+let loadGeneration = 0;
+
 interface MemoryState {
   entries: MemoryEntry[];
   /** The file agents are told to read, named so a missing one stays discoverable. */
@@ -51,6 +54,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   loadMemory: async (projectId) => {
+    const generation = ++loadGeneration;
     set({ isLoading: true, error: null });
     try {
       // Both together: the path belongs to the project being loaded, and asking for
@@ -59,9 +63,11 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
         api.listMemory(projectId),
         api.memoryFilePath(projectId),
       ]);
+      if (generation !== loadGeneration) return;
       set({ entries, filePath, isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      if (generation !== loadGeneration) return;
+      set({ error: errorMessage(error), isLoading: false, entries: [], filePath: "" });
     }
   },
 

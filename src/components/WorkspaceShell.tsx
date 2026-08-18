@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { api } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissions } from "../lib/permissions";
@@ -156,7 +156,11 @@ function OrphanedPermissionBanner() {
   const sessions = useSessionStore((state) => state.sessions);
   const tasks = useTaskStore((state) => state.tasks);
   const answerPermission = useSessionStore((state) => state.answerPermission);
-  const orphaned = orphanedPermissions(permissions, tasks);
+  const orphaned = orphanedPermissions(
+    permissions,
+    tasks,
+    sessions.map((session) => session.id),
+  );
   if (orphaned.length === 0) return null;
 
   return (
@@ -316,7 +320,9 @@ export default function WorkspaceShell({ project }: { project: Project }) {
     // changes and the graph store re-reads it. There is nothing to undo here — the
     // backend keeps one watch per project until it quits, precisely so that a
     // remount cannot leave a project unwatched.
-    void api.watchProjectGraphs(project.id).catch(() => {});
+    void api.watchProjectGraphs(project.id).catch((error) => {
+      useGraphStore.setState({ error: errorMessage(error) });
+    });
   }, [project.id]);
 
   // Derived rather than stored, so closing the selected session hands the graph

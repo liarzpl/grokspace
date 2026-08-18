@@ -38,6 +38,9 @@ function replaceTask(tasks: Task[], next: Task): Task[] {
   return tasks.map((task) => (task.id === next.id ? next : task));
 }
 
+/** Drops in-flight `loadTasks` results that a newer project switch has replaced. */
+let loadGeneration = 0;
+
 /**
  * Whether a session in this state can be given work.
  *
@@ -87,11 +90,15 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   loadTasks: async (projectId) => {
+    const generation = ++loadGeneration;
     set({ isLoading: true, error: null });
     try {
-      set({ tasks: await api.listTasks(projectId), isLoading: false });
+      const tasks = await api.listTasks(projectId);
+      if (generation !== loadGeneration) return;
+      set({ tasks, isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      if (generation !== loadGeneration) return;
+      set({ error: errorMessage(error), isLoading: false, tasks: [] });
     }
   },
 
@@ -150,19 +157,27 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
 
     set((state) => ({ dispatching: { ...state.dispatching, [taskId]: true }, error: null }));
+    let assigned = false;
     try {
-      // The prompt goes first: the board should only claim the task was handed
-      // over once something has actually received it.
-      //
-      // An agent is asked rather than typed at. That is the difference the ACP
-      // session buys: a request has a reply, so the session can report going back
-      // to idle, where a terminal can only be written into and hoped at.
+      // The assignment is recorded first so the board agrees with the session
+      // that is about to receive the work. The prompt comes second; if it fails
+      // the assignment is unwound so the card does not claim a hand-off that
+      // never landed.
+      const dispatched = await api.dispatchTask(taskId, sessionId);
+      assigned = true;
+      set((state) => ({ tasks: replaceTask(state.tasks, dispatched) }));
       if (session.kind === "agent") await api.promptSession(sessionId, dispatchPrompt(task));
       else await api.writeSession(sessionId, `${dispatchPrompt(task)}\r`);
-      const dispatched = await api.dispatchTask(taskId, sessionId);
-      set((state) => ({ tasks: replaceTask(state.tasks, dispatched) }));
       return true;
     } catch (error) {
+      if (assigned) {
+        try {
+          const undone = await api.undispatchTask(taskId);
+          set((state) => ({ tasks: replaceTask(state.tasks, undone) }));
+        } catch {
+          // The prompt is still the failure to show.
+        }
+      }
       set({ error: errorMessage(error) });
       return false;
     } finally {

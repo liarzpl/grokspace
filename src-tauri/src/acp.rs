@@ -235,7 +235,7 @@ fn permission_reply(rpc_id: &Value, allow: bool, options: &[PermissionOption]) -
 /// we have not answered outranks it, because nothing moves until it is answered.
 #[derive(Debug, Default)]
 pub struct StatusTracker {
-    prompt: Option<u64>,
+    prompts: BTreeSet<u64>,
     permissions: BTreeSet<u64>,
     options: HashMap<u64, Vec<PermissionOption>>,
     rpc_ids: HashMap<u64, Value>,
@@ -249,7 +249,7 @@ impl StatusTracker {
     pub fn status(&self) -> AgentStatus {
         if !self.permissions.is_empty() {
             AgentStatus::NeedsInput
-        } else if self.prompt.is_some() {
+        } else if !self.prompts.is_empty() {
             AgentStatus::Running
         } else {
             AgentStatus::Idle
@@ -258,7 +258,7 @@ impl StatusTracker {
 
     /// Records that a prompt has gone out and is awaiting its reply.
     pub fn prompt_sent(&mut self, id: u64) {
-        self.prompt = Some(id);
+        self.prompts.insert(id);
     }
 
     /// Records an answer to a permission request, which unblocks the agent.
@@ -287,11 +287,10 @@ impl StatusTracker {
                 self.rpc_ids.insert(request.id, request.rpc_id.clone());
             }
             Incoming::Response { id } => {
-                // Only the reply to the prompt ends the turn. Replies to the
+                // Only a reply to a prompt we sent ends that turn. Replies to the
                 // handshake arrive first and mean nothing about the conversation.
-                if self.prompt == Some(*id) {
-                    self.prompt = None;
-                }
+                // A second in-flight prompt must not steal the first's id.
+                self.prompts.remove(id);
             }
             Incoming::Ignored => {}
         }
@@ -551,13 +550,18 @@ impl AcpManager {
 
     pub fn kill(&self, id: &str) -> Result<()> {
         let agent = self.agent(id)?;
-        let killed = lock(&agent.child).kill();
-        killed.map_err(|error| Error::Pty(format!("could not stop the agent: {error}")))
+        kill_and_wait(&mut lock(&agent.child));
+        Ok(())
     }
 
     /// Forgets the agent, which drops its stdin and lets the reader see the end.
+    ///
+    /// `try_wait` reaps a child that has already exited (or that `kill` already
+    /// waited on) so Drop cannot leave a zombie.
     pub fn remove(&self, id: &str) {
-        lock(&self.agents).remove(id);
+        if let Some(agent) = lock(&self.agents).remove(id) {
+            let _ = lock(&agent.child).try_wait();
+        }
     }
 
     pub fn is_running(&self, id: &str) -> bool {
@@ -568,7 +572,7 @@ impl AcpManager {
     pub fn shutdown(&self) {
         let mut agents = lock(&self.agents);
         for agent in agents.values() {
-            let _ = lock(&agent.child).kill();
+            kill_and_wait(&mut lock(&agent.child));
         }
         agents.clear();
     }
@@ -591,7 +595,8 @@ fn write_message(stdin: &mut impl Write, message: &Value) -> Result<()> {
 /// `initialize` then `session/new`, returning the id ACP gave the conversation.
 ///
 /// Split out so it can be driven against a scripted agent in the tests rather
-/// than only against the real binary.
+/// than only against the real binary. `session/new` is not sent until initialize
+/// has succeeded: a refused protocol must not look like an open session.
 fn handshake(
     stdin: &mut impl Write,
     reader: &mut impl BufRead,
@@ -612,6 +617,7 @@ fn handshake(
             },
         }),
     )?;
+    wait_for_reply(reader, 1, "the agent refused to initialize")?;
 
     write_message(
         stdin,
@@ -622,7 +628,26 @@ fn handshake(
             "params": { "cwd": cwd.to_string_lossy(), "mcpServers": [] },
         }),
     )?;
+    let opened = wait_for_reply(reader, 2, "the agent refused a session")?;
+    if let Some(session) = opened
+        .get("result")
+        .and_then(|result| result.get("sessionId"))
+        .and_then(Value::as_str)
+    {
+        return Ok(session.to_string());
+    }
+    Err(Error::Pty(
+        "the agent opened a session without giving it an id".into(),
+    ))
+}
 
+/// Reads until a JSON-RPC reply with `expected_id` arrives. Other lines are
+/// ignored: initialize and session/new share stdout with notifications.
+fn wait_for_reply(
+    reader: &mut impl BufRead,
+    expected_id: u64,
+    error_prefix: &str,
+) -> Result<Value> {
     let mut line = String::new();
     loop {
         line.clear();
@@ -634,26 +659,16 @@ fn handshake(
                 "the agent exited before the ACP handshake finished".into(),
             ));
         }
-
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if json_rpc_id(message.get("id").unwrap_or(&Value::Null)) != Some(2) {
+        if json_rpc_id(message.get("id").unwrap_or(&Value::Null)) != Some(expected_id) {
             continue;
         }
         if let Some(error) = message.get("error") {
-            return Err(Error::Pty(format!("the agent refused a session: {error}")));
+            return Err(Error::Pty(format!("{error_prefix}: {error}")));
         }
-        if let Some(session) = message
-            .get("result")
-            .and_then(|result| result.get("sessionId"))
-            .and_then(Value::as_str)
-        {
-            return Ok(session.to_string());
-        }
-        return Err(Error::Pty(
-            "the agent opened a session without giving it an id".into(),
-        ));
+        return Ok(message);
     }
 }
 
@@ -915,6 +930,24 @@ mod tests {
     }
 
     #[test]
+    fn a_second_prompt_does_not_drop_the_first() {
+        let mut tracker = StatusTracker::new();
+        tracker.prompt_sent(5);
+        tracker.prompt_sent(6);
+
+        assert_eq!(
+            tracker.observe(&Incoming::Response { id: 5 }),
+            None,
+            "the other prompt is still in flight"
+        );
+        assert_eq!(tracker.status(), AgentStatus::Running);
+        assert_eq!(
+            tracker.observe(&Incoming::Response { id: 6 }),
+            Some(AgentStatus::Idle)
+        );
+    }
+
+    #[test]
     fn an_unanswered_permission_outranks_the_work_it_interrupted() {
         // Nothing moves until it is answered, so reporting `running` would be a
         // terminal that looks busy while it waits on a person.
@@ -1012,12 +1045,32 @@ mod tests {
     #[test]
     fn a_refused_session_is_an_error_rather_than_a_missing_id() {
         let mut sent = Vec::new();
-        let replies = "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32000,\"message\":\"not signed in\"}}\n";
+        let replies = concat!(
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"error\":{\"code\":-32000,\"message\":\"not signed in\"}}\n",
+        );
         let mut reader = BufReader::new(replies.as_bytes());
 
         let error = handshake(&mut sent, &mut reader, std::path::Path::new("/tmp")).unwrap_err();
 
         assert!(error.to_string().contains("not signed in"));
+    }
+
+    #[test]
+    fn a_refused_initialize_does_not_open_a_session() {
+        let mut sent = Vec::new();
+        let replies =
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32600,\"message\":\"unknown protocol\"}}\n";
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        let error = handshake(&mut sent, &mut reader, std::path::Path::new("/tmp")).unwrap_err();
+
+        assert!(error.to_string().contains("unknown protocol"));
+        let written = String::from_utf8(sent).unwrap();
+        assert!(
+            !written.contains(r#""method":"session/new""#),
+            "session/new must not be sent after initialize failed"
+        );
     }
 
     #[test]
@@ -1114,6 +1167,22 @@ mod tests {
             lock(&tracker).status(),
             AgentStatus::Idle,
             "a prompt that never left must not look like work in flight"
+        );
+        manager.remove("a1");
+    }
+
+    #[test]
+    fn killing_an_agent_reaps_the_child() {
+        let (child, stdin) = spawn_cat();
+        let pid = child.id();
+        let manager = AcpManager::new();
+        install_test_agent(&manager, "a1", stdin, child, Arc::new(|_| {}));
+
+        manager.kill("a1").unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !pid_is_alive(pid),
+            "kill must wait so the child cannot linger as a zombie"
         );
         manager.remove("a1");
     }

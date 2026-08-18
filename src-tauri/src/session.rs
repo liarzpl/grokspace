@@ -113,6 +113,17 @@ pub struct Session {
     pub exit_code: Option<i32>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Permission prompts the agent is blocked on. Filled by `list`, not by `from_row`.
+    #[serde(default)]
+    pub pending_permissions: Vec<PendingPermission>,
+}
+
+/// What the frontend needs to put Allow/Deny on a card after a reload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingPermission {
+    pub request_id: u64,
+    pub summary: String,
 }
 
 fn from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -132,6 +143,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         exit_code: row.get("exit_code")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+        pending_permissions: Vec::new(),
     })
 }
 
@@ -139,9 +151,10 @@ pub fn list(conn: &Connection, project_id: &str) -> Result<Vec<Session>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {COLUMNS} FROM sessions WHERE project_id = ?1 ORDER BY created_at ASC"
     ))?;
-    let sessions = stmt
+    let mut sessions = stmt
         .query_map([project_id], from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    attach_permissions(conn, &mut sessions)?;
     Ok(sessions)
 }
 
@@ -201,9 +214,94 @@ pub fn set_status(
     status: SessionStatus,
     exit_code: Option<i32>,
 ) -> Result<()> {
+    if status == SessionStatus::Stopped {
+        conn.execute(
+            "UPDATE sessions
+                SET status = ?2, exit_code = ?3, process_id = NULL, updated_at = ?4
+              WHERE id = ?1",
+            rusqlite::params![id, status.as_str(), exit_code, now_ms()],
+        )?;
+        conn.execute(
+            "DELETE FROM session_permissions WHERE session_id = ?1",
+            [id],
+        )?;
+        return Ok(());
+    }
     conn.execute(
         "UPDATE sessions SET status = ?2, exit_code = ?3, updated_at = ?4 WHERE id = ?1",
         rusqlite::params![id, status.as_str(), exit_code, now_ms()],
+    )?;
+    Ok(())
+}
+
+fn record_live_process(
+    conn: &Connection,
+    id: &str,
+    kind: SessionKind,
+    process_id: Option<u32>,
+) -> Result<()> {
+    set_process_id(conn, id, process_id)?;
+    // An ACP session that has finished its handshake is idle until something is
+    // asked of it. Leaving it `running` made "ask for a graph" refuse to fire.
+    // A child that already exited has been marked stopped by its close handler;
+    // overwriting that would bring a dead agent back to life on the board.
+    if kind == SessionKind::Agent {
+        let current = get(conn, id)?;
+        if current.status != SessionStatus::Stopped {
+            set_status(conn, id, SessionStatus::Idle, None)?;
+        }
+    }
+    Ok(())
+}
+
+fn attach_permissions(conn: &Connection, sessions: &mut [Session]) -> Result<()> {
+    if sessions.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = conn.prepare(
+        "SELECT session_id, request_id, summary FROM session_permissions ORDER BY request_id ASC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            PendingPermission {
+                request_id: row.get::<_, i64>(1)? as u64,
+                summary: row.get(2)?,
+            },
+        ))
+    })?;
+    let mut by_session: std::collections::HashMap<String, Vec<PendingPermission>> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (session_id, permission) = row?;
+        by_session.entry(session_id).or_default().push(permission);
+    }
+    for session in sessions {
+        if let Some(pending) = by_session.remove(&session.id) {
+            session.pending_permissions = pending;
+        }
+    }
+    Ok(())
+}
+
+pub fn record_permission(
+    conn: &Connection,
+    session_id: &str,
+    request_id: u64,
+    summary: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO session_permissions (session_id, request_id, summary)
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![session_id, request_id as i64, summary],
+    )?;
+    Ok(())
+}
+
+pub fn clear_permission(conn: &Connection, session_id: &str, request_id: u64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM session_permissions WHERE session_id = ?1 AND request_id = ?2",
+        rusqlite::params![session_id, request_id as i64],
     )?;
     Ok(())
 }
@@ -409,6 +507,10 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
             );
         }),
         on_permission: Box::new(move |request| {
+            let state = permission_app.state::<AppState>();
+            if let Ok(conn) = state.db.lock() {
+                let _ = record_permission(&conn, &permission_id, request.id, &request.summary);
+            }
             let _ = permission_app.emit(
                 PERMISSION_EVENT,
                 PermissionAsked {
@@ -512,10 +614,24 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
 
     match spawned {
         Ok(process_id) => {
+            let became_idle = {
+                let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+                record_live_process(&conn, &session.id, request.kind, process_id)?;
+                request.kind == SessionKind::Agent
+                    && get(&conn, &session.id)?.status == SessionStatus::Idle
+            };
+            // After the lock is dropped: the webview has to hear that an agent
+            // which just finished its handshake is idle, not still `running`.
+            if became_idle {
+                let _ = app.emit(
+                    STATUS_EVENT,
+                    SessionStatusChanged {
+                        id: session.id.clone(),
+                        status: SessionStatus::Idle,
+                    },
+                );
+            }
             let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-            // Only the pid is written back: if the child already exited, its
-            // handler has set the status and must not be overwritten.
-            set_process_id(&conn, &session.id, process_id)?;
             get(&conn, &session.id)
         }
         Err(error) => {
@@ -617,7 +733,11 @@ pub fn answer_session_permission(
     request_id: u64,
     allow: bool,
 ) -> Result<()> {
-    state.acp.answer_permission(&id, request_id, allow)
+    state.acp.answer_permission(&id, request_id, allow)?;
+    if let Ok(conn) = state.db.lock() {
+        let _ = clear_permission(&conn, &id, request_id);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1065,5 +1185,93 @@ mod tests {
             Ok(Launch::Terminal { .. }) => panic!("an agent must not be started on a pty"),
             Err(_) => {} // No `grok` here, which is a different failure.
         }
+    }
+
+    #[test]
+    fn an_agent_that_has_started_is_idle_rather_than_running() {
+        let (conn, project_id) = fixture();
+        let agent = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+
+        record_live_process(&conn, &agent.id, SessionKind::Agent, Some(4242)).unwrap();
+
+        let reloaded = get(&conn, &agent.id).unwrap();
+        assert_eq!(reloaded.status, SessionStatus::Idle);
+        assert_eq!(reloaded.process_id, Some(4242));
+    }
+
+    #[test]
+    fn a_terminal_that_has_started_stays_running() {
+        let (conn, project_id) = fixture();
+        let grok = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+
+        record_live_process(&conn, &grok.id, SessionKind::Grok, Some(7)).unwrap();
+
+        let reloaded = get(&conn, &grok.id).unwrap();
+        assert_eq!(reloaded.status, SessionStatus::Running);
+        assert_eq!(reloaded.process_id, Some(7));
+    }
+
+    #[test]
+    fn stopping_a_session_clears_its_process_id() {
+        let (conn, project_id) = fixture();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        set_process_id(&conn, &session.id, Some(4242)).unwrap();
+
+        set_status(&conn, &session.id, SessionStatus::Stopped, Some(0)).unwrap();
+
+        let reloaded = get(&conn, &session.id).unwrap();
+        assert_eq!(reloaded.status, SessionStatus::Stopped);
+        assert_eq!(reloaded.process_id, None);
+    }
+
+    #[test]
+    fn a_pending_permission_survives_a_list_round_trip() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+
+        record_permission(&conn, &session.id, 9, "Write a file").unwrap();
+
+        let listed = list(&conn, &project_id).unwrap();
+        assert_eq!(
+            listed[0].pending_permissions,
+            vec![PendingPermission {
+                request_id: 9,
+                summary: "Write a file".into(),
+            }]
+        );
+
+        clear_permission(&conn, &session.id, 9).unwrap();
+        assert!(list(&conn, &project_id).unwrap()[0]
+            .pending_permissions
+            .is_empty());
+    }
+
+    #[test]
+    fn stopping_a_session_drops_its_pending_permissions() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        record_permission(&conn, &session.id, 9, "Write a file").unwrap();
+
+        set_status(&conn, &session.id, SessionStatus::Stopped, None).unwrap();
+
+        assert!(list(&conn, &project_id).unwrap()[0]
+            .pending_permissions
+            .is_empty());
     }
 }

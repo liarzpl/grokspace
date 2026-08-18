@@ -96,6 +96,59 @@ describe("loadSessions", () => {
     expect(useSessionStore.getState().error).toBe("database is locked");
   });
 
+  it("empties the previous project's sessions when the load fails", async () => {
+    useSessionStore.setState({
+      sessions: [session()],
+      permissions: { s1: [{ requestId: 1, summary: "Write a file" }] },
+    });
+    listSessions.mockRejectedValue("database is locked");
+
+    await useSessionStore.getState().loadSessions("p2");
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([]);
+    expect(state.permissions).toEqual({});
+  });
+
+  it("replaces pending permissions from the arriving list", async () => {
+    useSessionStore.setState({
+      sessions: [session({ id: "old" })],
+      permissions: { old: [{ requestId: 1, summary: "Stale" }] },
+    });
+    listSessions.mockResolvedValue([
+      session({
+        id: "s1",
+        pendingPermissions: [{ requestId: 9, summary: "Write a file" }],
+      }),
+    ]);
+
+    await useSessionStore.getState().loadSessions("p1");
+
+    expect(useSessionStore.getState().permissions).toEqual({
+      s1: [{ requestId: 9, summary: "Write a file" }],
+    });
+  });
+
+  it("lets the later load win when two complete out of order", async () => {
+    let resolveFirst: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation((projectId: string) => {
+      if (projectId === "p1") {
+        return new Promise<Session[]>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve([session({ id: "s2", projectId: "p2" })]);
+    });
+
+    const first = useSessionStore.getState().loadSessions("p1");
+    const second = useSessionStore.getState().loadSessions("p2");
+    await second;
+    resolveFirst([session({ id: "s1", projectId: "p1" })]);
+    await first;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s2"]);
+  });
+
   it("drops the graphs of the project being left", async () => {
     useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
     useGraphStore.setState({ bySession: { s1: graphEntry(), s2: graphEntry() } });
@@ -264,6 +317,7 @@ describe("permissions", () => {
   const asked = { requestId: 9, summary: "Run `git push`" };
 
   it("keeps one per request, since an agent can be blocked on several", () => {
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
     useSessionStore.getState().askPermission("s1", asked);
     useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
 
@@ -271,6 +325,7 @@ describe("permissions", () => {
   });
 
   it("drops only the one that was answered", async () => {
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
     useSessionStore.getState().askPermission("s1", asked);
     useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
     answerSessionPermission.mockResolvedValue(undefined);
@@ -283,6 +338,7 @@ describe("permissions", () => {
 
   it("leaves the question standing when the answer could not be sent", async () => {
     // The agent is still waiting either way, so the buttons have to stay.
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
     useSessionStore.getState().askPermission("s1", asked);
     answerSessionPermission.mockRejectedValue("that session is no longer running");
 
@@ -299,6 +355,12 @@ describe("permissions", () => {
     useSessionStore.getState().markExited("s1", null);
 
     expect(useSessionStore.getState().permissions["s1"]).toBeUndefined();
+  });
+
+  it("ignores a prompt for a session that is not in the list", () => {
+    useSessionStore.getState().askPermission("gone", asked);
+
+    expect(useSessionStore.getState().permissions["gone"]).toBeUndefined();
   });
 });
 

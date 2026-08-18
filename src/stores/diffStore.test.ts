@@ -50,6 +50,22 @@ describe("loadDiff", () => {
     expect(useDiffStore.getState().error).toBe("no project found with id p1");
     expect(useDiffStore.getState().isLoading).toBe(false);
   });
+
+  it("drops the previous project's diff when the load fails", async () => {
+    useDiffStore.setState({
+      diff: changed([{ path: "old.rs", change: "modified" }]),
+      selected: "old.rs",
+      body: "-a\n+b",
+    });
+    projectDiff.mockRejectedValue("no project found with id p2");
+
+    await useDiffStore.getState().loadDiff("p2");
+
+    const state = useDiffStore.getState();
+    expect(state.diff).toEqual({ state: "clean", branch: null });
+    expect(state.selected).toBeNull();
+    expect(state.body).toBe("");
+  });
 });
 
 describe("selectFile", () => {
