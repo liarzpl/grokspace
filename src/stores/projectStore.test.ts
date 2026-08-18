@@ -8,16 +8,28 @@ const openProject = vi.fn();
 const touchProject = vi.fn();
 const updateProject = vi.fn();
 const removeProject = vi.fn();
+const listSessions = vi.fn();
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openFolderDialog }));
+vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn() }));
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { listProjects, openProject, touchProject, updateProject, removeProject },
+    api: {
+      listProjects,
+      openProject,
+      touchProject,
+      updateProject,
+      removeProject,
+      listSessions,
+    },
   };
 });
 
+const { disposeTerminal } = await import("../lib/terminals");
+const { useGraphStore } = await import("./graphStore");
+const { useSessionStore } = await import("./sessionStore");
 const { layoutOf, useProjectStore } = await import("./projectStore");
 
 function project(overrides: Partial<Project> = {}): Project {
@@ -33,10 +45,15 @@ function project(overrides: Partial<Project> = {}): Project {
 }
 
 const initialState = useProjectStore.getState();
+const initialSessions = useSessionStore.getState();
+const initialGraphs = useGraphStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useProjectStore.setState(initialState, true);
+  useSessionStore.setState(initialSessions, true);
+  useGraphStore.setState(initialGraphs, true);
+  listSessions.mockResolvedValue([]);
 });
 
 describe("loadProjects", () => {
@@ -202,5 +219,27 @@ describe("forgetProject", () => {
     await useProjectStore.getState().forgetProject("a");
 
     expect(useProjectStore.getState().activeProjectId).toBeNull();
+  });
+
+  it("disposes terminals for the forgotten project's sessions before removing it", async () => {
+    listSessions.mockResolvedValue([{ id: "s1" }, { id: "s2" }]);
+    useProjectStore.setState({
+      projects: [project({ id: "a" })],
+      activeProjectId: "a",
+    });
+    useSessionStore.setState({
+      sessions: [{ id: "s1" } as never],
+      permissions: { s1: [{ requestId: 1, summary: "x" }] },
+    });
+    removeProject.mockResolvedValue(undefined);
+
+    await useProjectStore.getState().forgetProject("a");
+
+    expect(listSessions).toHaveBeenCalledWith("a");
+    expect(disposeTerminal).toHaveBeenCalledWith("s1");
+    expect(disposeTerminal).toHaveBeenCalledWith("s2");
+    expect(useSessionStore.getState().sessions).toEqual([]);
+    expect(useSessionStore.getState().permissions).toEqual({});
+    expect(removeProject).toHaveBeenCalledWith("a");
   });
 });

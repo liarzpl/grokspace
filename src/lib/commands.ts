@@ -168,6 +168,34 @@ export function commands(project: Project | null): Command[] {
     },
   });
 
+  // Agents have no pane, so Stop/Close are not on a terminal header. Terminals
+  // already have those controls there; repeating them here would be a second Stop
+  // for the same session.
+  for (const session of useSessionStore.getState().sessions) {
+    if (session.kind !== "agent") continue;
+    const title = session.title ?? "Agent";
+    if (session.status !== "stopped") {
+      list.push({
+        id: `stop-agent-${session.id}`,
+        label: `Stop ${title}`,
+        group: "Session",
+        run: () => {
+          useUiStore.getState().closePalette();
+          void useSessionStore.getState().stopSession(session.id);
+        },
+      });
+    }
+    list.push({
+      id: `close-agent-${session.id}`,
+      label: `Close ${title}`,
+      group: "Session",
+      run: () => {
+        useUiStore.getState().closePalette();
+        void useSessionStore.getState().closeSession(session.id);
+      },
+    });
+  }
+
   list.push({
     id: "install-graph-skill",
     label: "Install or refresh the graph skill",

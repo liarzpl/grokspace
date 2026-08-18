@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { SHORTCUTS, shortcutFor, shortcutLabel } from "./shortcuts";
+import {
+  SHORTCUTS,
+  runGlobalShortcut,
+  shortcutFor,
+  shortcutLabel,
+  subscribeEscape,
+} from "./shortcuts";
 
 /** Enough of a KeyboardEvent for matching, which reads four fields. */
 function press(key: string, held: Partial<Record<"meta" | "ctrl" | "alt" | "shift", true>> = {}) {
@@ -70,5 +76,66 @@ describe("shortcutLabel", () => {
     // Rather than throwing: a label is decoration, and a missing one must not take
     // a panel down with it.
     expect(shortcutLabel("nonesuch" as never, true)).toBe("");
+  });
+});
+
+describe("runGlobalShortcut", () => {
+  it("closes the palette before opening a project, so Cmd+O is not buried", () => {
+    const closePalette = vi.fn();
+    const togglePalette = vi.fn();
+    const openProject = vi.fn();
+
+    runGlobalShortcut("open-project", { closePalette, togglePalette, openProject });
+
+    expect(closePalette).toHaveBeenCalledOnce();
+    expect(openProject).toHaveBeenCalledOnce();
+    expect(togglePalette).not.toHaveBeenCalled();
+  });
+
+  it("toggles the palette for its own shortcut", () => {
+    const closePalette = vi.fn();
+    const togglePalette = vi.fn();
+    const openProject = vi.fn();
+
+    runGlobalShortcut("command-palette", { closePalette, togglePalette, openProject });
+
+    expect(togglePalette).toHaveBeenCalledOnce();
+    expect(openProject).not.toHaveBeenCalled();
+  });
+});
+
+describe("subscribeEscape", () => {
+  it("does nothing while disabled", () => {
+    const add = vi.fn();
+    const remove = vi.fn();
+    const close = vi.fn();
+
+    const stop = subscribeEscape(false, close, { addEventListener: add, removeEventListener: remove });
+    stop();
+
+    expect(add).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("fires on Escape and unsubscribes", () => {
+    const listeners = new Set<(event: KeyboardEvent) => void>();
+    const target = {
+      addEventListener: (_type: "keydown", handler: (event: KeyboardEvent) => void) => {
+        listeners.add(handler);
+      },
+      removeEventListener: (_type: "keydown", handler: (event: KeyboardEvent) => void) => {
+        listeners.delete(handler);
+      },
+    };
+    const close = vi.fn();
+    const stop = subscribeEscape(true, close, target);
+
+    for (const handler of listeners) {
+      handler({ key: "Escape", preventDefault: vi.fn() } as unknown as KeyboardEvent);
+    }
+    expect(close).toHaveBeenCalledOnce();
+
+    stop();
+    expect(listeners.size).toBe(0);
   });
 });

@@ -11,7 +11,7 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import { api } from "../lib/api";
+import { askForGraph, canAskForGraph } from "../lib/graphAsk";
 import { inferDirection, type GraphDocument } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
@@ -39,10 +39,8 @@ const nodeTypes = { graphNode: GraphNodeCard };
 /**
  * Typed into the agent's terminal by "Ask for a graph". Naming the variable
  * rather than a path keeps this correct for whichever session receives it.
+ * The prompt itself lives in `lib/graphAsk.ts` so the ACP path can share it.
  */
-const GRAPH_REQUEST =
-  "Write your plan for this work as a graph to $GROKSPACE_GRAPH_FILE now, " +
-  "then keep the node statuses in that file up to date as you go.";
 
 function Centred({ children }: { children: React.ReactNode }) {
   return (
@@ -107,11 +105,11 @@ function AwaitingGraph({ session, path }: { session: Session; path: string }) {
     void loadSkill();
   }, [loadSkill]);
 
-  const canAsk = session.kind === "grok" && session.status === "running";
+  const canAsk = canAskForGraph(session);
 
   const ask = () => {
     setAsked(true);
-    void api.writeSession(session.id, `${GRAPH_REQUEST}\r`).catch(() => setAsked(false));
+    void askForGraph(session).catch(() => setAsked(false));
   };
 
   return (

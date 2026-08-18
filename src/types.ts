@@ -123,7 +123,7 @@ export interface Settings {
   /** The pane layout a project that has never chosen one gets. */
   defaultLayout: PaneLayout;
   /** The panel the workspace opens on. */
-  openingTab: "terminals" | "graph" | "tasks" | "memory";
+  openingTab: "terminals" | "graph" | "tasks" | "memory" | "diff";
   /**
    * Which new session a dispatch reaches for first. Only the order of the offer
    * changes, so nothing is chosen on anyone's behalf — but it decides which chip is

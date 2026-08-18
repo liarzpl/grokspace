@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Project } from "../types";
+import type { Project, Session } from "../types";
 
 // Mocked wholesale for the reason the session store's tests give: the real module
 // pulls in xterm, and a command list has no business dragging a terminal emulator
@@ -9,12 +9,21 @@ vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn() }));
 
 const createSession = vi.fn();
 const updateProject = vi.fn();
+const stopSession = vi.fn();
+const closeSession = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { createSession, updateProject, listProjects: vi.fn(), listSessions: vi.fn() },
+    api: {
+      createSession,
+      updateProject,
+      listProjects: vi.fn(),
+      listSessions: vi.fn(),
+      stopSession,
+      closeSession,
+    },
   };
 });
 
@@ -31,6 +40,24 @@ function project(overrides: Partial<Project> = {}): Project {
     lastOpened: 1000,
     settings: { terminalLayout: "2x2" },
     createdAt: 1000,
+    ...overrides,
+  };
+}
+
+function session(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "s1",
+    projectId: "p1",
+    paneId: "0",
+    processId: 1,
+    status: "running",
+    title: "Grok",
+    role: null,
+    worktreePath: null,
+    kind: "grok",
+    exitCode: null,
+    createdAt: 0,
+    updatedAt: 0,
     ...overrides,
   };
 }
@@ -74,6 +101,22 @@ describe("the command list", () => {
 
     expect(shown).toContain("Switch to other");
     expect(shown).not.toContain("Switch to acme-api");
+  });
+
+  it("offers Stop and Close for a live agent, and not a second Stop for a terminal", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({ id: "agent-1", paneId: null, kind: "agent", title: "Reviewer", status: "running" }),
+        session({ id: "grok-1", kind: "grok", title: "Grok", status: "running" }),
+      ],
+    });
+
+    const shown = labels(project());
+
+    expect(shown).toContain("Stop Reviewer");
+    expect(shown).toContain("Close Reviewer");
+    expect(shown).not.toContain("Stop Grok");
+    expect(shown).not.toContain("Close Grok");
   });
 
   it("gives every command a distinct id", () => {

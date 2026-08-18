@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { homeRelative } from "../lib/paths";
+import { orphanedPermissions } from "../lib/permissions";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -72,6 +73,9 @@ function sessionLabel(session: Session): string {
  * One chip per session. The dot reports the graph rather than the process: a
  * running agent that has not written a plan yet is exactly the case this panel
  * exists to make visible.
+ *
+ * Agents have no pane, so Stop and Close live here (and in the palette) rather
+ * than only on a terminal header that will never exist for them.
  */
 function SessionChip({
   session,
@@ -83,6 +87,8 @@ function SessionChip({
   onClick: () => void;
 }) {
   const entry = useGraphStore((state) => graphFor(state.bySession, session.id));
+  const stopSession = useSessionStore((state) => state.stopSession);
+  const closeSession = useSessionStore((state) => state.closeSession);
   const status = entry.graph?.status;
   const tone =
     entry.error !== null
@@ -98,19 +104,87 @@ function SessionChip({
         : "bg-line-strong";
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={entry.graph?.name ?? "No graph yet"}
-      className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+    <div
+      className={`flex shrink-0 items-center gap-0.5 rounded-md border px-1 py-0.5 text-[11px] transition-colors ${
         active
           ? "border-accent bg-accent-soft text-ink"
           : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
       }`}
     >
-      <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />
-      <span className="max-w-40 truncate">{sessionLabel(session)}</span>
+      <button
+        type="button"
+        onClick={onClick}
+        title={entry.graph?.name ?? "No graph yet"}
+        className="flex items-center gap-1.5 px-1"
+      >
+        <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />
+        <span className="max-w-40 truncate">{sessionLabel(session)}</span>
+        {session.kind === "agent" && (
+          <span className="shrink-0 font-mono text-[10px] text-ink-faint">{session.status}</span>
+        )}
+      </button>
+      {session.kind === "agent" && (
+        <>
+          {session.status !== "stopped" && (
+            <ChipButton label="Stop" onClick={() => void stopSession(session.id)} />
+          )}
+          <ChipButton label="Close" onClick={() => void closeSession(session.id)} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChipButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-sm px-1 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+    >
+      {label}
     </button>
+  );
+}
+
+/**
+ * Allow/Deny for agents that no task card owns. Swarm launches and palette-started
+ * agents would otherwise sit on `needs_input` with no way to answer.
+ */
+function OrphanedPermissionBanner() {
+  const permissions = useSessionStore((state) => state.permissions);
+  const sessions = useSessionStore((state) => state.sessions);
+  const tasks = useTaskStore((state) => state.tasks);
+  const answerPermission = useSessionStore((state) => state.answerPermission);
+  const orphaned = orphanedPermissions(permissions, tasks);
+  if (orphaned.length === 0) return null;
+
+  return (
+    <div className="flex shrink-0 flex-col gap-1.5 border-b border-line bg-elevated px-4 py-2">
+      {orphaned.flatMap(({ sessionId, requests }) => {
+        const title =
+          sessions.find((session) => session.id === sessionId)?.title ?? "Agent";
+        return requests.map((request) => (
+          <div key={`${sessionId}-${request.requestId}`} className="flex items-start gap-3">
+            <p className="min-w-0 flex-1 text-[11px] leading-snug text-ink-muted">
+              <span className="text-ink">{title}</span>
+              {" · "}
+              {request.summary}
+            </p>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <ChipButton
+                label="Allow"
+                onClick={() => void answerPermission(sessionId, request.requestId, true)}
+              />
+              <ChipButton
+                label="Deny"
+                onClick={() => void answerPermission(sessionId, request.requestId, false)}
+              />
+            </div>
+          </div>
+        ));
+      })}
+    </div>
   );
 }
 
@@ -129,7 +203,7 @@ function GraphTab({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {sessions.length > 1 && (
+      {(sessions.length > 1 || sessions.some((session) => session.kind === "agent")) && (
         <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-line px-3 py-1.5">
           {sessions.map((session) => (
             <SessionChip
@@ -274,6 +348,8 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         {tab === "tasks" && <TaskSummary />}
         {tab === "memory" && <MemorySummary />}
       </header>
+
+      <OrphanedPermissionBanner />
 
       {/*
         Switching away unmounts the grid, which is safe: lib/terminals.ts holds

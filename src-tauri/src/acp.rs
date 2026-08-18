@@ -19,7 +19,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use serde_json::{json, Value};
 
@@ -33,7 +35,7 @@ const PROTOCOL_VERSION: &str = "1";
 /// How long the opening handshake may take before the agent is called unusable.
 /// Generous, because a first run can be doing a token refresh, but finite: a
 /// silent agent must not hang the command that started it.
-const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Recovered from rather than propagated, for the reason `pty.rs` gives: nothing in
 /// here guards an invariant a panic could break, and losing an agent because an
@@ -54,13 +56,25 @@ pub enum AgentStatus {
     NeedsInput,
 }
 
+/// One choice the agent offered on a permission request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionOption {
+    pub option_id: String,
+    pub kind: String,
+    pub name: String,
+}
+
 /// A permission the agent is waiting on, surfaced so it can be put to the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PermissionRequest {
-    /// The JSON-RPC id to answer with; the agent stays blocked until it is.
+    /// Numeric form used to key the tracker and the frontend.
     pub id: u64,
+    /// The JSON-RPC id exactly as the agent sent it, so the reply can echo it.
+    pub rpc_id: Value,
     /// What the agent wants to do, in whatever words it used.
     pub summary: String,
+    /// The options the agent listed; the reply must pick one of these ids.
+    pub options: Vec<PermissionOption>,
 }
 
 /// What one incoming line means to GrokSpace. Everything the status does not
@@ -76,6 +90,15 @@ pub enum Incoming {
     Ignored,
 }
 
+/// JSON-RPC ids are a number or a string. ACP permission requests from Grok are
+/// numbers; numeric strings are accepted so a reply can still be correlated.
+fn json_rpc_id(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+        .or_else(|| value.as_str()?.parse().ok())
+}
+
 /// Reads one line of JSON-RPC and says what it is.
 ///
 /// A line that is not JSON at all is ignored rather than fatal. The agent shares
@@ -86,18 +109,23 @@ pub fn classify(line: &str) -> Incoming {
         return Incoming::Ignored;
     };
 
-    let id = message.get("id").and_then(Value::as_u64);
+    let rpc_id = message.get("id").cloned();
+    let id = rpc_id.as_ref().and_then(json_rpc_id);
     let method = message.get("method").and_then(Value::as_str);
 
-    match (method, id) {
+    match (method, id, rpc_id) {
         // A request from the agent: it has both a method and an id, and it is
         // waiting for an answer.
-        (Some("session/request_permission"), Some(id)) => Incoming::Permission(PermissionRequest {
-            id,
-            summary: permission_summary(&message),
-        }),
+        (Some("session/request_permission"), Some(id), Some(rpc_id)) => {
+            Incoming::Permission(PermissionRequest {
+                id,
+                rpc_id,
+                summary: permission_summary(&message),
+                options: permission_options(&message),
+            })
+        }
         // A reply to us: an id and no method.
-        (None, Some(id)) => Incoming::Response { id },
+        (None, Some(id), _) => Incoming::Response { id },
         _ => Incoming::Ignored,
     }
 }
@@ -121,6 +149,85 @@ fn permission_summary(message: &Value) -> String {
     "The agent is asking for permission to continue.".to_string()
 }
 
+fn permission_options(message: &Value) -> Vec<PermissionOption> {
+    message
+        .get("params")
+        .and_then(|params| params.get("options"))
+        .and_then(Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .filter_map(|option| {
+                    let option_id = option.get("optionId")?.as_str()?.to_string();
+                    if option_id.is_empty() {
+                        return None;
+                    }
+                    Some(PermissionOption {
+                        option_id,
+                        kind: option
+                            .get("kind")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        name: option
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The JSON-RPC `result` for a permission reply, matching ACP v1.
+///
+/// Deny selects a reject option. `cancelled` means the prompt turn was cancelled,
+/// which is not what Allow/Deny on a card means.
+pub fn permission_result(allow: bool, options: &[PermissionOption]) -> Result<Value> {
+    let option = pick_option(allow, options).ok_or_else(|| {
+        Error::Invalid("the agent offered no permission option that matches the answer".into())
+    })?;
+    Ok(json!({
+        "outcome": {
+            "outcome": "selected",
+            "optionId": option.option_id,
+        }
+    }))
+}
+
+fn pick_option(allow: bool, options: &[PermissionOption]) -> Option<&PermissionOption> {
+    if options.is_empty() {
+        return None;
+    }
+    let preferred: &[&str] = if allow {
+        &["allow_once", "allow_always"]
+    } else {
+        &["reject_once", "reject_always"]
+    };
+    for kind in preferred {
+        if let Some(option) = options.iter().find(|option| option.kind == *kind) {
+            return Some(option);
+        }
+    }
+    // No kinds at all: the first option is the only honest guess. Mixed kinds
+    // with nothing matching would pick the wrong allow/deny, so that is refused.
+    if options.iter().all(|option| option.kind.is_empty()) {
+        options.first()
+    } else {
+        None
+    }
+}
+
+fn permission_reply(rpc_id: &Value, allow: bool, options: &[PermissionOption]) -> Result<Value> {
+    Ok(json!({
+        "jsonrpc": "2.0",
+        "id": rpc_id,
+        "result": permission_result(allow, options)?,
+    }))
+}
+
 /// What the flow says the session is doing.
 ///
 /// ACP v1 has no status message, so this is derived rather than read: a prompt we
@@ -130,6 +237,8 @@ fn permission_summary(message: &Value) -> String {
 pub struct StatusTracker {
     prompt: Option<u64>,
     permissions: BTreeSet<u64>,
+    options: HashMap<u64, Vec<PermissionOption>>,
+    rpc_ids: HashMap<u64, Value>,
 }
 
 impl StatusTracker {
@@ -155,6 +264,16 @@ impl StatusTracker {
     /// Records an answer to a permission request, which unblocks the agent.
     pub fn permission_answered(&mut self, id: u64) {
         self.permissions.remove(&id);
+        self.options.remove(&id);
+        self.rpc_ids.remove(&id);
+    }
+
+    fn options_for(&self, id: u64) -> Vec<PermissionOption> {
+        self.options.get(&id).cloned().unwrap_or_default()
+    }
+
+    fn rpc_id_for(&self, id: u64) -> Value {
+        self.rpc_ids.get(&id).cloned().unwrap_or_else(|| json!(id))
     }
 
     /// Folds one incoming message in. Returns the status if it changed, so a
@@ -164,6 +283,8 @@ impl StatusTracker {
         match incoming {
             Incoming::Permission(request) => {
                 self.permissions.insert(request.id);
+                self.options.insert(request.id, request.options.clone());
+                self.rpc_ids.insert(request.id, request.rpc_id.clone());
             }
             Incoming::Response { id } => {
                 // Only the reply to the prompt ends the turn. Replies to the
@@ -181,7 +302,7 @@ impl StatusTracker {
 
 /// What a live agent reports, on the reader thread.
 pub struct Callbacks {
-    pub on_status: Box<dyn Fn(AgentStatus) + Send + Sync>,
+    pub on_status: Arc<dyn Fn(AgentStatus) + Send + Sync>,
     pub on_permission: Box<dyn Fn(PermissionRequest) + Send + Sync>,
     /// The agent's stdout ended, which for a child process means it is gone.
     pub on_closed: Box<dyn FnOnce() + Send>,
@@ -203,11 +324,17 @@ struct Agent {
     /// The id ACP gave the conversation, which every session-scoped call needs.
     acp_session: String,
     process_id: Option<u32>,
+    on_status: Arc<dyn Fn(AgentStatus) + Send + Sync>,
 }
 
 #[derive(Default)]
 pub struct AcpManager {
     agents: Mutex<HashMap<String, Arc<Agent>>>,
+}
+
+fn kill_and_wait(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 impl AcpManager {
@@ -222,6 +349,17 @@ impl AcpManager {
     /// for automation, and it would remove permission requests altogether — which
     /// is the only thing `needs_input` can mean.
     pub fn start(&self, options: StartOptions, callbacks: Callbacks) -> Result<Option<u32>> {
+        self.start_with_timeout(options, callbacks, HANDSHAKE_TIMEOUT)
+    }
+
+    /// Same as [`Self::start`], with a timeout the tests can shrink so a hanging
+    /// child is not a thirty-second wait.
+    pub(crate) fn start_with_timeout(
+        &self,
+        options: StartOptions,
+        callbacks: Callbacks,
+        timeout: Duration,
+    ) -> Result<Option<u32>> {
         let mut child = Command::new(&options.program)
             .args(["agent", "stdio"])
             .current_dir(&options.cwd)
@@ -237,19 +375,56 @@ impl AcpManager {
             })?;
 
         let process_id = Some(child.id());
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| Error::Pty("the agent has no stdin".into()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| Error::Pty("the agent has no stdout".into()))?;
+        let stdin = match child.stdin.take() {
+            Some(stdin) => stdin,
+            None => {
+                kill_and_wait(&mut child);
+                return Err(Error::Pty("the agent has no stdin".into()));
+            }
+        };
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                kill_and_wait(&mut child);
+                return Err(Error::Pty("the agent has no stdout".into()));
+            }
+        };
 
-        let mut reader = BufReader::new(stdout);
-        let mut stdin = stdin;
-        let acp_session = handshake(&mut stdin, &mut reader, &options.cwd)?;
+        let cwd = options.cwd.clone();
+        let (tx, rx) = mpsc::channel();
+        if let Err(error) = std::thread::Builder::new()
+            .name(format!("acp-handshake-{}", options.id))
+            .spawn(move || {
+                let mut stdin = stdin;
+                let mut reader = BufReader::new(stdout);
+                let result = handshake(&mut stdin, &mut reader, &cwd).map(|id| (id, stdin, reader));
+                let _ = tx.send(result);
+            })
+        {
+            kill_and_wait(&mut child);
+            return Err(Error::Pty(format!(
+                "could not start the agent handshake: {error}"
+            )));
+        }
 
+        // The handshake's own reads can block forever on a silent pipe. Bounding
+        // the wait here, then killing the child, is what makes the timeout real:
+        // a dead child is what unblocks `read_line`.
+        let (acp_session, stdin, reader) = match rx.recv_timeout(timeout) {
+            Ok(Ok(handshake)) => handshake,
+            Ok(Err(error)) => {
+                kill_and_wait(&mut child);
+                return Err(error);
+            }
+            Err(_) => {
+                kill_and_wait(&mut child);
+                return Err(Error::Pty(
+                    "the agent did not answer the ACP handshake in time".into(),
+                ));
+            }
+        };
+
+        let on_status = Arc::clone(&callbacks.on_status);
         let agent = Arc::new(Agent {
             stdin: Mutex::new(stdin),
             child: Mutex::new(child),
@@ -257,13 +432,19 @@ impl AcpManager {
             next_id: AtomicU64::new(HANDSHAKE_IDS + 1),
             acp_session,
             process_id,
+            on_status,
         });
 
         let tracker = Arc::clone(&agent.tracker);
-        std::thread::Builder::new()
+        if let Err(error) = std::thread::Builder::new()
             .name(format!("acp-read-{}", options.id))
             .spawn(move || read_loop(reader, tracker, callbacks))
-            .map_err(|error| Error::Pty(format!("could not start the agent reader: {error}")))?;
+        {
+            kill_and_wait(&mut lock(&agent.child));
+            return Err(Error::Pty(format!(
+                "could not start the agent reader: {error}"
+            )));
+        }
 
         lock(&self.agents).insert(options.id, agent);
         Ok(process_id)
@@ -280,7 +461,6 @@ impl AcpManager {
     pub fn prompt(&self, id: &str, text: &str) -> Result<()> {
         let agent = self.agent(id)?;
         let request_id = agent.next_id.fetch_add(1, Ordering::Relaxed);
-        lock(&agent.tracker).prompt_sent(request_id);
 
         // Bound to a local rather than left a temporary: locals drop in reverse
         // order, so this guard has to be declared after `agent` to be released
@@ -297,27 +477,52 @@ impl AcpManager {
                     "prompt": [{ "type": "text", "text": text }],
                 },
             }),
-        )
+        )?;
+        drop(stdin);
+
+        // Recorded only once the prompt is out, so a failed write cannot leave
+        // the session reading as running while the agent never saw the turn.
+        let changed = {
+            let mut tracker = lock(&agent.tracker);
+            let before = tracker.status();
+            tracker.prompt_sent(request_id);
+            let after = tracker.status();
+            (after != before).then_some(after)
+        };
+        if let Some(status) = changed {
+            (agent.on_status)(status);
+        }
+        Ok(())
     }
 
     /// Answers a permission request, which is what lets the agent carry on.
     pub fn answer_permission(&self, id: &str, request_id: u64, allow: bool) -> Result<()> {
         let agent = self.agent(id)?;
-        let outcome = if allow {
-            json!({ "outcome": "selected", "optionId": "allow" })
-        } else {
-            json!({ "outcome": "cancelled" })
+        let (rpc_id, options) = {
+            let tracker = lock(&agent.tracker);
+            (
+                tracker.rpc_id_for(request_id),
+                tracker.options_for(request_id),
+            )
         };
+        let reply = permission_reply(&rpc_id, allow, &options)?;
 
         let mut stdin = lock(&agent.stdin);
-        let sent = write_message(
-            &mut *stdin,
-            &json!({ "jsonrpc": "2.0", "id": request_id, "result": outcome }),
-        );
+        let sent = write_message(&mut *stdin, &reply);
+        drop(stdin);
         // Recorded only once the answer is out, so a failed write cannot leave the
         // session reading as answered while the agent is still waiting.
         if sent.is_ok() {
-            lock(&agent.tracker).permission_answered(request_id);
+            let changed = {
+                let mut tracker = lock(&agent.tracker);
+                let before = tracker.status();
+                tracker.permission_answered(request_id);
+                let after = tracker.status();
+                (after != before).then_some(after)
+            };
+            if let Some(status) = changed {
+                (agent.on_status)(status);
+            }
         }
         sent
     }
@@ -418,15 +623,8 @@ fn handshake(
         }),
     )?;
 
-    let deadline = std::time::Instant::now() + HANDSHAKE_TIMEOUT;
     let mut line = String::new();
     loop {
-        if std::time::Instant::now() > deadline {
-            return Err(Error::Pty(
-                "the agent did not answer the ACP handshake in time".into(),
-            ));
-        }
-
         line.clear();
         let read = reader
             .read_line(&mut line)
@@ -440,7 +638,7 @@ fn handshake(
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if message.get("id").and_then(Value::as_u64) != Some(2) {
+        if json_rpc_id(message.get("id").unwrap_or(&Value::Null)) != Some(2) {
             continue;
         }
         if let Some(error) = message.get("error") {
@@ -484,6 +682,83 @@ fn read_loop(mut reader: impl BufRead, tracker: Arc<Mutex<StatusTracker>>, callb
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
+
+    fn v1_options() -> Vec<PermissionOption> {
+        vec![
+            PermissionOption {
+                option_id: "allow-once".into(),
+                kind: "allow_once".into(),
+                name: "Allow once".into(),
+            },
+            PermissionOption {
+                option_id: "reject-once".into(),
+                kind: "reject_once".into(),
+                name: "Reject".into(),
+            },
+        ]
+    }
+
+    fn perm(id: u64, summary: &str) -> PermissionRequest {
+        PermissionRequest {
+            id,
+            rpc_id: json!(id),
+            summary: summary.to_string(),
+            options: Vec::new(),
+        }
+    }
+
+    fn noop_callbacks() -> Callbacks {
+        Callbacks {
+            on_status: Arc::new(|_| {}),
+            on_permission: Box::new(|_| {}),
+            on_closed: Box::new(|| {}),
+        }
+    }
+
+    fn install_test_agent(
+        manager: &AcpManager,
+        id: &str,
+        stdin: ChildStdin,
+        child: Child,
+        on_status: Arc<dyn Fn(AgentStatus) + Send + Sync>,
+    ) -> Arc<Mutex<StatusTracker>> {
+        let tracker = Arc::new(Mutex::new(StatusTracker::new()));
+        lock(&manager.agents).insert(
+            id.to_string(),
+            Arc::new(Agent {
+                stdin: Mutex::new(stdin),
+                child: Mutex::new(child),
+                tracker: Arc::clone(&tracker),
+                next_id: AtomicU64::new(HANDSHAKE_IDS + 1),
+                acp_session: "sess_test".into(),
+                process_id: None,
+                on_status,
+            }),
+        );
+        tracker
+    }
+
+    fn spawn_cat() -> (Child, ChildStdin) {
+        let mut child = Command::new("cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("cat should start");
+        let stdin = child.stdin.take().expect("cat has stdin");
+        (child, stdin)
+    }
+
+    fn pid_is_alive(pid: u32) -> bool {
+        Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
 
     #[test]
     fn a_reply_is_told_apart_from_a_request() {
@@ -497,6 +772,17 @@ mod tests {
             classify(r#"{"jsonrpc":"2.0","id":9,"method":"session/request_permission"}"#),
             Incoming::Permission(_)
         ));
+    }
+
+    #[test]
+    fn a_numeric_string_id_is_still_a_request() {
+        let incoming =
+            classify(r#"{"jsonrpc":"2.0","id":"9","method":"session/request_permission"}"#);
+        let Incoming::Permission(request) = incoming else {
+            panic!("a string id that is a number should still classify as a permission");
+        };
+        assert_eq!(request.id, 9);
+        assert_eq!(request.rpc_id, json!("9"));
     }
 
     #[test]
@@ -521,7 +807,9 @@ mod tests {
             titled,
             Incoming::Permission(PermissionRequest {
                 id: 1,
-                summary: "Run `git push`".to_string()
+                rpc_id: json!(1),
+                summary: "Run `git push`".to_string(),
+                options: Vec::new(),
             })
         );
 
@@ -532,6 +820,75 @@ mod tests {
             panic!("a permission request should be recognised without a tool call")
         };
         assert!(request.summary.contains("permission"));
+    }
+
+    #[test]
+    fn a_permission_request_keeps_the_options_the_agent_offered() {
+        let incoming = classify(
+            r#"{"jsonrpc":"2.0","id":5,"method":"session/request_permission","params":{
+                "options":[
+                    {"optionId":"allow-once","name":"Allow once","kind":"allow_once"},
+                    {"optionId":"reject-once","name":"Reject","kind":"reject_once"}
+                ]
+            }}"#,
+        );
+        let Incoming::Permission(request) = incoming else {
+            panic!("expected a permission");
+        };
+        assert_eq!(request.options, v1_options());
+    }
+
+    #[test]
+    fn allow_selects_the_nested_v1_outcome_and_the_request_option_id() {
+        // The published ACP v1 example, not a flattened guess.
+        assert_eq!(
+            permission_reply(&json!(5), true, &v1_options()).unwrap(),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "result": {
+                    "outcome": {
+                        "outcome": "selected",
+                        "optionId": "allow-once"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn deny_selects_a_reject_option_rather_than_cancelling_the_turn() {
+        assert_eq!(
+            permission_reply(&json!(5), false, &v1_options()).unwrap(),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 5,
+                "result": {
+                    "outcome": {
+                        "outcome": "selected",
+                        "optionId": "reject-once"
+                    }
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn the_option_id_is_read_from_the_request_not_assumed() {
+        let options = vec![PermissionOption {
+            option_id: "allow-this-run".into(),
+            kind: "allow_once".into(),
+            name: "Allow".into(),
+        }];
+        let result = permission_result(true, &options).unwrap();
+        assert_eq!(result["outcome"]["optionId"], json!("allow-this-run"));
+        assert_ne!(result["outcome"]["optionId"], json!("allow"));
+    }
+
+    #[test]
+    fn a_string_rpc_id_is_echoed_rather_than_rewritten_as_a_number() {
+        let reply = permission_reply(&json!("9"), true, &v1_options()).unwrap();
+        assert_eq!(reply["id"], json!("9"));
     }
 
     #[test]
@@ -564,10 +921,7 @@ mod tests {
         let mut tracker = StatusTracker::new();
         tracker.prompt_sent(5);
 
-        let asking = Incoming::Permission(PermissionRequest {
-            id: 9,
-            summary: "Run `rm -rf /`".to_string(),
-        });
+        let asking = Incoming::Permission(perm(9, "Run `rm -rf /`"));
         assert_eq!(tracker.observe(&asking), Some(AgentStatus::NeedsInput));
 
         tracker.permission_answered(9);
@@ -588,10 +942,7 @@ mod tests {
         let mut tracker = StatusTracker::new();
         tracker.prompt_sent(5);
         for id in [9, 10] {
-            tracker.observe(&Incoming::Permission(PermissionRequest {
-                id,
-                summary: String::new(),
-            }));
+            tracker.observe(&Incoming::Permission(perm(id, "")));
         }
 
         tracker.permission_answered(9);
@@ -671,8 +1022,6 @@ mod tests {
 
     #[test]
     fn the_reader_reports_transitions_and_then_the_close() {
-        use std::sync::mpsc;
-
         let tracker = Arc::new(Mutex::new(StatusTracker::new()));
         lock(&tracker).prompt_sent(5);
 
@@ -690,7 +1039,7 @@ mod tests {
             BufReader::new(lines.as_bytes()),
             Arc::clone(&tracker),
             Callbacks {
-                on_status: Box::new(move |status| {
+                on_status: Arc::new(move |status| {
                     let _ = statuses.send(status);
                 }),
                 on_permission: Box::new(move |request| {
@@ -712,5 +1061,114 @@ mod tests {
         );
         assert_eq!(lock(&tracker).status(), AgentStatus::NeedsInput);
         ended.recv().expect("the close should be reported");
+    }
+
+    #[test]
+    fn answering_a_permission_reports_running_and_sends_the_v1_shape() {
+        let (tx, rx) = mpsc::channel();
+        let manager = AcpManager::new();
+        let (child, stdin) = spawn_cat();
+        let tracker = install_test_agent(
+            &manager,
+            "a1",
+            stdin,
+            child,
+            Arc::new(move |status| {
+                let _ = tx.send(status);
+            }),
+        );
+
+        lock(&tracker).prompt_sent(5);
+        lock(&tracker).observe(&Incoming::Permission(PermissionRequest {
+            id: 9,
+            rpc_id: json!(9),
+            summary: "Write a file".into(),
+            options: v1_options(),
+        }));
+        assert_eq!(lock(&tracker).status(), AgentStatus::NeedsInput);
+
+        manager.answer_permission("a1", 9, true).unwrap();
+
+        assert_eq!(rx.recv().unwrap(), AgentStatus::Running);
+        assert_eq!(lock(&tracker).status(), AgentStatus::Running);
+        manager.kill("a1").ok();
+        manager.remove("a1");
+    }
+
+    #[test]
+    fn a_failed_prompt_does_not_leave_the_session_running() {
+        let mut child = Command::new("true")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("true should start");
+        let stdin = child.stdin.take().expect("true has stdin");
+        let _ = child.wait();
+
+        let manager = AcpManager::new();
+        let tracker = install_test_agent(&manager, "a1", stdin, child, Arc::new(|_| {}));
+
+        let error = manager.prompt("a1", "do the work").unwrap_err();
+        assert!(error.to_string().contains("could not write"));
+        assert_eq!(
+            lock(&tracker).status(),
+            AgentStatus::Idle,
+            "a prompt that never left must not look like work in flight"
+        );
+        manager.remove("a1");
+    }
+
+    #[test]
+    fn a_silent_agent_is_killed_when_the_handshake_times_out() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let script = dir.path().join("hang");
+        let pid_file = dir.path().join("pid");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho $$ > {}\nwhile true; do sleep 1; done\n",
+                pid_file.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let manager = AcpManager::new();
+        let started = Instant::now();
+        let error = manager
+            .start_with_timeout(
+                StartOptions {
+                    id: "hang".into(),
+                    program: script.to_string_lossy().into_owned(),
+                    cwd: dir.path().to_path_buf(),
+                    env: Vec::new(),
+                },
+                noop_callbacks(),
+                Duration::from_millis(400),
+            )
+            .unwrap_err();
+
+        assert!(error.to_string().contains("in time"), "got: {error}");
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "the timeout must not wait on a blocking read of a silent pipe"
+        );
+        assert!(!manager.is_running("hang"));
+
+        let pid: u32 = std::fs::read_to_string(&pid_file)
+            .unwrap_or_default()
+            .trim()
+            .parse()
+            .expect("the hang script should have written its pid");
+        // A moment for wait() to reap; kill -0 must then fail.
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !pid_is_alive(pid),
+            "the hanging child must not outlive a failed handshake"
+        );
     }
 }

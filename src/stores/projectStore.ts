@@ -2,7 +2,10 @@ import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { disposeTerminal } from "../lib/terminals";
 import { PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
+import { useGraphStore } from "./graphStore";
+import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
 
 /** Matches the backend ordering: most recently opened first. */
@@ -124,7 +127,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   forgetProject: async (id) => {
     try {
+      // Listed first so the frontend can dispose terminals even if this project
+      // is not the one currently on screen. The backend then kills the children.
+      const sessions = await api.listSessions(id);
+      for (const session of sessions) {
+        disposeTerminal(session.id);
+        useGraphStore.getState().forget(session.id);
+      }
       await api.removeProject(id);
+      if (get().activeProjectId === id) {
+        useSessionStore.setState({
+          sessions: [],
+          permissions: {},
+          paneViews: {},
+          maximizedPane: null,
+        });
+      }
       set((state) => {
         const projects = state.projects.filter((project) => project.id !== id);
         return {
