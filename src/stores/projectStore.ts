@@ -7,6 +7,7 @@ import { PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
 import { useGraphStore } from "./graphStore";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
+import { useStepStore } from "./stepStore";
 
 /** Matches the backend ordering: most recently opened first. */
 function sortByRecency(projects: Project[]): Project[] {
@@ -133,6 +134,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       for (const session of sessions) {
         disposeTerminal(session.id);
         useGraphStore.getState().forget(session.id);
+        useStepStore.getState().forget(session.id);
       }
       await api.removeProject(id);
       if (get().activeProjectId === id) {

@@ -74,6 +74,34 @@ export interface Session {
 }
 
 /**
+ * One item on a session's working list. Distinct from a board `Task`: these are
+ * the breakdown the agent proposes for this run, not cards you dispatch.
+ */
+export type StepStatus = "pending" | "doing" | "done" | "skipped";
+
+/** Whether the list is still being edited, or locked after Approve. */
+export type StepsPhase = "none" | "proposed" | "approved";
+
+export type StepOrigin = "agent" | "user";
+
+export interface SessionStep {
+  id: string;
+  sessionId: string;
+  sortIndex: number;
+  title: string;
+  status: StepStatus;
+  origin: StepOrigin;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SessionSteps {
+  sessionId: string;
+  phase: StepsPhase;
+  steps: SessionStep[];
+}
+
+/**
  * A session's graph file as the backend found it. The JSON is handed over
  * unparsed: the schema is a model's output, so `lib/graph.ts` is the one place
  * that decides what a usable graph is.

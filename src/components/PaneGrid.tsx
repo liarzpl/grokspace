@@ -1,5 +1,5 @@
 import { layoutOf, useProjectStore } from "../stores/projectStore";
-import { sessionForPane, useSessionStore } from "../stores/sessionStore";
+import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { PANE_LAYOUTS, paneCount, type PaneLayout, type Project } from "../types";
 import TerminalPane from "./TerminalPane";
 
@@ -38,7 +38,7 @@ export function LayoutPicker({ project }: { project: Project }) {
 
 export default function PaneGrid({ project }: { project: Project }) {
   const layout = layoutOf(project);
-  const sessions = useSessionStore((state) => state.sessions);
+  const sessions = useSessionStore((state) => sessionsForProject(state.sessions, project.id));
   const maximizedPane = useSessionStore((state) => state.maximizedPane);
 
   const panes = Array.from({ length: paneCount(layout) }, (_, index) => String(index));

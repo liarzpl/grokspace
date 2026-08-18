@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { api, errorMessage } from "../lib/api";
 import type { SessionStatus, Task, TaskStatus } from "../types";
 import { useSessionStore } from "./sessionStore";
+import { useStepStore } from "./stepStore";
 
 /**
  * The task board, and the one action that reaches outside it.
@@ -24,13 +25,15 @@ const FALLBACK_SIZE = { cols: 80, rows: 24 };
  * One line, because a newline submits in a TUI: a description spread over several
  * lines would arrive as several prompts, most of them fragments. The description
  * rides along after the title since a task worth describing is usually one whose
- * description is the point.
+ * description is the point. The last sentence is how the agent knows to write a
+ * step list and wait: without it, dispatch would skip the gate entirely.
  */
 export function dispatchPrompt(task: Task): string {
   const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
   const goal = oneLine(task.title);
   const context = task.description === null ? "" : oneLine(task.description);
-  return context === "" ? goal : `${goal} — ${context}`;
+  const work = context === "" ? goal : `${goal} — ${context}`;
+  return `${work}. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.`;
 }
 
 /** Newest tasks last within a column, matching the backend's ordering. */
@@ -166,6 +169,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       const dispatched = await api.dispatchTask(taskId, sessionId);
       assigned = true;
       set((state) => ({ tasks: replaceTask(state.tasks, dispatched) }));
+      // The backend cleared the last job's list with the assignment. Forget it
+      // here so the rail does not keep showing a tally until the next load.
+      useStepStore.getState().reset(sessionId);
       if (session.kind === "agent") await api.promptSession(sessionId, dispatchPrompt(task));
       else await api.writeSession(sessionId, `${dispatchPrompt(task)}\r`);
       return true;

@@ -16,10 +16,13 @@ import { useMemoryStore } from "../stores/memoryStore";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
 import { useGraphStore } from "../stores/graphStore";
 import { sessionForPane, useSessionStore } from "../stores/sessionStore";
+import { stepsFor, useStepStore } from "../stores/stepStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
+import { errorMessage } from "./api";
 import { ROLES } from "./roles";
 import type { ShortcutId } from "./shortcuts";
+import { canApproveSteps, sendApproval } from "./steps";
 
 export interface Command {
   id: string;
@@ -192,6 +195,29 @@ export function commands(project: Project | null): Command[] {
       run: () => {
         useUiStore.getState().closePalette();
         void useSessionStore.getState().closeSession(session.id);
+      },
+    });
+  }
+
+  for (const session of useSessionStore.getState().sessions) {
+    const entry = stepsFor(useStepStore.getState().bySession, session.id);
+    if (!canApproveSteps(session, entry.phase, entry.steps.length)) continue;
+    const title = session.title ?? "Session";
+    list.push({
+      id: `approve-steps-${session.id}`,
+      label: `Approve steps for ${title}`,
+      group: "Session",
+      run: () => {
+        useUiStore.getState().closePalette();
+        void (async () => {
+          const frozen = await useStepStore.getState().approve(session.id);
+          if (frozen === null) return;
+          try {
+            await sendApproval(session, frozen.steps);
+          } catch (error) {
+            useStepStore.setState({ error: errorMessage(error) });
+          }
+        })();
       },
     });
   }
