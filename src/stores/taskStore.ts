@@ -33,7 +33,8 @@ export function dispatchPrompt(task: Task): string {
   const goal = oneLine(task.title);
   const context = task.description === null ? "" : oneLine(task.description);
   const work = context === "" ? goal : `${goal} — ${context}`;
-  return `${work}. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.`;
+  const gated = /[.!?]$/.test(work) ? work : `${work}.`;
+  return `${gated} Write your steps to $GROKSPACE_STEPS_FILE first, then wait.`;
 }
 
 /** Newest tasks last within a column, matching the backend's ordering. */

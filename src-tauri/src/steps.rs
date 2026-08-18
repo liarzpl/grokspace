@@ -286,7 +286,7 @@ fn replace_rows(conn: &Connection, session_id: &str, steps: &[SessionStep]) -> R
 
 /// Forgiving parse of an agent's step file. Junk is skipped; the cap is applied
 /// after, so a twenty-first real title is dropped rather than taking down the list.
-pub fn parse_steps_json(input: &str) -> Vec<ParsedStep> {
+fn parse_steps_json(input: &str) -> Vec<ParsedStep> {
     let Ok(value) = serde_json::from_str::<Value>(input) else {
         return Vec::new();
     };

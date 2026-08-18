@@ -265,12 +265,14 @@ describe("running a command", () => {
     writeSession.mockResolvedValue(undefined);
 
     commands(project()).find((command) => command.id === "approve-steps-s1")?.run();
-    await vi.waitFor(() => expect(approveSessionSteps).toHaveBeenCalledWith("s1"));
-
-    expect(writeSession).toHaveBeenCalledWith(
-      "s1",
-      "Approved. Continue as written: 1. Read it\r",
+    await vi.waitFor(() =>
+      expect(writeSession).toHaveBeenCalledWith(
+        "s1",
+        "Approved. Continue as written: 1. Read it\r",
+      ),
     );
+
+    expect(approveSessionSteps).toHaveBeenCalledWith("s1");
     expect(promptSession).not.toHaveBeenCalled();
   });
 });
