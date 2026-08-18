@@ -206,6 +206,26 @@ pub fn dispatch(conn: &Connection, id: &str, session_id: &str) -> Result<Task> {
     get(conn, id)
 }
 
+/// Puts a task back in the backlog with no session.
+///
+/// Dispatching records the assignment before the prompt is sent, so a prompt that
+/// never landed has to unwind that or the card claims work is underway.
+pub fn undispatch(conn: &Connection, id: &str) -> Result<Task> {
+    let affected = conn.execute(
+        "UPDATE tasks
+            SET assigned_session_id = NULL,
+                status = 'backlog',
+                updated_at = ?2
+          WHERE id = ?1",
+        rusqlite::params![id, now_ms()],
+    )?;
+    if affected == 0 {
+        return Err(Error::TaskNotFound(id.to_string()));
+    }
+
+    get(conn, id)
+}
+
 pub fn remove(conn: &Connection, id: &str) -> Result<()> {
     let affected = conn.execute("DELETE FROM tasks WHERE id = ?1", [id])?;
     if affected == 0 {
@@ -263,6 +283,11 @@ pub fn update_task(
 #[tauri::command]
 pub fn dispatch_task(state: State<'_, AppState>, id: String, session_id: String) -> Result<Task> {
     with_db(&state, |conn| dispatch(conn, &id, &session_id))
+}
+
+#[tauri::command]
+pub fn undispatch_task(state: State<'_, AppState>, id: String) -> Result<Task> {
+    with_db(&state, |conn| undispatch(conn, &id))
 }
 
 #[tauri::command]
@@ -393,6 +418,10 @@ mod tests {
             TaskStatus::InProgress,
             "a dispatched task is being worked on, and the board has to agree"
         );
+
+        let undone = undispatch(&conn, &task.id).unwrap();
+        assert_eq!(undone.assigned_session_id, None);
+        assert_eq!(undone.status, TaskStatus::Backlog);
     }
 
     #[test]
@@ -448,6 +477,10 @@ mod tests {
         ));
         assert!(matches!(
             dispatch(&conn, "nope", "s1"),
+            Err(Error::TaskNotFound(_))
+        ));
+        assert!(matches!(
+            undispatch(&conn, "nope"),
             Err(Error::TaskNotFound(_))
         ));
         assert!(matches!(remove(&conn, "nope"), Err(Error::TaskNotFound(_))));

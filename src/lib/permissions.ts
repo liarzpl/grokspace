@@ -11,13 +11,18 @@ import type { PermissionRequest, Task } from "../types";
 export function orphanedPermissions(
   permissions: Record<string, PermissionRequest[]>,
   tasks: readonly Task[],
+  sessionIds: Iterable<string>,
 ): { sessionId: string; requests: PermissionRequest[] }[] {
   const assigned = new Set(
     tasks
       .map((task) => task.assignedSessionId)
       .filter((id): id is string => id !== null),
   );
+  const live = new Set(sessionIds);
   return Object.entries(permissions)
-    .filter(([sessionId, requests]) => requests.length > 0 && !assigned.has(sessionId))
+    .filter(
+      ([sessionId, requests]) =>
+        requests.length > 0 && live.has(sessionId) && !assigned.has(sessionId),
+    )
     .map(([sessionId, requests]) => ({ sessionId, requests }));
 }

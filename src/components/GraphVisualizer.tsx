@@ -11,10 +11,12 @@ import {
 
 import "@xyflow/react/dist/style.css";
 
-import { askForGraph, canAskForGraph } from "../lib/graphAsk";
+import { errorMessage } from "../lib/api";
 import { inferDirection, type GraphDocument } from "../lib/graph";
+import { askForGraph, canAskForGraph } from "../lib/graphAsk";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
+import { useSessionStore } from "../stores/sessionStore";
 import type { Session } from "../types";
 import GraphNodeCard, {
   NODE_HEIGHT,
@@ -105,11 +107,20 @@ function AwaitingGraph({ session, path }: { session: Session; path: string }) {
     void loadSkill();
   }, [loadSkill]);
 
+  useEffect(() => {
+    setAsked(false);
+  }, [session.id]);
+
   const canAsk = canAskForGraph(session);
 
   const ask = () => {
     setAsked(true);
-    void askForGraph(session).catch(() => setAsked(false));
+    void askForGraph(session).catch((error) => {
+      setAsked(false);
+      const message = errorMessage(error);
+      useGraphStore.setState({ error: message });
+      useSessionStore.setState({ error: message });
+    });
   };
 
   return (

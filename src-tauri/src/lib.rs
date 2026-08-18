@@ -77,6 +77,7 @@ pub fn run() {
             task::create_task,
             task::update_task,
             task::dispatch_task,
+            task::undispatch_task,
             task::remove_task,
             diff::project_diff,
             diff::file_diff,

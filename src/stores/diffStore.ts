@@ -14,6 +14,9 @@ import type { ChangedFile, DiffState } from "../types";
 
 const NOTHING: DiffState = { state: "clean", branch: null };
 
+/** Drops in-flight `loadDiff` results that a newer project switch has replaced. */
+let loadGeneration = 0;
+
 interface DiffStoreState {
   diff: DiffState;
   /** The file whose diff is on screen, and the diff itself. */
@@ -39,13 +42,23 @@ export const useDiffStore = create<DiffStoreState>((set) => ({
   clearError: () => set({ error: null }),
 
   loadDiff: async (projectId) => {
+    const generation = ++loadGeneration;
     set({ isLoading: true, error: null });
     try {
       // The selection is dropped, not kept: a refresh can find the file committed or
       // reverted, and a body left on screen would describe a change that is gone.
-      set({ diff: await api.projectDiff(projectId), selected: null, body: "", isLoading: false });
+      const diff = await api.projectDiff(projectId);
+      if (generation !== loadGeneration) return;
+      set({ diff, selected: null, body: "", isLoading: false });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      if (generation !== loadGeneration) return;
+      set({
+        error: errorMessage(error),
+        isLoading: false,
+        diff: NOTHING,
+        selected: null,
+        body: "",
+      });
     }
   },
 

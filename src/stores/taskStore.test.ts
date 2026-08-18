@@ -6,6 +6,7 @@ const listTasks = vi.fn();
 const createTask = vi.fn();
 const updateTask = vi.fn();
 const dispatchTask = vi.fn();
+const undispatchTask = vi.fn();
 const removeTask = vi.fn();
 const writeSession = vi.fn();
 const promptSession = vi.fn();
@@ -25,6 +26,7 @@ vi.mock("../lib/api", async () => {
       createTask,
       updateTask,
       dispatchTask,
+      undispatchTask,
       removeTask,
       writeSession,
       promptSession,
@@ -98,6 +100,15 @@ describe("loadTasks", () => {
     const state = useTaskStore.getState();
     expect(state.error).toBe("database is locked");
     expect(state.isLoading).toBe(false);
+  });
+
+  it("empties the previous project's tasks when the load fails", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    listTasks.mockRejectedValue("database is locked");
+
+    await useTaskStore.getState().loadTasks("p2");
+
+    expect(useTaskStore.getState().tasks).toEqual([]);
   });
 });
 
@@ -173,15 +184,22 @@ describe("dispatchPrompt", () => {
 });
 
 describe("dispatch", () => {
-  it("types the task into the agent, then records where it went", async () => {
+  it("records the assignment, then types the task into the agent", async () => {
+    const order: string[] = [];
     useTaskStore.setState({ tasks: [task()] });
     useSessionStore.setState({ sessions: [session()] });
-    writeSession.mockResolvedValue(undefined);
-    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    dispatchTask.mockImplementation(async () => {
+      order.push("dispatch");
+      return task({ status: "in_progress", assignedSessionId: "s1" });
+    });
+    writeSession.mockImplementation(async () => {
+      order.push("write");
+    });
 
     const ok = await useTaskStore.getState().dispatch("t1", "s1");
 
     expect(ok).toBe(true);
+    expect(order).toEqual(["dispatch", "write"]);
     expect(writeSession).toHaveBeenCalledWith("s1", "Fix the login bug\r");
     expect(dispatchTask).toHaveBeenCalledWith("t1", "s1");
     const moved = useTaskStore.getState().tasks[0];
@@ -190,17 +208,20 @@ describe("dispatch", () => {
     expect(useTaskStore.getState().dispatching["t1"]).toBe(false);
   });
 
-  it("does not claim the task was handed over when the write fails", async () => {
-    // The board would otherwise show a task in progress that no agent ever saw.
+  it("unassigns the task when the prompt is refused", async () => {
     useTaskStore.setState({ tasks: [task()] });
     useSessionStore.setState({ sessions: [session()] });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
     writeSession.mockRejectedValue("that session is no longer running");
+    undispatchTask.mockResolvedValue(task({ status: "backlog", assignedSessionId: null }));
 
     const ok = await useTaskStore.getState().dispatch("t1", "s1");
 
     expect(ok).toBe(false);
-    expect(dispatchTask).not.toHaveBeenCalled();
+    expect(dispatchTask).toHaveBeenCalledWith("t1", "s1");
+    expect(undispatchTask).toHaveBeenCalledWith("t1");
     expect(useTaskStore.getState().tasks[0]?.status).toBe("backlog");
+    expect(useTaskStore.getState().tasks[0]?.assignedSessionId).toBeNull();
     expect(useTaskStore.getState().error).toBe("that session is no longer running");
   });
 

@@ -69,6 +69,8 @@ export interface Session {
   exitCode: number | null;
   createdAt: number;
   updatedAt: number;
+  /** Permission prompts still waiting; filled by `listSessions` after a reload. */
+  pendingPermissions?: PermissionRequest[];
 }
 
 /**

@@ -27,18 +27,24 @@ describe("orphanedPermissions", () => {
     const permissions = { s1: [request()] };
     const tasks = [task({ assignedSessionId: "s1" })];
 
-    expect(orphanedPermissions(permissions, tasks)).toEqual([]);
+    expect(orphanedPermissions(permissions, tasks, ["s1"])).toEqual([]);
   });
 
   it("surfaces a prompt for an agent with no assigned task", () => {
     const permissions = { swarm: [request({ summary: "Run tests" })] };
 
-    expect(orphanedPermissions(permissions, [task()])).toEqual([
+    expect(orphanedPermissions(permissions, [task()], ["swarm"])).toEqual([
       { sessionId: "swarm", requests: [request({ summary: "Run tests" })] },
     ]);
   });
 
   it("ignores sessions that are not asking", () => {
-    expect(orphanedPermissions({ s1: [] }, [])).toEqual([]);
+    expect(orphanedPermissions({ s1: [] }, [], ["s1"])).toEqual([]);
+  });
+
+  it("hides a prompt whose session is not in this project", () => {
+    const permissions = { foreign: [request()] };
+
+    expect(orphanedPermissions(permissions, [], ["s1"])).toEqual([]);
   });
 });

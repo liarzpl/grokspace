@@ -12,7 +12,7 @@
 //! GrokSpace shells out to `git` rather than linking libgit2: it already spawns `grok`
 //! and the user's shell, so a third is consistent, and a diff is text a command prints.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
@@ -118,9 +118,9 @@ fn parse_line(line: &str) -> Option<ChangedFile> {
     })
 }
 
-pub fn state_of(project_path: &Path) -> DiffState {
+pub fn state_of(project_path: &Path) -> Result<DiffState> {
     let Some(git_path) = program::find("git") else {
-        return DiffState::GitMissing;
+        return Ok(DiffState::GitMissing);
     };
 
     let inside = git(
@@ -130,26 +130,86 @@ pub fn state_of(project_path: &Path) -> DiffState {
     );
     match inside {
         Ok(output) if output.status.success() => {}
-        _ => return DiffState::NotARepo,
+        _ => return Ok(DiffState::NotARepo),
     }
 
     let branch = branch_of(&git_path, project_path);
 
     // Porcelain rather than `diff --name-status`, because it reports untracked files
-    // too — and an agent's first write to a new file is untracked.
-    let Ok(output) = git(&git_path, project_path, &["status", "--porcelain"]) else {
-        return DiffState::Clean { branch };
-    };
+    // too — and an agent's first write to a new file is untracked. A spawn failure
+    // or a non-zero status used to read as Clean, which claimed the agents changed
+    // nothing when git could not actually answer.
+    let output = git(&git_path, project_path, &["status", "--porcelain"])?;
+    interpret_porcelain(output, branch)
+}
+
+fn interpret_porcelain(output: std::process::Output, branch: Option<String>) -> Result<DiffState> {
+    if !output.status.success() {
+        let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(Error::Invalid(if reason.is_empty() {
+            "git status failed".into()
+        } else {
+            reason
+        }));
+    }
     let files: Vec<ChangedFile> = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(parse_line)
         .collect();
 
-    if files.is_empty() {
+    Ok(if files.is_empty() {
         DiffState::Clean { branch }
     } else {
         DiffState::Changed { branch, files }
+    })
+}
+
+/// Resolves `path` to a location inside `project_path`, as a path relative to it.
+///
+/// Absolute paths, `..`, and anything that canonicalizes outside the project are
+/// refused so `git diff --no-index` cannot be pointed at a file the panel should
+/// never have seen.
+fn confined_to_project(project_path: &Path, path: &str) -> Result<PathBuf> {
+    if path.trim().is_empty() {
+        return Err(Error::Invalid("a file path is required".into()));
     }
+    let root = project_path
+        .canonicalize()
+        .map_err(|error| Error::Invalid(format!("could not resolve the project path: {error}")))?;
+
+    let requested = Path::new(path);
+    let joined = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        root.join(requested)
+    };
+
+    let resolved = match joined.canonicalize() {
+        Ok(canonical) => canonical,
+        Err(_) => {
+            let name = joined
+                .file_name()
+                .ok_or_else(|| Error::Invalid(format!("{path} is outside the project")))?;
+            let parent = joined
+                .parent()
+                .ok_or_else(|| Error::Invalid(format!("{path} is outside the project")))?;
+            let parent = parent
+                .canonicalize()
+                .map_err(|_| Error::Invalid(format!("{path} is outside the project")))?;
+            parent.join(name)
+        }
+    };
+
+    if !resolved.starts_with(&root) {
+        return Err(Error::Invalid(format!("{path} is outside the project")));
+    }
+    let relative = resolved
+        .strip_prefix(&root)
+        .map_err(|_| Error::Invalid(format!("{path} is outside the project")))?;
+    if relative.as_os_str().is_empty() {
+        return Err(Error::Invalid(format!("{path} is outside the project")));
+    }
+    Ok(relative.to_path_buf())
 }
 
 /// One file's diff against `HEAD`.
@@ -161,14 +221,19 @@ pub fn of_file(project_path: &Path, path: &str, untracked: bool) -> Result<Strin
     let git_path = program::find("git")
         .ok_or_else(|| Error::Invalid("git is not installed, so there is no diff".into()))?;
 
+    let jailed = confined_to_project(project_path, path)?;
+    let jailed = jailed
+        .to_str()
+        .ok_or_else(|| Error::Invalid("the file path is not valid UTF-8".into()))?;
+
     let output = if untracked {
         git(
             &git_path,
             project_path,
-            &["diff", "--no-index", "--", "/dev/null", path],
+            &["diff", "--no-index", "--", "/dev/null", jailed],
         )?
     } else {
-        git(&git_path, project_path, &["diff", "HEAD", "--", path])?
+        git(&git_path, project_path, &["diff", "HEAD", "--", jailed])?
     };
 
     // `--no-index` exits non-zero when the files differ, which is the whole point of
@@ -202,7 +267,7 @@ pub fn project_diff(state: State<'_, AppState>, project_id: String) -> Result<Di
     // The path is read under the lock and git is run after it: spawning a process is
     // slower than any query, and every command shares the one connection.
     let path = project_path(&state, &project_id)?;
-    Ok(state_of(Path::new(&path)))
+    state_of(Path::new(&path))
 }
 
 #[tauri::command]
@@ -255,7 +320,7 @@ mod tests {
         // Rather than reading as clean, which would claim the agents changed nothing.
         let dir = tempfile::tempdir().unwrap();
 
-        assert_eq!(state_of(dir.path()), DiffState::NotARepo);
+        assert_eq!(state_of(dir.path()).unwrap(), DiffState::NotARepo);
     }
 
     #[test]
@@ -263,7 +328,10 @@ mod tests {
         let dir = repo();
         commit(dir.path(), "README.md", "hello\n");
 
-        assert!(matches!(state_of(dir.path()), DiffState::Clean { .. }));
+        assert!(matches!(
+            state_of(dir.path()).unwrap(),
+            DiffState::Clean { .. }
+        ));
     }
 
     #[test]
@@ -272,7 +340,7 @@ mod tests {
         commit(dir.path(), "README.md", "hello\n");
         std::fs::write(dir.path().join("README.md"), "hello, again\n").unwrap();
 
-        let DiffState::Changed { files, .. } = state_of(dir.path()) else {
+        let DiffState::Changed { files, .. } = state_of(dir.path()).unwrap() else {
             panic!("a modified file is a change")
         };
         assert_eq!(files.len(), 1);
@@ -288,7 +356,7 @@ mod tests {
         commit(dir.path(), "README.md", "hello\n");
         std::fs::write(dir.path().join("new.rs"), "fn main() {}\n").unwrap();
 
-        let DiffState::Changed { files, .. } = state_of(dir.path()) else {
+        let DiffState::Changed { files, .. } = state_of(dir.path()).unwrap() else {
             panic!("a new file is a change")
         };
         assert_eq!(files[0].change, FileChange::Untracked);
@@ -301,7 +369,7 @@ mod tests {
         commit(dir.path(), "gone.txt", "here\n");
         std::fs::remove_file(dir.path().join("gone.txt")).unwrap();
 
-        let DiffState::Changed { files, .. } = state_of(dir.path()) else {
+        let DiffState::Changed { files, .. } = state_of(dir.path()).unwrap() else {
             panic!("a deletion is a change")
         };
         assert_eq!(files[0].change, FileChange::Deleted);
@@ -358,5 +426,49 @@ mod tests {
     fn a_line_too_short_to_be_a_status_is_skipped() {
         assert_eq!(parse_line(""), None);
         assert_eq!(parse_line(" M"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_porcelain_is_an_error_rather_than_clean() {
+        use std::os::unix::process::ExitStatusExt;
+        let output = std::process::Output {
+            status: std::process::ExitStatus::from_raw(128 << 8),
+            stdout: Vec::new(),
+            stderr: b"fatal: index file corrupt\n".to_vec(),
+        };
+
+        let error = interpret_porcelain(output, Some("main".into())).unwrap_err();
+        assert!(
+            error.to_string().contains("index file corrupt"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn a_path_outside_the_project_is_refused() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let secret =
+            std::env::temp_dir().join(format!("grokspace-jail-secret-{}", std::process::id()));
+        std::fs::write(&secret, "TOP SECRET\n").unwrap();
+
+        let result = of_file(dir.path(), secret.to_str().unwrap(), true);
+        let _ = std::fs::remove_file(&secret);
+        match result {
+            Ok(text) => {
+                assert!(
+                    !text.contains("TOP SECRET"),
+                    "an escaped path must not leak file contents"
+                );
+                panic!("a path outside the project must be refused");
+            }
+            Err(error) => assert!(error.to_string().contains("outside"), "got: {error}"),
+        }
+
+        assert!(
+            of_file(dir.path(), "../secret.txt", true).is_err(),
+            "a relative escape must be refused too"
+        );
     }
 }

@@ -22,6 +22,20 @@ function replaceInPane(sessions: Session[], next: Session): Session[] {
   ];
 }
 
+function permissionsFrom(sessions: Session[]): Record<string, PermissionRequest[]> {
+  const permissions: Record<string, PermissionRequest[]> = {};
+  for (const session of sessions) {
+    const pending = session.pendingPermissions;
+    if (pending !== undefined && pending.length > 0) {
+      permissions[session.id] = pending;
+    }
+  }
+  return permissions;
+}
+
+/** Drops in-flight `loadSessions` results that a newer project switch has replaced. */
+let loadGeneration = 0;
+
 interface StartInput {
   projectId: string;
   /** Absent for an agent, which runs beside the grid rather than in it. */
@@ -94,10 +108,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({ paneViews: { ...state.paneViews, [paneId]: view } })),
 
   loadSessions: async (projectId) => {
+    const generation = ++loadGeneration;
     // Pane state belongs to the project being left, not the one arriving.
     set({ isLoading: true, error: null, maximizedPane: null, paneViews: {} });
     try {
       const sessions = await api.listSessions(projectId);
+      if (generation !== loadGeneration) return;
       // Graphs of sessions that are not in the arriving list belong to a project
       // being left; nothing will ask for them again, and the watcher that fed them
       // is still running. Sessions that survive the load keep the graph they had,
@@ -106,9 +122,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for (const departing of get().sessions) {
         if (!arriving.has(departing.id)) useGraphStore.getState().forget(departing.id);
       }
-      set({ sessions, isLoading: false });
+      set({
+        sessions,
+        permissions: permissionsFrom(sessions),
+        isLoading: false,
+      });
     } catch (error) {
-      set({ error: errorMessage(error), isLoading: false });
+      if (generation !== loadGeneration) return;
+      for (const departing of get().sessions) {
+        useGraphStore.getState().forget(departing.id);
+      }
+      set({
+        error: errorMessage(error),
+        isLoading: false,
+        sessions: [],
+        permissions: {},
+      });
     }
   },
 
@@ -252,14 +281,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })),
 
   askPermission: (id, request) =>
-    set((state) => ({
-      permissions: {
-        ...state.permissions,
-        // Appended rather than replaced: an agent can be blocked on more than one,
-        // and each has its own id to answer.
-        [id]: [...(state.permissions[id] ?? []), request],
-      },
-    })),
+    set((state) => {
+      if (!state.sessions.some((session) => session.id === id)) return state;
+      return {
+        permissions: {
+          ...state.permissions,
+          // Appended rather than replaced: an agent can be blocked on more than one,
+          // and each has its own id to answer.
+          [id]: [...(state.permissions[id] ?? []), request],
+        },
+      };
+    }),
 
   answerPermission: async (id, requestId, allow) => {
     try {

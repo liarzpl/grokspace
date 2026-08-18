@@ -76,6 +76,21 @@ describe("loadMemory", () => {
     expect(useMemoryStore.getState().error).toBe("database is locked");
     expect(useMemoryStore.getState().isLoading).toBe(false);
   });
+
+  it("empties the previous project's memory when the load fails", async () => {
+    useMemoryStore.setState({
+      entries: [entry()],
+      filePath: "/p1/.grokspace/memory.md",
+    });
+    listMemory.mockRejectedValue("database is locked");
+    memoryFilePath.mockResolvedValue("");
+
+    await useMemoryStore.getState().loadMemory("p2");
+
+    const state = useMemoryStore.getState();
+    expect(state.entries).toEqual([]);
+    expect(state.filePath).toBe("");
+  });
 });
 
 describe("putEntry", () => {

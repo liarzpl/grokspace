@@ -126,8 +126,11 @@ export const api = {
     }),
 
   /** Hands the task to a session and moves it to `in_progress` together. */
-  dispatchTask: (id: string, sessionId: string): Promise<Task> =>
+  dispatchTask: (id: string, sessionId: string) =>
     invoke<Task>("dispatch_task", { id, sessionId }),
+
+  /** Undoes a dispatch: no session, back in the backlog. */
+  undispatchTask: (id: string): Promise<Task> => invoke<Task>("undispatch_task", { id }),
 
   removeTask: (id: string): Promise<void> => invoke<void>("remove_task", { id }),
 
