@@ -316,7 +316,9 @@ the first time a real release runs.
 
 GrokSpace targets macOS. The window is configured with
 `titleBarStyle: "Overlay"` and a hidden native title, so the traffic lights
-float over the in-app title bar.
+float over the in-app title bar. Moving the window is started from that bar
+(`data-tauri-drag-region` plus `core:window:allow-start-dragging`); without
+the permission the Overlay chrome cannot be dragged.
 
 It also builds and runs on Linux, which is useful for CI. Those two options are
 macOS-only, so on Linux you get the ordinary window decorations in addition to

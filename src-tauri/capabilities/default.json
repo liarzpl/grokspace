@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Permissions granted to the main GrokSpace window.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:allow-open"]
 }
