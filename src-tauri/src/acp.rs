@@ -185,10 +185,12 @@ fn parse_session_update(message: &Value) -> Option<AgentUpdate> {
 
 fn content_text(update: &Value) -> Option<String> {
     let content = update.get("content")?;
-    let text = content
-        .as_str()
-        .map(str::to_string)
-        .or_else(|| content.get("text").and_then(Value::as_str).map(str::to_string))?;
+    let text = content.as_str().map(str::to_string).or_else(|| {
+        content
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })?;
     let text = text.trim_end_matches('\0').to_string();
     (!text.is_empty()).then_some(text)
 }
