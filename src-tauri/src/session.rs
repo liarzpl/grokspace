@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, memory, program, project, steps, worktree, AppState};
+use crate::{acp, graph, memory, program, project, steps, task, worktree, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -526,10 +526,16 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
                 acp::AgentStatus::NeedsInput => SessionStatus::NeedsInput,
             };
             let state = status_app.state::<AppState>();
+            let mut reviewed_project = None;
             if let Ok(conn) = state.db.lock() {
                 // The exit code stays as it is: this is a change of what the agent
                 // is doing, not of whether its process is alive.
                 let _ = set_status(&conn, &status_id, status, None);
+                if status == SessionStatus::Idle {
+                    if let Ok(moved) = task::review_on_idle(&conn, &status_id) {
+                        reviewed_project = moved.first().map(|task| task.project_id.clone());
+                    }
+                }
             }
             let _ = status_app.emit(
                 STATUS_EVENT,
@@ -538,6 +544,9 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
                     status,
                 },
             );
+            if let Some(project_id) = reviewed_project {
+                let _ = status_app.emit(task::CHANGE_EVENT, task::TasksChanged { project_id });
+            }
         }),
         on_permission: Box::new(move |request| {
             let state = permission_app.state::<AppState>();
@@ -919,6 +928,55 @@ pub fn discard_session_worktree(state: State<'_, AppState>, id: String) -> Resul
     worktree::remove(Path::new(&project_path), Path::new(tree), true)?;
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
     set_worktree_path(&conn, &id, None)
+}
+
+/// Merges a stopped agent's worktree into the project branch.
+///
+/// Uncommitted files are committed on the session branch first: merging a
+/// branch that has not moved past the project's `HEAD` would bring nothing.
+/// Refused while the process is still running — the merge then removes the
+/// tree, which is that process's cwd. Refused when the project tree is dirty,
+/// so the agent's commit cannot land on top of uncommitted human work.
+#[tauri::command]
+pub fn merge_session_worktree(state: State<'_, AppState>, id: String) -> Result<Session> {
+    let (session, project_path) = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        let session = get(&conn, &id)?;
+        let project = project::get(&conn, &session.project_id)?;
+        (session, project.path)
+    };
+    if session.status != SessionStatus::Stopped {
+        return Err(Error::Invalid("stop the agent first".into()));
+    }
+    let Some(tree) = session.worktree_path.as_deref() else {
+        return Err(Error::Invalid("this session has no worktree".into()));
+    };
+    worktree::merge_into_project(
+        Path::new(&project_path),
+        Path::new(tree),
+        &merge_commit_message(&session),
+    )?;
+    worktree::remove(Path::new(&project_path), Path::new(tree), false)?;
+    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+    set_worktree_path(&conn, &id, None)
+}
+
+fn merge_commit_message(session: &Session) -> String {
+    let label = session
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .or_else(|| {
+            session
+                .role
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+        })
+        .unwrap_or("agent");
+    let label = label.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("GrokSpace: {label}")
 }
 
 enum WorktreeTeardown {

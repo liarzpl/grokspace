@@ -36,6 +36,12 @@ interface DiffStoreState {
 
   loadDiff: (projectId: string, sessionId?: string | null) => Promise<void>;
   selectFile: (projectId: string, file: ChangedFile) => Promise<void>;
+  /**
+   * Opens a path in this session's worktree: the Diff tab's file list if git
+   * sees it as changed, otherwise an untracked read so a committed artifact
+   * still has somewhere to land.
+   */
+  openPath: (projectId: string, sessionId: string, path: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -84,6 +90,25 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     } catch (error) {
       // The size ceiling lands here, and it is the kind of refusal worth reading, so
       // the selection stays and the reason goes on the banner.
+      set({ error: errorMessage(error), isLoadingBody: false });
+    }
+  },
+
+  openPath: async (projectId, sessionId, path) => {
+    await get().loadDiff(projectId, sessionId);
+    const { diff } = get();
+    if (diff.state === "changed") {
+      const file = diff.files.find((candidate) => candidate.path === path);
+      if (file !== undefined) {
+        await get().selectFile(projectId, file);
+        return;
+      }
+    }
+    set({ selected: path, body: "", isLoadingBody: true, error: null });
+    try {
+      const body = await api.fileDiff(projectId, path, true, sessionId);
+      set({ body, isLoadingBody: false });
+    } catch (error) {
       set({ error: errorMessage(error), isLoadingBody: false });
     }
   },

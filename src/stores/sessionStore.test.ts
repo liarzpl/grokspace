@@ -8,6 +8,7 @@ const stopSession = vi.fn();
 const restartSession = vi.fn();
 const renameSession = vi.fn();
 const closeSession = vi.fn();
+const mergeSessionWorktree = vi.fn();
 const discardSessionWorktree = vi.fn();
 const answerSessionPermission = vi.fn();
 const promptSession = vi.fn();
@@ -31,6 +32,7 @@ vi.mock("../lib/api", async () => {
       renameSession,
       closeSession,
       discardSessionWorktree,
+      mergeSessionWorktree,
       answerSessionPermission,
       promptSession,
       cancelSession,
@@ -688,6 +690,56 @@ describe("discardWorktree", () => {
     discardSessionWorktree.mockRejectedValue("stop the agent first");
 
     await useSessionStore.getState().discardWorktree("agent-1");
+
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
+    expect(useSessionStore.getState().error).toContain("stop the agent first");
+  });
+});
+
+describe("mergeWorktree", () => {
+  it("clears the path once the branch has landed on the project", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    mergeSessionWorktree.mockResolvedValue(
+      session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "stopped",
+        worktreePath: null,
+      }),
+    );
+
+    await useSessionStore.getState().mergeWorktree("agent-1");
+
+    expect(mergeSessionWorktree).toHaveBeenCalledWith("agent-1");
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
+  });
+
+  it("keeps the path when the backend refuses", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "running",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    mergeSessionWorktree.mockRejectedValue("stop the agent first");
+
+    await useSessionStore.getState().mergeWorktree("agent-1");
 
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
     expect(useSessionStore.getState().error).toContain("stop the agent first");

@@ -1,3 +1,4 @@
+import { isFileArtifact } from "../../lib/graphArtifact";
 import type { GraphNode } from "../../lib/graph";
 import { STATUS_META } from "./GraphNode";
 
@@ -19,14 +20,20 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
 export default function NodeInspector({
   node,
   onClose,
+  onOpenArtifact,
   compact = false,
 }: {
   node: GraphNode;
   onClose: () => void;
+  /** Opens a file artifact in the Diff panel. Directories are left as labels. */
+  onOpenArtifact?: (path: string) => void;
   /** Fills a floating container instead of claiming a column of its own. */
   compact?: boolean;
 }) {
   const status = STATUS_META[node.status];
+  const artifactPath = node.data.artifactPath;
+  const artifactOpens =
+    onOpenArtifact !== undefined && isFileArtifact(artifactPath);
 
   return (
     <aside
@@ -65,9 +72,25 @@ export default function NodeInspector({
         {node.data.worktree !== undefined && (
           <Field label="Worktree" value={node.data.worktree ? "yes" : "no"} />
         )}
-        {node.data.artifactPath !== undefined && (
-          <Field label="Artifact" value={node.data.artifactPath} mono />
-        )}
+        {artifactPath !== undefined &&
+          (artifactOpens ? (
+            <div>
+              <dt className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
+                Artifact
+              </dt>
+              <dd className="mt-0.5">
+                <button
+                  type="button"
+                  onClick={() => onOpenArtifact?.(artifactPath)}
+                  className="font-mono text-[11px] text-accent break-words text-left hover:underline"
+                >
+                  {artifactPath}
+                </button>
+              </dd>
+            </div>
+          ) : (
+            <Field label="Artifact" value={artifactPath} mono />
+          ))}
         <Field label="Node id" value={node.id} mono />
       </dl>
     </aside>

@@ -294,7 +294,10 @@ The tree is a clean `HEAD`. An agent does not see the human's uncommitted files.
 Graphs, steps, and memory stay under the project via absolute environment
 variables, which is why those paths were made absolute in the first place.
 
-Merge into the project branch, idle→review, and hunk→prompt are the second half.
+Merge commits leftover files on the session branch, then `git merge`s into the
+project. Idle review moves `in_progress` cards to `review` unless the step list
+is still `proposed` (the Approve gate). A selected hunk plus a sentence is a
+`session/prompt`. A graph file artifact opens in the Diff panel.
 
 ## Notes for later phases
 

@@ -127,6 +127,29 @@ describe("scope", () => {
   });
 });
 
+describe("openPath", () => {
+  it("selects a file git already reports as changed", async () => {
+    projectDiff.mockResolvedValue(changed([{ path: "src/auth.rs", change: "modified" }]));
+    fileDiff.mockResolvedValue("-old\n+new");
+
+    await useDiffStore.getState().openPath("p1", "agent-1", "src/auth.rs");
+
+    expect(projectDiff).toHaveBeenCalledWith("p1", "agent-1");
+    expect(fileDiff).toHaveBeenCalledWith("p1", "src/auth.rs", false, "agent-1");
+    expect(useDiffStore.getState().selected).toBe("src/auth.rs");
+  });
+
+  it("falls back to an untracked read when the path is not in the list", async () => {
+    projectDiff.mockResolvedValue(changed([{ path: "other.rs", change: "modified" }]));
+    fileDiff.mockResolvedValue("+fn main() {}");
+
+    await useDiffStore.getState().openPath("p1", "agent-1", "src/auth.rs");
+
+    expect(fileDiff).toHaveBeenCalledWith("p1", "src/auth.rs", true, "agent-1");
+    expect(useDiffStore.getState().body).toContain("fn main");
+  });
+});
+
 describe("changedCount", () => {
   it("counts only in the state that has files", () => {
     expect(changedCount(changed([{ path: "a", change: "modified" }]))).toBe(1);

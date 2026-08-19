@@ -98,6 +98,11 @@ interface SessionState {
    * a stuck Close button.
    */
   discardWorktree: (id: string) => Promise<void>;
+  /**
+   * Commits leftover files on a stopped agent's branch and merges that branch
+   * into the project. The tree is then removed, same as a successful Discard.
+   */
+  mergeWorktree: (id: string) => Promise<void>;
   markExited: (id: string, exitCode: number | null) => void;
   /** From the backend's status event, which only agents emit. */
   markStatus: (id: string, status: SessionStatus) => void;
@@ -306,6 +311,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   discardWorktree: async (id) => {
     try {
       const session = await api.discardSessionWorktree(id);
+      set((state) => ({
+        sessions: state.sessions.map((existing) =>
+          existing.id === id ? session : existing,
+        ),
+        error: null,
+      }));
+    } catch (error) {
+      set({ error: errorMessage(error) });
+    }
+  },
+
+  mergeWorktree: async (id) => {
+    try {
+      const session = await api.mergeSessionWorktree(id);
       set((state) => ({
         sessions: state.sessions.map((existing) =>
           existing.id === id ? session : existing,
