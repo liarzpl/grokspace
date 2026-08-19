@@ -469,7 +469,9 @@ function DispatchRow({
  */
 function SwarmLauncher({ project }: { project: Project }) {
   const launchSwarm = useSessionStore((state) => state.launchSwarm);
-  const sessions = useSessionStore((state) => state.sessions);
+  const sessions = useSessionStore((state) =>
+    sessionsForProject(state.sessions, project.id),
+  );
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState<readonly string[]>([]);
   const [launching, setLaunching] = useState(false);

@@ -70,6 +70,7 @@ pub fn run() {
             session::rename_session,
             session::close_session,
             session::prompt_session,
+            session::cancel_session,
             session::answer_session_permission,
             memory::list_memory,
             memory::put_memory,

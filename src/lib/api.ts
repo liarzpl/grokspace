@@ -92,6 +92,9 @@ export const api = {
   promptSession: (id: string, text: string): Promise<void> =>
     invoke<void>("prompt_session", { id, text }),
 
+  /** Interrupts the current turn of an `agent` without ending the session. */
+  cancelSession: (id: string): Promise<void> => invoke<void>("cancel_session", { id }),
+
   /** Answers what an agent is blocked on, which is what lets it carry on. */
   answerSessionPermission: (id: string, requestId: number, allow: boolean): Promise<void> =>
     invoke<void>("answer_session_permission", { id, requestId, allow }),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 import { api, errorMessage } from "../lib/api";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
@@ -9,6 +9,7 @@ import { useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useStepStore } from "../stores/stepStore";
+import AgentTranscript from "./AgentTranscript";
 import { useTaskStore } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
 import DiffPanel from "./DiffPanel";
@@ -91,6 +92,7 @@ function SessionChip({
   const entry = useGraphStore((state) => graphFor(state.bySession, session.id));
   const stopSession = useSessionStore((state) => state.stopSession);
   const closeSession = useSessionStore((state) => state.closeSession);
+  const cancelSession = useSessionStore((state) => state.cancelSession);
   const status = entry.graph?.status;
   const tone =
     entry.error !== null
@@ -127,6 +129,9 @@ function SessionChip({
       </button>
       {session.kind === "agent" && (
         <>
+          {session.status === "running" && (
+            <ChipButton label="Cancel" onClick={() => void cancelSession(session.id)} />
+          )}
           {session.status !== "stopped" && (
             <ChipButton label="Stop" onClick={() => void stopSession(session.id)} />
           )}
@@ -153,9 +158,11 @@ function ChipButton({ label, onClick }: { label: string; onClick: () => void }) 
  * Allow/Deny for agents that no task card owns. Swarm launches and palette-started
  * agents would otherwise sit on `needs_input` with no way to answer.
  */
-function OrphanedPermissionBanner() {
+function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
   const permissions = useSessionStore((state) => state.permissions);
-  const sessions = useSessionStore((state) => state.sessions);
+  const sessions = useSessionStore((state) =>
+    sessionsForProject(state.sessions, projectId),
+  );
   const tasks = useTaskStore((state) => state.tasks);
   const answerPermission = useSessionStore((state) => state.answerPermission);
   const orphaned = orphanedPermissions(
@@ -225,6 +232,7 @@ function GraphTab({
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <GraphVisualizer session={selected} />
+          {selected?.kind === "agent" && <AgentTranscript session={selected} />}
         </div>
         {selected !== undefined && selected.kind !== "shell" && (
           <aside className="flex w-72 shrink-0 flex-col overflow-hidden border-l border-line">
@@ -306,7 +314,10 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   const setTab = useUiStore((state) => state.setTab);
   const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // Layout rather than paint: `loadSessions` drops the previous project's
+    // sessions synchronously, so the first frame of the new project is empty
+    // panes rather than the last Grok TUI.
     void loadSessions(project.id);
   }, [project.id, loadSessions]);
 
@@ -379,12 +390,13 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         {tab === "memory" && <MemorySummary />}
       </header>
 
-      <OrphanedPermissionBanner />
+      <OrphanedPermissionBanner projectId={project.id} />
 
       {/*
-        Switching away unmounts the grid, which is safe: lib/terminals.ts holds
+        Switching tabs unmounts the grid, which is safe: lib/terminals.ts holds
         each xterm instance and its detached container outside React, so the ptys
-        keep running and the scrollback survives the remount.
+        keep running and the scrollback survives the remount. Switching projects
+        is a different path — pane ids are reused, so the host has to detach.
       */}
       {tab === "terminals" && <PaneGrid project={project} />}
       {tab === "graph" && (

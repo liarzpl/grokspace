@@ -96,8 +96,11 @@ export function acquireTerminal(sessionId: string): PaneTerminal {
 export function mountTerminal(sessionId: string, host: HTMLElement): PaneTerminal {
   const entry = acquireTerminal(sessionId);
   const moved = entry.container.parentElement !== host;
-  if (moved) {
-    host.appendChild(entry.container);
+  // One host, one session. Pane ids are reused across projects, so a leftover
+  // container from the project being left would otherwise stay visible under the
+  // arriving one.
+  if (moved || host.childElementCount !== 1) {
+    host.replaceChildren(entry.container);
   }
 
   if (!entry.opened) {
@@ -158,6 +161,14 @@ export function focusTerminal(sessionId: string): void {
 /** Writes a line of GrokSpace's own text into the pane, dimmed to stand apart. */
 export function writeNotice(sessionId: string, text: string): void {
   terminals.get(sessionId)?.term.writeln(`\r\n\x1b[2m${text}\x1b[0m`);
+}
+
+/**
+ * Takes the terminal out of the DOM without destroying it. The pty is still
+ * running, and attach() will replay into this instance when the pane comes back.
+ */
+export function detachTerminal(sessionId: string): void {
+  terminals.get(sessionId)?.container.remove();
 }
 
 export function disposeTerminal(sessionId: string): void {

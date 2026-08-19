@@ -2,8 +2,15 @@ import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
 import { briefPrompt, type Role } from "../lib/roles";
-import { disposeTerminal } from "../lib/terminals";
-import type { PermissionRequest, Session, SessionKind, SessionStatus } from "../types";
+import { detachTerminal, disposeTerminal } from "../lib/terminals";
+import { foldUpdate } from "../lib/transcript";
+import type {
+  AgentUpdate,
+  PermissionRequest,
+  Session,
+  SessionKind,
+  SessionStatus,
+} from "../types";
 import { useGraphStore } from "./graphStore";
 import { useStepStore } from "./stepStore";
 
@@ -66,6 +73,11 @@ interface SessionState {
    * any: a terminal has no way to ask.
    */
   permissions: Record<string, PermissionRequest[]>;
+  /**
+   * Visible ACP output, keyed by session. Survives a project switch so coming
+   * back does not blank a conversation that is still running.
+   */
+  transcript: Record<string, AgentUpdate[]>;
   isLoading: boolean;
   error: string | null;
 
@@ -86,6 +98,12 @@ interface SessionState {
   /** From the backend's permission event. */
   askPermission: (id: string, request: PermissionRequest) => void;
   answerPermission: (id: string, requestId: number, allow: boolean) => Promise<void>;
+  /** From the backend's `session-update` event. */
+  appendUpdate: (id: string, update: AgentUpdate) => void;
+  /** Sends a follow-up to an idle agent. */
+  promptSession: (id: string, text: string) => Promise<void>;
+  /** Interrupts the current turn without ending the session. */
+  cancelSession: (id: string) => Promise<void>;
   toggleMaximized: (paneId: string) => void;
   setPaneView: (paneId: string, view: PaneView) => void;
   clearError: () => void;
@@ -97,6 +115,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   paneViews: {},
   maximizedPane: null,
   permissions: {},
+  transcript: {},
   isLoading: false,
   error: null,
 
@@ -110,8 +129,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   loadSessions: async (projectId) => {
     const generation = ++loadGeneration;
-    // Pane state belongs to the project being left, not the one arriving.
-    set({ isLoading: true, error: null, maximizedPane: null, paneViews: {} });
+    const leaving = get().sessions;
+    // Pane ids are reused across projects. Until this fetch returns, the grid
+    // would keep drawing the previous project's terminals — including a Grok TUI
+    // that then sits on the wrong folder. Drop them now; a same-project reload
+    // must not, or overlapping graphs and live xterms go blank.
+    const switching = leaving.some((session) => session.projectId !== projectId);
+    set({
+      isLoading: true,
+      error: null,
+      maximizedPane: null,
+      paneViews: {},
+      ...(switching ? { sessions: [], permissions: {}, busyPanes: {} } : {}),
+    });
+    if (switching) {
+      for (const session of leaving) {
+        detachTerminal(session.id);
+        forgetSessionFiles(session.id);
+      }
+    }
     try {
       const sessions = await api.listSessions(projectId);
       if (generation !== loadGeneration) return;
@@ -123,11 +159,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for (const departing of get().sessions) {
         if (!arriving.has(departing.id)) forgetSessionFiles(departing.id);
       }
-      set({
+      set((state) => ({
         sessions,
         permissions: permissionsFrom(sessions),
         isLoading: false,
-      });
+        transcript: switching ? state.transcript : keepOnly(state.transcript, arriving),
+      }));
     } catch (error) {
       if (generation !== loadGeneration) return;
       for (const departing of get().sessions) {
@@ -223,6 +260,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           state.sessions.filter((existing) => existing.id !== id),
           session,
         ),
+        transcript: without(state.transcript, id),
       }));
       return session;
     } catch (error) {
@@ -252,6 +290,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set((state) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
+        transcript: without(state.transcript, id),
       }));
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -311,6 +350,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ error: errorMessage(error) });
     }
   },
+
+  appendUpdate: (id, update) =>
+    set((state) => ({
+      transcript: {
+        ...state.transcript,
+        [id]: foldUpdate(state.transcript[id] ?? [], update),
+      },
+    })),
+
+  promptSession: async (id, text) => {
+    const trimmed = text.trim();
+    if (trimmed === "") return;
+    try {
+      await api.promptSession(id, trimmed);
+      get().appendUpdate(id, { kind: "prompt", text: trimmed });
+    } catch (error) {
+      set({ error: errorMessage(error) });
+    }
+  },
+
+  cancelSession: async (id) => {
+    try {
+      await api.cancelSession(id);
+    } catch (error) {
+      set({ error: errorMessage(error) });
+    }
+  },
 }));
 
 /** A copy without one session's entry. */
@@ -318,6 +384,15 @@ function without<T>(bySession: Record<string, T>, id: string): Record<string, T>
   if (!(id in bySession)) return bySession;
   const next = { ...bySession };
   delete next[id];
+  return next;
+}
+
+/** Drops keys that are not in `ids`. Used when the same project is re-read. */
+function keepOnly<T>(bySession: Record<string, T>, ids: Set<string>): Record<string, T> {
+  const next: Record<string, T> = {};
+  for (const [id, value] of Object.entries(bySession)) {
+    if (ids.has(id)) next[id] = value;
+  }
   return next;
 }
 

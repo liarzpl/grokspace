@@ -15,7 +15,7 @@
 import { useMemoryStore } from "../stores/memoryStore";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
 import { useGraphStore } from "../stores/graphStore";
-import { sessionForPane, useSessionStore } from "../stores/sessionStore";
+import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
@@ -47,7 +47,7 @@ function firstFreePane(project: Project): string | undefined {
   const panes = Array.from({ length: paneCount(layoutOf(project)) }, (_, index) =>
     String(index),
   );
-  const sessions = useSessionStore.getState().sessions;
+  const sessions = sessionsForProject(useSessionStore.getState().sessions, project.id);
   return panes.find((paneId) => sessionForPane(sessions, paneId) === undefined);
 }
 
@@ -173,10 +173,21 @@ export function commands(project: Project | null): Command[] {
 
   // Agents have no pane, so Stop/Close are not on a terminal header. Terminals
   // already have those controls there; repeating them here would be a second Stop
-  // for the same session.
-  for (const session of useSessionStore.getState().sessions) {
+  // for the same session. Cancel interrupts the turn; Stop still kills the process.
+  for (const session of sessionsForProject(useSessionStore.getState().sessions, project.id)) {
     if (session.kind !== "agent") continue;
     const title = session.title ?? "Agent";
+    if (session.status === "running") {
+      list.push({
+        id: `cancel-agent-${session.id}`,
+        label: `Cancel ${title}`,
+        group: "Session",
+        run: () => {
+          useUiStore.getState().closePalette();
+          void useSessionStore.getState().cancelSession(session.id);
+        },
+      });
+    }
     if (session.status !== "stopped") {
       list.push({
         id: `stop-agent-${session.id}`,
@@ -199,7 +210,7 @@ export function commands(project: Project | null): Command[] {
     });
   }
 
-  for (const session of useSessionStore.getState().sessions) {
+  for (const session of sessionsForProject(useSessionStore.getState().sessions, project.id)) {
     const entry = stepsFor(useStepStore.getState().bySession, session.id);
     if (!canApproveSteps(session, entry.phase, entry.steps.length)) continue;
     const title = session.title ?? "Session";

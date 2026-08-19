@@ -137,14 +137,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         useStepStore.getState().forget(session.id);
       }
       await api.removeProject(id);
-      if (get().activeProjectId === id) {
-        useSessionStore.setState({
-          sessions: [],
-          permissions: {},
-          paneViews: {},
-          maximizedPane: null,
-        });
-      }
+      const forgotten = new Set(sessions.map((session) => session.id));
+      useSessionStore.setState((state) => ({
+        transcript: Object.fromEntries(
+          Object.entries(state.transcript).filter(([sessionId]) => !forgotten.has(sessionId)),
+        ),
+        ...(get().activeProjectId === id
+          ? { sessions: [], permissions: {}, paneViews: {}, maximizedPane: null }
+          : {}),
+      }));
       set((state) => {
         const projects = state.projects.filter((project) => project.id !== id);
         return {

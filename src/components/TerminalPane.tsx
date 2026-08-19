@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import {
   attachTerminal,
   clearTerminal,
+  detachTerminal,
   fitTerminal,
   focusTerminal,
   mountTerminal,
@@ -173,6 +174,9 @@ function TerminalSurface({ session }: { session: Session }) {
     return () => {
       window.clearTimeout(timer);
       observer.disconnect();
+      // Leave the instance in the registry so scrollback survives; just take it
+      // out of this host so the next project (same pane id) does not inherit it.
+      detachTerminal(session.id);
     };
   }, [session.id]);
 

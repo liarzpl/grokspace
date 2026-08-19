@@ -5,7 +5,7 @@ import type { Project, Session } from "../types";
 // Mocked wholesale for the reason the session store's tests give: the real module
 // pulls in xterm, and a command list has no business dragging a terminal emulator
 // into its tests.
-vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn() }));
+vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: vi.fn() }));
 
 const createSession = vi.fn();
 const updateProject = vi.fn();
@@ -114,7 +114,7 @@ describe("the command list", () => {
     expect(shown).not.toContain("Switch to acme-api");
   });
 
-  it("offers Stop and Close for a live agent, and not a second Stop for a terminal", () => {
+  it("offers Cancel and Stop for a live agent, and not a second Stop for a terminal", () => {
     useSessionStore.setState({
       sessions: [
         session({ id: "agent-1", paneId: null, kind: "agent", title: "Reviewer", status: "running" }),
@@ -124,10 +124,31 @@ describe("the command list", () => {
 
     const shown = labels(project());
 
+    expect(shown).toContain("Cancel Reviewer");
     expect(shown).toContain("Stop Reviewer");
     expect(shown).toContain("Close Reviewer");
     expect(shown).not.toContain("Stop Grok");
     expect(shown).not.toContain("Close Grok");
+  });
+
+  it("does not offer another project's agent while this one is open", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-2",
+          projectId: "p2",
+          paneId: null,
+          kind: "agent",
+          title: "Other",
+          status: "running",
+        }),
+      ],
+    });
+
+    const shown = labels(project());
+
+    expect(shown).not.toContain("Stop Other");
+    expect(shown).not.toContain("Cancel Other");
   });
 
   it("offers Approve when a session has a proposed list", () => {

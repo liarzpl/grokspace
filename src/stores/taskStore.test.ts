@@ -15,7 +15,7 @@ const createSession = vi.fn();
 // Mocked wholesale for the same reason sessionStore's tests do it: the real module
 // pulls in xterm and its stylesheet, and this store only reaches sessionStore to
 // find out whether a pane is running an agent.
-vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn() }));
+vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: vi.fn() }));
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");

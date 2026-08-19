@@ -74,6 +74,17 @@ export interface Session {
 }
 
 /**
+ * One visible thing an ACP agent said. `prompt` is GrokSpace's own, recorded
+ * when a follow-up is sent; the rest arrive as `session-update` events.
+ */
+export type AgentUpdateKind = "message" | "thought" | "tool" | "plan" | "prompt";
+
+export interface AgentUpdate {
+  kind: AgentUpdateKind;
+  text: string;
+}
+
+/**
  * One item on a session's working list. Distinct from a board `Task`: these are
  * the breakdown the agent proposes for this run, not cards you dispatch.
  */
