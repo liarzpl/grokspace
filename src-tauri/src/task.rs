@@ -252,12 +252,13 @@ pub fn review_assigned(conn: &Connection, session_id: &str) -> Result<Vec<Task>>
 /// The steps watcher and this callback share one db lock. The agent writes the
 /// file and then goes idle, so the file is often on disk while SQLite still
 /// says `none`. Fold it here before the phase check, or the gate is skipped.
+/// Same gate as watch-start: a proposed list may already be user-edited.
 pub fn review_on_idle(
     conn: &Connection,
     session_id: &str,
     project_path: &Path,
 ) -> Result<Vec<Task>> {
-    let _ = steps::ingest_from_disk(conn, project_path, session_id);
+    let _ = steps::ingest_if_none(conn, project_path, session_id);
     let phase = match steps::snapshot(conn, session_id) {
         Ok(snapshot) => snapshot.phase,
         Err(Error::SessionNotFound(_)) => return Ok(Vec::new()),
@@ -674,6 +675,43 @@ mod tests {
         assert!(review_on_idle(&conn, "nope", no_steps())
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn idle_review_does_not_restore_titles_the_user_already_deleted() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let project = project::upsert_by_path(
+            &conn,
+            dir.path().to_str().expect("utf-8 path"),
+            "idle-restore",
+        )
+        .unwrap();
+        let (session_id, task_id) = agent_on_a_task(&conn, &project.id);
+        crate::steps::ingest(
+            &conn,
+            &session_id,
+            r#"{"steps":[{"id":"a","title":"Keep me"},{"id":"b","title":"Delete me"}]}"#,
+        )
+        .unwrap();
+        crate::steps::remove(&conn, "b").unwrap();
+        let leftover = crate::steps::ensure_steps_dir(dir.path())
+            .unwrap()
+            .join(crate::steps::steps_file_name(&session_id));
+        std::fs::write(
+            &leftover,
+            r#"{"steps":[{"id":"a","title":"Keep me"},{"id":"b","title":"Delete me"}]}"#,
+        )
+        .unwrap();
+
+        let moved = review_on_idle(&conn, &session_id, dir.path()).unwrap();
+
+        assert!(moved.is_empty(), "a proposed list still holds the gate");
+        let snap = crate::steps::snapshot(&conn, &session_id).unwrap();
+        assert_eq!(snap.phase, crate::steps::StepsPhase::Proposed);
+        assert_eq!(snap.steps.len(), 1);
+        assert_eq!(snap.steps[0].title, "Keep me");
+        assert_eq!(get(&conn, &task_id).unwrap().status, TaskStatus::InProgress);
     }
 
     #[test]
