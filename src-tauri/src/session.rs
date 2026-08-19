@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, memory, program, project, steps, AppState};
+use crate::{acp, graph, memory, program, project, steps, worktree, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -209,6 +209,15 @@ pub fn insert(
         from_row,
     )?;
     Ok(session)
+}
+
+fn set_worktree_path(conn: &Connection, id: &str, path: Option<&Path>) -> Result<Session> {
+    let stored = path.map(|path| path.to_string_lossy().into_owned());
+    conn.execute(
+        "UPDATE sessions SET worktree_path = ?2, updated_at = ?3 WHERE id = ?1",
+        rusqlite::params![id, stored, now_ms()],
+    )?;
+    get(conn, id)
 }
 
 pub fn set_status(
@@ -581,6 +590,27 @@ struct StartRequest {
     role: Option<String>,
     cols: u16,
     rows: u16,
+    /// Set on Restart so a new row keeps the files the previous run wrote.
+    reuse_worktree: Option<PathBuf>,
+}
+
+/// A clean checkout for an ACP agent, when git will give us one.
+///
+/// Grok panes and shells stay on the project folder. Missing git, a folder that
+/// is not a repository, or a failed `worktree add` all fall through to that
+/// folder rather than refusing to start.
+fn isolate_agent(
+    request: &StartRequest,
+    session: &Session,
+    project_path: &Path,
+) -> Option<PathBuf> {
+    if request.kind != SessionKind::Agent {
+        return None;
+    }
+    if let Some(existing) = request.reuse_worktree.as_ref().filter(|path| path.is_dir()) {
+        return Some(existing.clone());
+    }
+    worktree::add(project_path, &session.id)
 }
 
 /// Creates the row first and spawns second. The other order races: a child that
@@ -589,13 +619,14 @@ struct StartRequest {
 fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) -> Result<Session> {
     let launch = command_for(request.kind)?;
 
-    let (session, cwd, remembered) = {
+    let (session, project_path, remembered) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
         let project = project::get(&conn, &request.project_id)?;
         // A role makes a better title than the kind does: five agents all called
         // "Agent" are five things nobody can tell apart.
         let title = request
             .title
+            .clone()
             .or_else(|| request.role.clone())
             .unwrap_or_else(|| request.kind.default_title().to_string());
         (
@@ -612,14 +643,31 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
         )
     };
 
-    let cwd = PathBuf::from(cwd);
+    let project_path = PathBuf::from(project_path);
+    let worktree = isolate_agent(&request, &session, &project_path);
+    if let Some(ref path) = worktree {
+        // Best-effort: a row without the path still starts, and Diff simply
+        // will not offer this session as a scope.
+        if let Ok(conn) = state.db.lock() {
+            let _ = set_worktree_path(&conn, &session.id, Some(path));
+        }
+    }
+
     // Deliberately after the lock is dropped, since this writes a file and every
     // command queues on the one connection. Written even when the memory is empty:
     // the session is about to be told to read this path, and a file saying there is
-    // nothing to know is friendlier than one that is missing.
-    let _ = memory::write_projection(&cwd, &remembered);
-    let mut env = session_env(&cwd, &session.id);
+    // nothing to know is friendlier than one that is missing. Always the project
+    // folder, not the worktree: memory is shared.
+    let _ = memory::write_projection(&project_path, &remembered);
+    let mut env = session_env(&project_path, &session.id);
     env.extend(role_env(session.role.as_deref()));
+    if let Some(ref path) = worktree {
+        env.push((
+            "GROKSPACE_WORKTREE".to_string(),
+            path.to_string_lossy().into_owned(),
+        ));
+    }
+    let cwd = worktree.clone().unwrap_or_else(|| project_path.clone());
     // An agent is told where its graph belongs the same way a terminal is, which is
     // what lets the Graph tab draw a plan for a session that has no pane.
     let spawned = match launch {
@@ -670,7 +718,13 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
         }
         Err(error) => {
             // Nothing was started, so leave no orphan row behind for a pane
-            // that is about to go back to being empty.
+            // that is about to go back to being empty. A worktree created for
+            // this attempt would otherwise sit registered until git prune.
+            if request.reuse_worktree.is_none() {
+                if let Some(ref path) = worktree {
+                    let _ = worktree::remove(&project_path, path, true);
+                }
+            }
             if let Ok(conn) = state.db.lock() {
                 let _ = delete(&conn, &session.id);
             }
@@ -720,6 +774,7 @@ pub fn create_session(
             role: session.role,
             cols: session.cols,
             rows: session.rows,
+            reuse_worktree: None,
         },
     )
 }
@@ -807,7 +862,7 @@ pub fn restart_session(
         get(&conn, &id)?
     };
 
-    close(&state, &id)?;
+    close_with(&state, &id, WorktreeTeardown::Keep)?;
 
     start(
         &app,
@@ -824,6 +879,7 @@ pub fn restart_session(
             role: previous.role,
             cols,
             rows,
+            reuse_worktree: previous.worktree_path.map(PathBuf::from),
         },
     )
 }
@@ -841,11 +897,76 @@ pub fn close_session(state: State<'_, AppState>, id: String) -> Result<()> {
     close(&state, &id)
 }
 
+/// Throws away a stopped agent's worktree so Close can proceed.
+///
+/// Refused while the process is still running: deleting its cwd from under it is
+/// not a teardown, it is a crash. Refused when there is no worktree, so the
+/// button is not a silent no-op.
+#[tauri::command]
+pub fn discard_session_worktree(state: State<'_, AppState>, id: String) -> Result<Session> {
+    let (session, project_path) = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        let session = get(&conn, &id)?;
+        let project = project::get(&conn, &session.project_id)?;
+        (session, project.path)
+    };
+    if session.status != SessionStatus::Stopped {
+        return Err(Error::Invalid("stop the agent first".into()));
+    }
+    let Some(tree) = session.worktree_path.as_deref() else {
+        return Err(Error::Invalid("this session has no worktree".into()));
+    };
+    worktree::remove(Path::new(&project_path), Path::new(tree), true)?;
+    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+    set_worktree_path(&conn, &id, None)
+}
+
+enum WorktreeTeardown {
+    /// `git worktree remove` without `--force`. Dirty trees refuse Close.
+    Remove,
+    /// Forget-project: the folder is leaving the sidebar, so leftovers must go.
+    Force,
+    /// Restart: the next row will keep these files.
+    Keep,
+}
+
 /// Ends the session, kills its process, and drops its graph file.
 ///
-/// `remove_project` calls this for every session it is about to forget, so a
-/// project leaving the sidebar cannot leave `grok` running behind it.
+/// `remove_project` calls `close_forgetting` for every session it is about to
+/// forget, so a project leaving the sidebar cannot leave `grok` running behind
+/// it, or a worktree registered after it is gone.
 pub(crate) fn close(state: &crate::AppState, id: &str) -> Result<()> {
+    close_with(state, id, WorktreeTeardown::Remove)
+}
+
+pub(crate) fn close_forgetting(state: &crate::AppState, id: &str) -> Result<()> {
+    close_with(state, id, WorktreeTeardown::Force)
+}
+
+fn close_with(state: &crate::AppState, id: &str, teardown: WorktreeTeardown) -> Result<()> {
+    let snapshot = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        let session = get(&conn, id).ok();
+        let project_path = session
+            .as_ref()
+            .and_then(|session| project::get(&conn, &session.project_id).ok())
+            .map(|project| project.path);
+        (session, project_path)
+    };
+
+    // Dirty check before kill: Close must not eat a live agent's files, and must
+    // not kill it only to then refuse.
+    if matches!(teardown, WorktreeTeardown::Remove) {
+        if let (Some(session), Some(project_path)) = (&snapshot.0, &snapshot.1) {
+            if let Some(tree) = session.worktree_path.as_deref() {
+                let tree = Path::new(tree);
+                if worktree::is_dirty(tree)? {
+                    return worktree::remove(Path::new(project_path), tree, false);
+                }
+            }
+        }
+    }
+
     // Both are asked without checking which kind this is: whichever manager does
     // not hold the session says so and nothing happens, which is cheaper than
     // reading the row back to find out.
@@ -854,16 +975,22 @@ pub(crate) fn close(state: &crate::AppState, id: &str) -> Result<()> {
     let _ = state.pty.kill(id);
     state.pty.remove(id);
 
-    // The project path is read while the row is still there, since the session is
-    // the only way back to the folder that holds its graph.
+    if let (Some(session), Some(project_path)) = (&snapshot.0, &snapshot.1) {
+        if let Some(tree) = session.worktree_path.as_deref() {
+            let tree = Path::new(tree);
+            match teardown {
+                WorktreeTeardown::Remove | WorktreeTeardown::Force => {
+                    let force = matches!(teardown, WorktreeTeardown::Force);
+                    let _ = worktree::remove(Path::new(project_path), tree, force);
+                }
+                WorktreeTeardown::Keep => {}
+            }
+        }
+    }
+
     let project_path = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-        let path = get(&conn, id)
-            .ok()
-            .and_then(|session| project::get(&conn, &session.project_id).ok())
-            .map(|project| project.path);
-        // A row that would not delete means the session is still here, and so is
-        // its graph.
+        let path = snapshot.1.clone();
         delete(&conn, id)?;
         path
     };
@@ -1327,5 +1454,63 @@ mod tests {
         assert!(list(&conn, &project_id).unwrap()[0]
             .pending_permissions
             .is_empty());
+    }
+
+    #[test]
+    fn a_worktree_path_is_remembered_and_can_be_cleared() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        assert_eq!(session.worktree_path, None);
+
+        let stored = set_worktree_path(
+            &conn,
+            &session.id,
+            Some(Path::new("/tmp/acme/.grokspace/worktrees/s1")),
+        )
+        .unwrap();
+        assert_eq!(
+            stored.worktree_path.as_deref(),
+            Some("/tmp/acme/.grokspace/worktrees/s1")
+        );
+
+        let cleared = set_worktree_path(&conn, &session.id, None).unwrap();
+        assert_eq!(cleared.worktree_path, None);
+    }
+
+    #[test]
+    fn session_env_does_not_claim_a_worktree() {
+        // GROKSPACE_WORKTREE is added at spawn, and only when isolate_agent found
+        // one. Putting it in session_env would lie for every grok pane and shell.
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let env = session_env(dir.path(), "session-42");
+        assert!(
+            env.iter().all(|(name, _)| name != "GROKSPACE_WORKTREE"),
+            "session_env should leave GROKSPACE_WORKTREE to start()"
+        );
+    }
+
+    #[test]
+    fn isolate_agent_leaves_grok_panes_on_the_project() {
+        let (conn, project_id) = fixture();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        let request = StartRequest {
+            project_id,
+            pane_id: Some("0".into()),
+            kind: SessionKind::Grok,
+            title: None,
+            role: None,
+            cols: 80,
+            rows: 24,
+            reuse_worktree: None,
+        };
+        assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
     }
 }

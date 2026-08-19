@@ -34,12 +34,14 @@ Every session — Grok or shell — is spawned with these:
 | Variable | Value |
 | --- | --- |
 | `GROKSPACE_SESSION_ID` | The session's id, which is also its graph's file name |
-| `GROKSPACE_PROJECT_DIR` | The project folder, which is also the session's cwd |
+| `GROKSPACE_PROJECT_DIR` | The project folder. This is the session's cwd for a Grok pane or a shell; an ACP agent that isolated has cwd in its worktree instead. |
 | `GROKSPACE_GRAPH_DIR` | The directory the graph belongs in |
 | `GROKSPACE_GRAPH_FILE` | The absolute path to write |
+| `GROKSPACE_WORKTREE` | Set only when the session isolated; the agent's checkout |
 
 `GROKSPACE_GRAPH_FILE` is absolute on purpose: an agent that moves into a git
-worktree still reports into the graph its pane is drawing.
+worktree still reports into the graph its pane is drawing. `GROKSPACE_PROJECT_DIR`
+is the project even then, so memory, steps, and skills stay shared.
 
 ## How the panel stays live
 

@@ -199,6 +199,30 @@ export function commands(project: Project | null): Command[] {
         },
       });
     }
+    if (session.status === "stopped") {
+      list.push({
+        id: `restart-agent-${session.id}`,
+        label: `Restart ${title}`,
+        group: "Session",
+        run: () => {
+          useUiStore.getState().closePalette();
+          void useSessionStore
+            .getState()
+            .restartSession(session.id, FALLBACK_SIZE.cols, FALLBACK_SIZE.rows);
+        },
+      });
+      if (session.worktreePath !== null) {
+        list.push({
+          id: `discard-agent-${session.id}`,
+          label: `Discard worktree for ${title}`,
+          group: "Session",
+          run: () => {
+            useUiStore.getState().closePalette();
+            void useSessionStore.getState().discardWorktree(session.id);
+          },
+        });
+      }
+    }
     list.push({
       id: `close-agent-${session.id}`,
       label: `Close ${title}`,

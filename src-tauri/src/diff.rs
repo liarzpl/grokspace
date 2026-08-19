@@ -1,13 +1,13 @@
 //! What the agents have changed, read out of git.
 //!
-//! Read-only on purpose. Staging, committing and reverting are decisions about a
-//! repository, and undoing an agent's work is not something this app should own
-//! before it can show that work clearly.
+//! Read-only on purpose, with one exception: Discard on a stopped session's
+//! worktree. Staging, committing and merging are decisions about a repository,
+//! and this half of Phase 5 only makes those decisions possible to take later
+//! by showing the right tree.
 //!
-//! The diff is the project's, not one session's. Per-session attribution would need
-//! each agent in its own git worktree, which is why `sessions.worktree_path` is still
-//! reserved — see `docs/grok-cli-integration.md` for why that is a phase rather than
-//! polish.
+//! The default view is the project's. An ACP agent that got a worktree can be
+//! selected so the panel reads *that* checkout — which is why
+//! `sessions.worktree_path` is written at last.
 //!
 //! GrokSpace shells out to `git` rather than linking libgit2: it already spawns `grok`
 //! and the user's shell, so a third is consistent, and a diff is text a command prints.
@@ -19,7 +19,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::error::{Error, Result};
-use crate::{program, project, AppState};
+use crate::{program, project, session, AppState};
 
 /// The most diff to carry across the IPC boundary for one file.
 ///
@@ -257,17 +257,39 @@ pub fn of_file(project_path: &Path, path: &str, untracked: bool) -> Result<Strin
     Ok(text.into_owned())
 }
 
-fn project_path(state: &State<'_, AppState>, project_id: &str) -> Result<String> {
+/// The folder `git status` should run in: a session's worktree, or the project.
+fn diff_root(
+    state: &State<'_, AppState>,
+    project_id: &str,
+    session_id: Option<&str>,
+) -> Result<PathBuf> {
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    Ok(project::get(&conn, project_id)?.path)
+    let project = project::get(&conn, project_id)?;
+    let Some(session_id) = session_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok(PathBuf::from(project.path));
+    };
+    let chosen = session::get(&conn, session_id)?;
+    if chosen.project_id != project.id {
+        return Err(Error::Invalid(
+            "that session does not belong to this project".into(),
+        ));
+    }
+    chosen
+        .worktree_path
+        .map(PathBuf::from)
+        .ok_or_else(|| Error::Invalid("this session has no worktree".into()))
 }
 
 #[tauri::command]
-pub fn project_diff(state: State<'_, AppState>, project_id: String) -> Result<DiffState> {
+pub fn project_diff(
+    state: State<'_, AppState>,
+    project_id: String,
+    session_id: Option<String>,
+) -> Result<DiffState> {
     // The path is read under the lock and git is run after it: spawning a process is
     // slower than any query, and every command shares the one connection.
-    let path = project_path(&state, &project_id)?;
-    state_of(Path::new(&path))
+    let path = diff_root(&state, &project_id, session_id.as_deref())?;
+    state_of(&path)
 }
 
 #[tauri::command]
@@ -276,9 +298,10 @@ pub fn file_diff(
     project_id: String,
     path: String,
     untracked: bool,
+    session_id: Option<String>,
 ) -> Result<String> {
-    let root = project_path(&state, &project_id)?;
-    of_file(Path::new(&root), &path, untracked)
+    let root = diff_root(&state, &project_id, session_id.as_deref())?;
+    of_file(&root, &path, untracked)
 }
 
 #[cfg(test)]
@@ -469,6 +492,36 @@ mod tests {
         assert!(
             of_file(dir.path(), "../secret.txt", true).is_err(),
             "a relative escape must be refused too"
+        );
+    }
+
+    #[test]
+    fn a_worktree_status_does_not_include_the_project_tree() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let tree = crate::worktree::add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .expect("a real repo should isolate");
+        std::fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
+        std::fs::write(dir.path().join("human.rs"), "on the project\n").unwrap();
+
+        let DiffState::Changed { files, .. } = state_of(&tree).unwrap() else {
+            panic!("the agent's file is a change")
+        };
+        assert!(
+            files.iter().any(|file| file.path == "agent.rs"),
+            "got {files:?}"
+        );
+        assert!(
+            files.iter().all(|file| file.path != "human.rs"),
+            "the project's dirty file must not leak into the worktree status, got {files:?}"
+        );
+
+        let DiffState::Changed { files, .. } = state_of(dir.path()).unwrap() else {
+            panic!("the project's file is a change")
+        };
+        assert!(
+            files.iter().all(|file| file.path != "agent.rs"),
+            "the agent's file must not leak into the project status, got {files:?}"
         );
     }
 }

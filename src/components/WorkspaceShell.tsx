@@ -93,6 +93,8 @@ function SessionChip({
   const stopSession = useSessionStore((state) => state.stopSession);
   const closeSession = useSessionStore((state) => state.closeSession);
   const cancelSession = useSessionStore((state) => state.cancelSession);
+  const restartSession = useSessionStore((state) => state.restartSession);
+  const discardWorktree = useSessionStore((state) => state.discardWorktree);
   const status = entry.graph?.status;
   const tone =
     entry.error !== null
@@ -134,6 +136,15 @@ function SessionChip({
           )}
           {session.status !== "stopped" && (
             <ChipButton label="Stop" onClick={() => void stopSession(session.id)} />
+          )}
+          {session.status === "stopped" && (
+            <ChipButton
+              label="Restart"
+              onClick={() => void restartSession(session.id, 80, 24)}
+            />
+          )}
+          {session.status === "stopped" && session.worktreePath !== null && (
+            <ChipButton label="Discard" onClick={() => void discardWorktree(session.id)} />
           )}
           <ChipButton label="Close" onClick={() => void closeSession(session.id)} />
         </>

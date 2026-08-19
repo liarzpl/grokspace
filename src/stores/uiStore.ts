@@ -50,6 +50,16 @@ export const useUiStore = create<UiState>((set) => ({
   setTab: (tab) => set({ tab, isPaletteOpen: false }),
   openSettings: () => set({ isSettingsOpen: true, isPaletteOpen: false }),
   closeSettings: () => set({ isSettingsOpen: false }),
-  togglePalette: () => set((state) => ({ isPaletteOpen: !state.isPaletteOpen })),
+  togglePalette: () =>
+    set((state) => {
+      const isPaletteOpen = !state.isPaletteOpen;
+      // Settings and the palette share a z-index. Opening one on top of the other
+      // would leave both claiming the screen; closing settings here is the same
+      // courtesy openSettings already pays the palette.
+      return {
+        isPaletteOpen,
+        isSettingsOpen: isPaletteOpen ? false : state.isSettingsOpen,
+      };
+    }),
   closePalette: () => set({ isPaletteOpen: false }),
 }));

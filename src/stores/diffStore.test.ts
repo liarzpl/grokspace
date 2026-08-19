@@ -74,7 +74,7 @@ describe("selectFile", () => {
 
     await useDiffStore.getState().selectFile("p1", { path: "README.md", change: "modified" });
 
-    expect(fileDiff).toHaveBeenCalledWith("p1", "README.md", false);
+    expect(fileDiff).toHaveBeenCalledWith("p1", "README.md", false, null);
     expect(useDiffStore.getState().body).toContain("+goodbye");
   });
 
@@ -85,7 +85,7 @@ describe("selectFile", () => {
 
     await useDiffStore.getState().selectFile("p1", { path: "new.rs", change: "untracked" });
 
-    expect(fileDiff).toHaveBeenCalledWith("p1", "new.rs", true);
+    expect(fileDiff).toHaveBeenCalledWith("p1", "new.rs", true, null);
   });
 
   it("keeps the file selected when its diff is refused", async () => {
@@ -98,6 +98,32 @@ describe("selectFile", () => {
     expect(useDiffStore.getState().selected).toBe("lock.json");
     expect(useDiffStore.getState().error).toContain("524288");
     expect(useDiffStore.getState().isLoadingBody).toBe(false);
+  });
+});
+
+describe("scope", () => {
+  it("passes the session id through to both reads", async () => {
+    projectDiff.mockResolvedValue({ state: "clean", branch: "grokspace/aaaaaaaa" });
+    fileDiff.mockResolvedValue("+fn main() {}");
+
+    await useDiffStore.getState().loadDiff("p1", "agent-1");
+
+    expect(projectDiff).toHaveBeenCalledWith("p1", "agent-1");
+    expect(useDiffStore.getState().scope).toBe("agent-1");
+
+    await useDiffStore.getState().selectFile("p1", { path: "agent.rs", change: "untracked" });
+
+    expect(fileDiff).toHaveBeenCalledWith("p1", "agent.rs", true, "agent-1");
+  });
+
+  it("drops a previous scope when loading the project tree", async () => {
+    useDiffStore.setState({ scope: "agent-1" });
+    projectDiff.mockResolvedValue({ state: "clean", branch: "main" });
+
+    await useDiffStore.getState().loadDiff("p1");
+
+    expect(projectDiff).toHaveBeenCalledWith("p1", null);
+    expect(useDiffStore.getState().scope).toBeNull();
   });
 });
 

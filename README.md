@@ -10,11 +10,14 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 4 in progress.** Projects, a multi-pane terminal grid, a live graph
+> **Status: Phase 5 in progress.** Projects, a multi-pane terminal grid, a live graph
 > per session, a task board that hands work to an agent, agents driven over ACP that
-> report what they are doing, a project memory every session reads, role presets that
-> can be launched as a swarm, a command palette, settings, and a diff panel. What
-> remains of Phase 4 is the signed release — see [Roadmap](#roadmap).
+> report what they are doing (including a transcript of what they say), a project
+> memory every session reads, role presets that can be launched as a swarm, a
+> command palette, settings, a diff panel, and per-agent git worktrees so that
+> panel can show one session's changes. What remains of Phase 4 is the signed
+> release; what remains of Phase 5 is merging a worktree back into the project —
+> see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -33,8 +36,10 @@ telemetry; workspace state lives in `~/.grokspace`.
 - **Agents that report themselves** — a session can be a Grok agent driven over
   ACP instead of a terminal. It holds no pane, and in exchange it says whether it
   is `running`, `idle`, or `needs_input`; a permission it is blocked on appears on
-  the card of the task it concerns, with Allow and Deny. A terminal can only ever
-  report `running` or `stopped`, because a pty carries pixels.
+  the card of the task it concerns, with Allow and Deny. Its words, thoughts, tools,
+  and plans surface as a transcript on the Graph tab and the Tasks rail, with
+  Cancel while it is working and a follow-up field while it is idle. A terminal can
+  only ever report `running` or `stopped`, because a pty carries pixels.
 - **Live graphs, one per session** — every session has its own graph file, and
   the panel redraws the moment an agent writes to it. Watch a plan from the Graph
   tab, or flip a single pane from `term` to `graph` and keep working in the
@@ -44,6 +49,9 @@ telemetry; workspace state lives in `~/.grokspace`.
   moved with the arrows on the card, and each card can be handed to an agent:
   one already running, a fresh terminal in a free pane, or a new ACP agent, which
   needs no pane at all. Dispatching records which session took the task.
+- **Session steps** — each Grok or agent session can propose a short working list
+  beside the board. Approve locks the titles; completing steps does not move the
+  Kanban card.
 - **Shared project memory** — one memory per project, in the columns `context`,
   `decisions`, `notes`, and `artifacts`. It is projected into a Markdown file every
   session is told to read, so what you would otherwise repeat to each agent gets
@@ -63,11 +71,18 @@ telemetry; workspace state lives in `~/.grokspace`.
   build knows. The dispatch preference reorders what is offered and never picks a
   target: a setting that chose for you would be one that sends work somewhere nobody
   looked.
-- **A diff panel** — what the agents have changed, read out of `git`. Modified, new,
-  deleted and renamed files, with each file's diff against `HEAD`; a file git has never
-  seen is shown as all additions rather than skipped. Read-only, because undoing an
-  agent's work is not something this app should own before it can show that work
-  clearly.
+- **A diff panel** — what changed, read out of `git`. The default view is the
+  project's tree. An ACP agent that isolated into a worktree appears as a chip, and
+  picking it reads that checkout. Modified, new, deleted and renamed files, with each
+  file's diff against `HEAD`; a file git has never seen is shown as all additions
+  rather than skipped. Read-only except Discard, which throws away a stopped agent's
+  worktree so Close can proceed.
+- **Per-agent worktrees** — an ACP agent starts in a clean checkout of `HEAD` at
+  `<project>/.grokspace/worktrees/<session-id>/`, on a branch named
+  `grokspace/<short-id>`. Grok panes and shells stay on the project folder. Graphs,
+  steps, and memory still live under the project, via absolute environment variables.
+  Close refuses while that tree is dirty; Discard force-removes it. Merge into the
+  project branch is not this half.
 - **Local persistence** — projects, sessions, tasks, memory, and settings live in
   SQLite at `~/.grokspace/grokspace.db`.
 
@@ -124,9 +139,11 @@ Tauri needs to compile on Linux.
 src/
   components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState, PaneGrid,
                   TerminalPane, GraphVisualizer, TaskBoard, MemoryPanel,
-                  CommandPalette, SettingsPanel, DiffPanel, graph/
+                  CommandPalette, SettingsPanel, DiffPanel, AgentTranscript,
+                  SessionSteps, graph/
   stores/         Zustand stores (projectStore, sessionStore, graphStore,
-                  taskStore, memoryStore, settingsStore, diffStore, uiStore)
+                  taskStore, memoryStore, settingsStore, diffStore, stepStore,
+                  uiStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
                   the graph document parser, the role presets, the shortcut
                   table, the palette's commands, the dispatch targets, and
@@ -151,7 +168,9 @@ src-tauri/
     memory.rs     Shared project memory, and the file agents read it from
     skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
-    diff.rs       What the agents changed, read out of git; no Tauri needed to test
+    steps.rs      Session steps: watch, ingest, approve
+    worktree.rs   Git worktrees for ACP agents; no Tauri needed to test
+    diff.rs       What changed, read out of git, optionally in one session's tree
     settings.rs   App preferences: key-value in SQLite, typed on the way out
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
@@ -205,7 +224,8 @@ written to falls back to `~/.grokspace/graphs/`.
 
 Every session is spawned knowing where its graph belongs, through
 `GROKSPACE_GRAPH_FILE` (absolute, so a worktree does not change the answer),
-`GROKSPACE_GRAPH_DIR`, `GROKSPACE_SESSION_ID`, and `GROKSPACE_PROJECT_DIR`.
+`GROKSPACE_GRAPH_DIR`, `GROKSPACE_SESSION_ID`, `GROKSPACE_PROJECT_DIR`, and —
+when the session isolated — `GROKSPACE_WORKTREE`.
 [`src-tauri/src/graph.rs`](src-tauri/src/graph.rs) watches those directories and
 reports which session's file moved; the panel re-reads that one file, which is
 what makes the graphs live rather than a snapshot.
@@ -257,6 +277,40 @@ under it automatically. It is not used, for a reason recorded in
 that `.gitignore` ignores, so the file would either land in the user's git history
 or be silently ignored.
 
+### How worktrees work
+
+An ACP agent writes in its own checkout so its diff is its own. Grok panes and
+shells stay on the project folder — that is the tree a person is looking at.
+
+```
+<project>/.grokspace/worktrees/<session-id>/
+```
+
+The tree is a clean checkout of `HEAD` on a branch named `grokspace/<short-id>`.
+The agent does not see uncommitted files on the project tree; that is the point.
+Walk-up from the worktree still finds the project's `AGENTS.md` and `.grok`.
+Putting trees under `~/.grokspace` would not.
+
+GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
+every extra flag is a way for a session to fail to start, which is the same
+reason graphs, memory, and roles stay out of flags. Missing git, a folder that
+is not a repository, or a failed `worktree add` all mean the agent starts in the
+project folder with no `worktree_path`, rather than refusing to start.
+
+`GROKSPACE_PROJECT_DIR`, `GROKSPACE_GRAPH_FILE`, `GROKSPACE_STEPS_FILE`, and
+`GROKSPACE_MEMORY_FILE` stay pointed at the **project**. `GROKSPACE_WORKTREE` is
+set only when a tree exists. Process cwd (and ACP `session/new` cwd) is the
+worktree.
+
+Stop keeps the tree so the Diff panel can still read it. Close runs
+`git worktree remove` without `--force` and refuses while the tree is dirty.
+Discard, on a stopped session only, force-removes it. Restart mints a new session
+id but reuses the directory, so uncommitted files survive. Forgetting a project
+force-removes every leftover tree so git is not left with registered worktrees
+for a folder the sidebar no longer knows.
+
+Merge into the project branch is the second half of this phase.
+
 ### Database
 
 State lives in `~/.grokspace/grokspace.db` rather than the platform app-data
@@ -281,9 +335,9 @@ setting, which is the same lesson read backwards: a shape decided now is a shape
 later phase has to migrate, so the typed surface lives in Rust where changing it is
 free.
 
-`sessions.worktree_path` is the one reserved column still unwritten. Filling it means
-giving each agent its own git worktree, which is what per-session diff attribution
-would need — a phase of its own rather than polish.
+`sessions.worktree_path` was reserved in `0001` and is written when an ACP agent
+isolates. No new migration: filling a nullable column that already exists is what
+the reservation was for.
 
 ## Roadmap
 
@@ -302,7 +356,15 @@ would need — a phase of its own rather than polish.
 - **Phase 4 — Polish and distribution.** A command palette, a diff panel, settings,
   and a notarized `.dmg`. The first three are done. The release pipeline is written but
   cannot be proven from here: signing and notarizing need Apple Developer credentials
-  and a macOS runner, so the first tagged build is what verifies it.
+  and a macOS runner, so the first tagged build is what verifies it. Tracked on
+  [issue #8](https://github.com/liarzpl/grokspace/issues/8) with the other things that
+  need a Mac and a licensed `grok`.
+- **Phase 5 — Isolation and review.** First half (this): ACP agents start in their
+  own git worktree, the diff panel can read that tree, Close refuses to eat dirty
+  work, Discard throws it away on purpose. Second half (not built): merge or drop a
+  worktree into the project branch, move the assigned card to `review` when the
+  agent goes idle, send a diff hunk back as a prompt, and link a graph node to a
+  file.
 
 [`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
 merged with a hand-written one, every conflict, and which side won.
