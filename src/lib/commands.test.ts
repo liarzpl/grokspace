@@ -11,6 +11,10 @@ const createSession = vi.fn();
 const updateProject = vi.fn();
 const stopSession = vi.fn();
 const closeSession = vi.fn();
+const approveSessionSteps = vi.fn();
+const reopenSessionSteps = vi.fn();
+const writeSession = vi.fn();
+const promptSession = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -23,6 +27,10 @@ vi.mock("../lib/api", async () => {
       listSessions: vi.fn(),
       stopSession,
       closeSession,
+      approveSessionSteps,
+      reopenSessionSteps,
+      writeSession,
+      promptSession,
     },
   };
 });
@@ -30,6 +38,7 @@ vi.mock("../lib/api", async () => {
 const { commands, matching } = await import("./commands");
 const { useProjectStore } = await import("../stores/projectStore");
 const { useSessionStore } = await import("../stores/sessionStore");
+const { useStepStore } = await import("../stores/stepStore");
 const { useUiStore } = await import("../stores/uiStore");
 
 function project(overrides: Partial<Project> = {}): Project {
@@ -65,12 +74,14 @@ function session(overrides: Partial<Session> = {}): Session {
 const initialUi = useUiStore.getState();
 const initialProjects = useProjectStore.getState();
 const initialSessions = useSessionStore.getState();
+const initialSteps = useStepStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useUiStore.setState(initialUi, true);
   useProjectStore.setState(initialProjects, true);
   useSessionStore.setState(initialSessions, true);
+  useStepStore.setState(initialSteps, true);
 });
 
 const labels = (project: Project | null) => commands(project).map((command) => command.label);
@@ -117,6 +128,35 @@ describe("the command list", () => {
     expect(shown).toContain("Close Reviewer");
     expect(shown).not.toContain("Stop Grok");
     expect(shown).not.toContain("Close Grok");
+  });
+
+  it("offers Approve when a session has a proposed list", () => {
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", title: "Reviewer", kind: "grok", status: "running" })],
+    });
+    useStepStore.setState({
+      bySession: {
+        s1: {
+          sessionId: "s1",
+          phase: "proposed",
+          steps: [
+            {
+              id: "a",
+              sessionId: "s1",
+              sortIndex: 0,
+              title: "Read it",
+              status: "pending",
+              origin: "agent",
+              createdAt: 0,
+              updatedAt: 0,
+            },
+          ],
+          isLoading: false,
+        },
+      },
+    });
+
+    expect(labels(project())).toContain("Approve steps for Reviewer");
   });
 
   it("gives every command a distinct id", () => {
@@ -202,6 +242,73 @@ describe("running a command", () => {
 
     expect(createSession).not.toHaveBeenCalled();
     expect(useSessionStore.getState().error).toContain("taken");
+  });
+
+  it("approves a proposed list and types the frozen titles into the session", async () => {
+    const steps = [
+      {
+        id: "a",
+        sessionId: "s1",
+        sortIndex: 0,
+        title: "Read it",
+        status: "pending" as const,
+        origin: "agent" as const,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", title: "Grok", kind: "grok", status: "running" })],
+    });
+    useStepStore.setState({
+      bySession: { s1: { sessionId: "s1", phase: "proposed", steps, isLoading: false } },
+    });
+    approveSessionSteps.mockResolvedValue({ sessionId: "s1", phase: "approved", steps });
+    writeSession.mockResolvedValue(undefined);
+
+    commands(project()).find((command) => command.id === "approve-steps-s1")?.run();
+    await vi.waitFor(() =>
+      expect(writeSession).toHaveBeenCalledWith(
+        "s1",
+        "Approved. Continue as written: 1. Read it\r",
+      ),
+    );
+
+    expect(approveSessionSteps).toHaveBeenCalledWith("s1");
+    expect(promptSession).not.toHaveBeenCalled();
+  });
+
+  it("does not approve if the session is no longer ready when the command runs", async () => {
+    const steps = [
+      {
+        id: "a",
+        sessionId: "s1",
+        sortIndex: 0,
+        title: "Read it",
+        status: "pending" as const,
+        origin: "agent" as const,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", title: "Reviewer", kind: "agent", status: "idle" })],
+    });
+    useStepStore.setState({
+      bySession: { s1: { sessionId: "s1", phase: "proposed", steps, isLoading: false } },
+    });
+
+    const command = commands(project()).find((entry) => entry.id === "approve-steps-s1");
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", title: "Reviewer", kind: "agent", status: "running" })],
+    });
+    command?.run();
+    await vi.waitFor(() =>
+      expect(useStepStore.getState().error).toBe("That session is not ready to approve."),
+    );
+
+    expect(approveSessionSteps).not.toHaveBeenCalled();
+    expect(promptSession).not.toHaveBeenCalled();
   });
 });
 

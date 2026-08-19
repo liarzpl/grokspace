@@ -9,8 +9,10 @@ import type {
   ProjectSettings,
   Session,
   SessionKind,
+  SessionSteps,
   Settings,
   SkillStatus,
+  StepStatus,
   Task,
   TaskStatus,
 } from "../types";
@@ -200,6 +202,47 @@ export const api = {
 
   /** Installs, or refreshes, the skill that teaches `grok` to write graphs. */
   installGraphSkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_graph_skill"),
+
+  listSessionSteps: (sessionId: string): Promise<SessionSteps> =>
+    invoke<SessionSteps>("list_session_steps", { sessionId }),
+
+  addSessionStep: (sessionId: string, title: string): Promise<SessionSteps> =>
+    invoke<SessionSteps>("add_session_step", { sessionId, title }),
+
+  updateSessionStep: (
+    id: string,
+    changes: { title?: string; status?: StepStatus },
+  ): Promise<SessionSteps> =>
+    invoke<SessionSteps>("update_session_step", {
+      id,
+      title: changes.title ?? null,
+      status: changes.status ?? null,
+    }),
+
+  removeSessionStep: (id: string): Promise<SessionSteps> =>
+    invoke<SessionSteps>("remove_session_step", { id }),
+
+  reorderSessionSteps: (sessionId: string, ids: string[]): Promise<SessionSteps> =>
+    invoke<SessionSteps>("reorder_session_steps", { sessionId, ids }),
+
+  approveSessionSteps: (sessionId: string): Promise<SessionSteps> =>
+    invoke<SessionSteps>("approve_session_steps", { sessionId }),
+
+  /** Puts an approved list back to `proposed` when the follow-up prompt failed. */
+  reopenSessionSteps: (sessionId: string): Promise<SessionSteps> =>
+    invoke<SessionSteps>("reopen_session_steps", { sessionId }),
+
+  /**
+   * Watches the directory the project's sessions write their step lists into so
+   * changes are reported. Asking twice is harmless.
+   */
+  watchProjectSteps: (projectId: string): Promise<string[]> =>
+    invoke<string[]>("watch_project_steps", { projectId }),
+
+  stepsSkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("steps_skill_status"),
+
+  /** Installs, or refreshes, the skill that teaches `grok` to write a step list. */
+  installStepsSkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_steps_skill"),
 };
 
 /** Rust returns errors as plain strings, so unwrap them for display. */

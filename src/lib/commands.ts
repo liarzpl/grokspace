@@ -16,10 +16,13 @@ import { useMemoryStore } from "../stores/memoryStore";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
 import { useGraphStore } from "../stores/graphStore";
 import { sessionForPane, useSessionStore } from "../stores/sessionStore";
+import { stepsFor, useStepStore } from "../stores/stepStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
+import { errorMessage } from "./api";
 import { ROLES } from "./roles";
 import type { ShortcutId } from "./shortcuts";
+import { canApproveSteps, sendApproval } from "./steps";
 
 export interface Command {
   id: string;
@@ -192,6 +195,43 @@ export function commands(project: Project | null): Command[] {
       run: () => {
         useUiStore.getState().closePalette();
         void useSessionStore.getState().closeSession(session.id);
+      },
+    });
+  }
+
+  for (const session of useSessionStore.getState().sessions) {
+    const entry = stepsFor(useStepStore.getState().bySession, session.id);
+    if (!canApproveSteps(session, entry.phase, entry.steps.length)) continue;
+    const title = session.title ?? "Session";
+    list.push({
+      id: `approve-steps-${session.id}`,
+      label: `Approve steps for ${title}`,
+      group: "Session",
+      run: () => {
+        useUiStore.getState().closePalette();
+        void (async () => {
+          const current = useSessionStore
+            .getState()
+            .sessions.find((candidate) => candidate.id === session.id);
+          const latest = stepsFor(useStepStore.getState().bySession, session.id);
+          if (
+            current === undefined ||
+            !canApproveSteps(current, latest.phase, latest.steps.length)
+          ) {
+            useStepStore.setState({
+              error: "That session is not ready to approve.",
+            });
+            return;
+          }
+          const frozen = await useStepStore.getState().approve(current.id);
+          if (frozen === null) return;
+          try {
+            await sendApproval(current, frozen.steps);
+          } catch (error) {
+            await useStepStore.getState().reopen(current.id);
+            useStepStore.setState({ error: errorMessage(error) });
+          }
+        })();
       },
     });
   }

@@ -10,9 +10,11 @@ import {
   writeNotice,
 } from "../lib/terminals";
 import { graphFor, useGraphStore } from "../stores/graphStore";
+import { stepsFor, useStepStore } from "../stores/stepStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type { Session, SessionKind } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
+import SessionSteps from "./SessionSteps";
 
 /** A pane is created before it has been measured, so it starts at the classic size. */
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
@@ -63,10 +65,18 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
   const hasGraph = useGraphStore(
     (state) => graphFor(state.bySession, session.id).graph !== null,
   );
+  const hasSteps = useStepStore(
+    (state) => stepsFor(state.bySession, session.id).steps.length > 0,
+  );
+
+  const options =
+    session.kind === "shell"
+      ? (["terminal", "graph"] as const)
+      : (["terminal", "graph", "tasks"] as const);
 
   return (
     <div className="flex shrink-0 items-center gap-0.5 rounded-sm border border-line px-0.5">
-      {(["terminal", "graph"] as const).map((option) => (
+      {options.map((option) => (
         <button
           key={option}
           type="button"
@@ -74,16 +84,19 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
           title={
             option === "graph" && !hasGraph
               ? "This session has not reported a graph yet"
-              : undefined
+              : option === "tasks" && !hasSteps
+                ? "This session has not proposed steps yet"
+                : undefined
           }
           className={`rounded-sm px-1 text-[10px] transition-colors ${
             view === option ? "bg-accent-soft text-ink" : "text-ink-faint hover:text-ink-muted"
           }`}
         >
-          {option === "terminal" ? "term" : "graph"}
-          {/* A dot rather than a count: the pane header has no room, and "there is
-              a plan to look at" is the only thing worth saying here. */}
+          {option === "terminal" ? "term" : option === "graph" ? "graph" : "tasks"}
           {option === "graph" && hasGraph && (
+            <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
+          )}
+          {option === "tasks" && hasSteps && (
             <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
           )}
         </button>
@@ -205,6 +218,8 @@ export default function TerminalPane({
 
   const isMaximized = maximizedPane === paneId;
   const running = session?.status === "running";
+  const view =
+    paneView === "tasks" && session?.kind === "shell" ? "terminal" : paneView;
 
   const restart = () => {
     if (!session) return;
@@ -260,7 +275,7 @@ export default function TerminalPane({
           <div className="flex items-center">
             {session ? (
               <>
-                {paneView === "terminal" && (
+                {view === "terminal" && (
                   <PaneButton label="Clear" onClick={() => clearTerminal(session.id)} />
                 )}
                 {running ? (
@@ -280,8 +295,10 @@ export default function TerminalPane({
       </header>
 
       {session ? (
-        paneView === "graph" ? (
+        view === "graph" ? (
           <GraphVisualizer session={session} compact />
+        ) : view === "tasks" ? (
+          <SessionSteps session={session} compact />
         ) : (
           <TerminalSurface session={session} />
         )

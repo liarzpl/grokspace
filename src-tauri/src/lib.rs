@@ -10,6 +10,7 @@ mod pty;
 mod session;
 mod settings;
 mod skill;
+mod steps;
 mod task;
 
 use std::sync::Mutex;
@@ -20,15 +21,17 @@ use tauri::{Manager, RunEvent};
 use crate::acp::AcpManager;
 use crate::graph::GraphWatchers;
 use crate::pty::PtyManager;
+use crate::steps::StepWatchers;
 
 /// Shared handles for the workspace: its database, its live terminals, the agents
-/// it drives over ACP, and the watchers that report graph files changing under each
-/// project.
+/// it drives over ACP, and the watchers that report graph and step files changing
+/// under each project.
 pub struct AppState {
     pub db: Mutex<Connection>,
     pub pty: PtyManager,
     pub acp: AcpManager,
     pub graphs: GraphWatchers,
+    pub steps: StepWatchers,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -49,6 +52,7 @@ pub fn run() {
             pty: PtyManager::new(),
             acp: AcpManager::new(),
             graphs: GraphWatchers::new(),
+            steps: StepWatchers::new(),
         })
         .invoke_handler(tauri::generate_handler![
             project::list_projects,
@@ -87,6 +91,16 @@ pub fn run() {
             graph::watch_project_graphs,
             graph::graph_skill_status,
             graph::install_graph_skill,
+            steps::list_session_steps,
+            steps::add_session_step,
+            steps::update_session_step,
+            steps::remove_session_step,
+            steps::reorder_session_steps,
+            steps::approve_session_steps,
+            steps::reopen_session_steps,
+            steps::watch_project_steps,
+            steps::steps_skill_status,
+            steps::install_steps_skill,
         ])
         .build(tauri::generate_context!())
         .expect("error while starting GrokSpace");
@@ -97,6 +111,7 @@ pub fn run() {
             state.pty.shutdown();
             state.acp.shutdown();
             state.graphs.shutdown();
+            state.steps.shutdown();
         }
     });
 }

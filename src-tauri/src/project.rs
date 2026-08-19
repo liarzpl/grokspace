@@ -373,6 +373,7 @@ mod tests {
             pty: crate::pty::PtyManager::new(),
             acp: crate::acp::AcpManager::new(),
             graphs: crate::graph::GraphWatchers::new(),
+            steps: crate::steps::StepWatchers::new(),
         };
 
         remove_and_stop_sessions(&state, &project.id).unwrap();

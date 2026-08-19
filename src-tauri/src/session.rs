@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, memory, program, project, AppState};
+use crate::{acp, graph, memory, program, project, steps, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
                        worktree_path, kind, exit_code, created_at, updated_at";
@@ -389,16 +389,19 @@ fn command_for(kind: SessionKind) -> Result<Launch> {
     }
 }
 
-/// What a session is told about itself: which graph file is its own to write, and
-/// where the project's shared memory is to be read.
+/// What a session is told about itself: which graph and steps files are its own
+/// to write, and where the project's shared memory is to be read.
 ///
-/// Failing to prepare the graph directory is not worth refusing to start a terminal
+/// Failing to prepare those directories is not worth refusing to start a terminal
 /// over. The variables are still exported, so a writer that creates the directory
 /// itself works either way.
 fn session_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
     let dir = graph::ensure_graph_dir(project_path)
         .unwrap_or_else(|_| graph::project_graph_dir(project_path));
     let file = dir.join(graph::graph_file_name(session_id));
+    let steps_dir = steps::ensure_steps_dir(project_path)
+        .unwrap_or_else(|_| steps::project_steps_dir(project_path));
+    let steps_file = steps_dir.join(steps::steps_file_name(session_id));
     vec![
         ("GROKSPACE_SESSION_ID".to_string(), session_id.to_string()),
         (
@@ -412,6 +415,14 @@ fn session_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
         (
             "GROKSPACE_GRAPH_FILE".to_string(),
             file.to_string_lossy().into_owned(),
+        ),
+        (
+            "GROKSPACE_STEPS_DIR".to_string(),
+            steps_dir.to_string_lossy().into_owned(),
+        ),
+        (
+            "GROKSPACE_STEPS_FILE".to_string(),
+            steps_file.to_string_lossy().into_owned(),
         ),
         (
             "GROKSPACE_MEMORY_FILE".to_string(),
@@ -833,6 +844,7 @@ pub(crate) fn close(state: &crate::AppState, id: &str) -> Result<()> {
     // closes a session too, so leaving it meant every restart added one.
     if let Some(path) = project_path {
         graph::remove_graph(Path::new(&path), id);
+        steps::remove_steps_file(Path::new(&path), id);
     }
 
     Ok(())
@@ -1062,6 +1074,18 @@ mod tests {
         assert!(
             file.parent().is_some_and(Path::is_dir),
             "the directory is prepared up front so the watcher has something to watch"
+        );
+
+        let steps_file = PathBuf::from(value("GROKSPACE_STEPS_FILE"));
+        assert!(steps_file.is_absolute());
+        assert!(steps_file.ends_with("session-42.json"));
+        assert_eq!(
+            steps_file.parent().map(Path::to_path_buf),
+            Some(PathBuf::from(value("GROKSPACE_STEPS_DIR")))
+        );
+        assert!(
+            steps_file.parent().is_some_and(Path::is_dir),
+            "the steps directory is prepared up front so the watcher has something to watch"
         );
     }
 
