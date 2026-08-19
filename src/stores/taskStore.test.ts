@@ -38,6 +38,7 @@ vi.mock("../lib/api", async () => {
 
 const { dispatchPrompt, tasksInColumn, useTaskStore } = await import("./taskStore");
 const { useSessionStore } = await import("./sessionStore");
+const { useStepStore } = await import("./stepStore");
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -74,11 +75,13 @@ function session(overrides: Partial<Session> = {}): Session {
 
 const initialState = useTaskStore.getState();
 const initialSessionState = useSessionStore.getState();
+const initialStepState = useStepStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useTaskStore.setState(initialState, true);
   useSessionStore.setState(initialSessionState, true);
+  useStepStore.setState(initialStepState, true);
 });
 
 describe("loadTasks", () => {
@@ -175,11 +178,15 @@ describe("dispatchPrompt", () => {
     );
 
     expect(prompt).not.toContain("\n");
-    expect(prompt).toBe("Fix the login bug — The session cookie is dropped on redirect.");
+    expect(prompt).toBe(
+      "Fix the login bug — The session cookie is dropped on redirect. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.",
+    );
   });
 
-  it("is just the title when there is nothing else to say", () => {
-    expect(dispatchPrompt(task({ description: null }))).toBe("Fix the login bug");
+  it("is just the title and the steps gate when there is nothing else to say", () => {
+    expect(dispatchPrompt(task({ description: null }))).toBe(
+      "Fix the login bug. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.",
+    );
   });
 });
 
@@ -200,12 +207,49 @@ describe("dispatch", () => {
 
     expect(ok).toBe(true);
     expect(order).toEqual(["dispatch", "write"]);
-    expect(writeSession).toHaveBeenCalledWith("s1", "Fix the login bug\r");
+    expect(writeSession).toHaveBeenCalledWith(
+      "s1",
+      "Fix the login bug. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.\r",
+    );
     expect(dispatchTask).toHaveBeenCalledWith("t1", "s1");
     const moved = useTaskStore.getState().tasks[0];
     expect(moved?.status).toBe("in_progress");
     expect(moved?.assignedSessionId).toBe("s1");
     expect(useTaskStore.getState().dispatching["t1"]).toBe(false);
+  });
+
+  it("clears the session's previous steps so the last job's tally does not linger", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({ sessions: [session()] });
+    useStepStore.setState({
+      bySession: {
+        s1: {
+          sessionId: "s1",
+          phase: "approved",
+          steps: [
+            {
+              id: "a",
+              sessionId: "s1",
+              sortIndex: 0,
+              title: "The last job",
+              status: "done",
+              origin: "agent",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+          isLoading: false,
+        },
+      },
+    });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    writeSession.mockResolvedValue(undefined);
+
+    await useTaskStore.getState().dispatch("t1", "s1");
+
+    const steps = useStepStore.getState().bySession["s1"];
+    expect(steps?.phase).toBe("none");
+    expect(steps?.steps).toEqual([]);
   });
 
   it("unassigns the task when the prompt is refused", async () => {
@@ -257,7 +301,10 @@ describe("dispatch", () => {
     const ok = await useTaskStore.getState().dispatch("t1", "s1");
 
     expect(ok).toBe(true);
-    expect(promptSession).toHaveBeenCalledWith("s1", "Fix the login bug");
+    expect(promptSession).toHaveBeenCalledWith(
+      "s1",
+      "Fix the login bug. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.",
+    );
     expect(writeSession).not.toHaveBeenCalled();
     // No trailing carriage return: nothing is being typed, so there is no line to
     // submit.
@@ -302,7 +349,10 @@ describe("dispatchToNewSession", () => {
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "p1", paneId: "2", kind: "grok" }),
     );
-    expect(writeSession).toHaveBeenCalledWith("s9", "Fix the login bug\r");
+    expect(writeSession).toHaveBeenCalledWith(
+      "s9",
+      "Fix the login bug. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.\r",
+    );
     expect(useTaskStore.getState().tasks[0]?.assignedSessionId).toBe("s9");
   });
 
@@ -320,7 +370,10 @@ describe("dispatchToNewSession", () => {
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({ paneId: null, kind: "agent" }),
     );
-    expect(promptSession).toHaveBeenCalledWith("a1", "Fix the login bug");
+    expect(promptSession).toHaveBeenCalledWith(
+      "a1",
+      "Fix the login bug. Write your steps to $GROKSPACE_STEPS_FILE first, then wait.",
+    );
   });
 
   it("gives up quietly when the agent will not start", async () => {

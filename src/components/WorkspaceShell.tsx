@@ -8,6 +8,7 @@ import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
+import { useStepStore } from "../stores/stepStore";
 import AgentTranscript from "./AgentTranscript";
 import { useTaskStore } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
@@ -15,6 +16,7 @@ import DiffPanel from "./DiffPanel";
 import GraphVisualizer from "./GraphVisualizer";
 import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
+import SessionSteps from "./SessionSteps";
 import TaskBoard from "./TaskBoard";
 
 const GRAPH_STATUS_TONE: Record<GraphStatus, string> = {
@@ -227,8 +229,17 @@ function GraphTab({
         </div>
       )}
 
-      <GraphVisualizer session={selected} />
-      {selected?.kind === "agent" && <AgentTranscript session={selected} />}
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <GraphVisualizer session={selected} />
+          {selected?.kind === "agent" && <AgentTranscript session={selected} />}
+        </div>
+        {selected !== undefined && selected.kind !== "shell" && (
+          <aside className="flex w-72 shrink-0 flex-col overflow-hidden border-l border-line">
+            <SessionSteps session={selected} />
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
@@ -294,6 +305,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
     sessionsForProject(state.sessions, project.id),
   );
   const loadGraph = useGraphStore((state) => state.load);
+  const syncSteps = useStepStore((state) => state.syncSessions);
   const loadTasks = useTaskStore((state) => state.loadTasks);
   const loadMemory = useMemoryStore((state) => state.loadMemory);
   // In a store rather than local state: the command palette switches tabs too, and
@@ -329,12 +341,22 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   }, [sessionIds, loadGraph]);
 
   useEffect(() => {
+    void syncSteps(sessionIds.split(" ").filter(Boolean));
+  }, [sessionIds, syncSteps]);
+
+  useEffect(() => {
     // Watching is what makes the graphs live: the backend reports each file as it
     // changes and the graph store re-reads it. There is nothing to undo here — the
     // backend keeps one watch per project until it quits, precisely so that a
     // remount cannot leave a project unwatched.
     void api.watchProjectGraphs(project.id).catch((error) => {
       useGraphStore.setState({ error: errorMessage(error) });
+    });
+  }, [project.id]);
+
+  useEffect(() => {
+    void api.watchProjectSteps(project.id).catch((error) => {
+      useStepStore.setState({ error: errorMessage(error) });
     });
   }, [project.id]);
 

@@ -38,6 +38,7 @@ vi.mock("../lib/api", async () => {
 
 const { sessionForPane, sessionsForProject, useSessionStore } = await import("./sessionStore");
 const { useGraphStore } = await import("./graphStore");
+const { useStepStore } = await import("./stepStore");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -69,13 +70,36 @@ function graphEntry() {
   };
 }
 
+/** Stands in for a step list the store had already read for a session. */
+function stepEntry() {
+  return {
+    sessionId: "s1",
+    phase: "proposed" as const,
+    steps: [
+      {
+        id: "a",
+        sessionId: "s1",
+        sortIndex: 0,
+        title: "Read it",
+        status: "pending" as const,
+        origin: "agent" as const,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
+    isLoading: false,
+  };
+}
+
 const initialState = useSessionStore.getState();
 const initialGraphState = useGraphStore.getState();
+const initialStepState = useStepStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionStore.setState(initialState, true);
   useGraphStore.setState(initialGraphState, true);
+  useStepStore.setState(initialStepState, true);
 });
 
 describe("loadSessions", () => {
@@ -241,6 +265,16 @@ describe("loadSessions", () => {
       s1: [{ kind: "message", text: "keep" }],
     });
     expect(detachTerminal).not.toHaveBeenCalled();
+  });
+
+  it("drops the step lists of the project being left", async () => {
+    useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
+    useStepStore.setState({ bySession: { s1: stepEntry(), s2: { ...stepEntry(), sessionId: "s2" } } });
+    listSessions.mockResolvedValue([session({ id: "s3", projectId: "p2" })]);
+
+    await useSessionStore.getState().loadSessions("p2");
+
+    expect(useStepStore.getState().bySession).toEqual({});
   });
 });
 
@@ -547,6 +581,16 @@ describe("restartSession", () => {
 
     expect(useGraphStore.getState().bySession).toEqual({});
   });
+
+  it("does not carry the previous run's steps over to the new session", async () => {
+    useSessionStore.setState({ sessions: [session({ id: "old", paneId: "1" })] });
+    useStepStore.setState({ bySession: { old: { ...stepEntry(), sessionId: "old" } } });
+    restartSession.mockResolvedValue(session({ id: "fresh", paneId: "1" }));
+
+    await useSessionStore.getState().restartSession("old", 100, 30);
+
+    expect(useStepStore.getState().bySession).toEqual({});
+  });
 });
 
 describe("closeSession", () => {
@@ -575,6 +619,18 @@ describe("closeSession", () => {
     expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s2"]);
   });
 
+  it("drops the closed session's steps and leaves the other pane's alone", async () => {
+    useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
+    useStepStore.setState({
+      bySession: { s1: stepEntry(), s2: { ...stepEntry(), sessionId: "s2" } },
+    });
+    closeSession.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().closeSession("s1");
+
+    expect(Object.keys(useStepStore.getState().bySession)).toEqual(["s2"]);
+  });
+
   it("keeps the session when the backend refuses", async () => {
     useSessionStore.setState({ sessions: [session()] });
     closeSession.mockRejectedValue("busy");
@@ -599,13 +655,13 @@ describe("toggleMaximized", () => {
 });
 
 describe("setPaneView", () => {
-  it("switches one pane to its graph without touching the others", () => {
+  it("switches one pane to its tasks face without touching the others", () => {
     const { setPaneView } = useSessionStore.getState();
 
-    setPaneView("1", "graph");
+    setPaneView("1", "tasks");
 
     const { paneViews } = useSessionStore.getState();
-    expect(paneViews["1"]).toBe("graph");
+    expect(paneViews["1"]).toBe("tasks");
     expect(paneViews["0"]).toBeUndefined();
   });
 
@@ -629,9 +685,14 @@ describe("sessionForPane", () => {
 });
 
 describe("sessionsForProject", () => {
-  it("hides another project's sessions so a sidebar click cannot keep drawing them", () => {
-    const sessions = [session(), session({ id: "s2", projectId: "p2", paneId: "0" })];
-    expect(sessionsForProject(sessions, "p2").map((item) => item.id)).toEqual(["s2"]);
+  it("keeps only the sessions that belong to this project", () => {
+    const sessions = [
+      session({ id: "a", projectId: "p1" }),
+      session({ id: "b", projectId: "p2", paneId: "0" }),
+    ];
+
+    expect(sessionsForProject(sessions, "p1").map((item) => item.id)).toEqual(["a"]);
+    expect(sessionsForProject(sessions, "p2").map((item) => item.id)).toEqual(["b"]);
   });
 });
 

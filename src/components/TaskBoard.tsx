@@ -8,7 +8,9 @@ import {
   type DispatchTarget,
 } from "../lib/dispatch";
 import { ROLES, rolesInPlay } from "../lib/roles";
+import { sessionsWithSteps, stepProgress } from "../lib/steps";
 import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
+import { stepsFor, useStepStore } from "../stores/stepStore";
 import { tasksInColumn, useTaskStore } from "../stores/taskStore";
 import {
   type PermissionRequest,
@@ -17,6 +19,7 @@ import {
   type Task,
   type TaskStatus,
 } from "../types";
+import { SessionStepsRail } from "./SessionSteps";
 
 /** The four columns, left to right. */
 const COLUMNS: readonly { status: TaskStatus; label: string }[] = [
@@ -232,6 +235,7 @@ function TaskCard({
           <span className="min-w-0 truncate">
             {targetLabel({ kind: "session", session: assigned })}
           </span>
+          <CardStepTally sessionId={assigned.id} />
           {/* Only an agent has anything to add: a terminal reports `running` and
               nothing else, so naming it would be noise on every card. */}
           {assigned.kind === "agent" && (
@@ -557,33 +561,53 @@ function SwarmLauncher({ project }: { project: Project }) {
   );
 }
 
+function CardStepTally({ sessionId }: { sessionId: string }) {
+  const progress = useStepStore((state) =>
+    stepProgress(stepsFor(state.bySession, sessionId).steps),
+  );
+  if (progress === null) return null;
+  return (
+    <span className="shrink-0 font-mono text-ink-faint">
+      {progress.done}/{progress.total}
+    </span>
+  );
+}
+
 export default function TaskBoard({ project }: { project: Project }) {
   const tasks = useTaskStore((state) => state.tasks);
   const sessions = useSessionStore((state) =>
     sessionsForProject(state.sessions, project.id),
   );
   const [dragging, setDragging] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const targets = dispatchTargets(project, sessions);
+  const capable = sessionsWithSteps(sessions);
+  const selected =
+    capable.find((session) => session.id === selectedId) ?? capable[0] ?? undefined;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <DispatchRow project={project} targets={targets} draggingId={dragging} />
+    <div className="flex min-h-0 flex-1">
+      <SessionStepsRail sessions={sessions} selected={selected} onSelect={setSelectedId} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-4 gap-2 p-2">
-        {COLUMNS.map(({ status, label }) => (
-          <TaskColumn
-            key={status}
-            status={status}
-            label={label}
-            tasks={tasksInColumn(tasks, status)}
-            targets={targets}
-            draggingId={dragging}
-            onDragStart={setDragging}
-            onDragEnd={() => setDragging(null)}
-            projectId={project.id}
-          />
-        ))}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <DispatchRow project={project} targets={targets} draggingId={dragging} />
+
+        <div className="grid min-h-0 flex-1 grid-cols-4 gap-2 p-2">
+          {COLUMNS.map(({ status, label }) => (
+            <TaskColumn
+              key={status}
+              status={status}
+              label={label}
+              tasks={tasksInColumn(tasks, status)}
+              targets={targets}
+              draggingId={dragging}
+              onDragStart={setDragging}
+              onDragEnd={() => setDragging(null)}
+              projectId={project.id}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

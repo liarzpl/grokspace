@@ -12,6 +12,7 @@ import type {
   SessionStatus,
 } from "../types";
 import { useGraphStore } from "./graphStore";
+import { useStepStore } from "./stepStore";
 
 /**
  * A pane holds at most one session, so starting in a pane displaces the old one.
@@ -57,14 +58,14 @@ interface StartInput {
 /** A session started for a role has not been measured, so it starts classic. */
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
-/** A pane shows either its terminal or the graph the session is reporting. */
-export type PaneView = "terminal" | "graph";
+/** A pane shows its terminal, the graph the session is reporting, or its steps. */
+export type PaneView = "terminal" | "graph" | "tasks";
 
 interface SessionState {
   sessions: Session[];
   /** Panes with a start or restart in flight, so the UI can show progress. */
   busyPanes: Record<string, boolean>;
-  /** Which of its two faces each pane is showing; panes default to terminal. */
+  /** Which of its faces each pane is showing; panes default to terminal. */
   paneViews: Record<string, PaneView>;
   maximizedPane: string | null;
   /**
@@ -144,7 +145,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (switching) {
       for (const session of leaving) {
         detachTerminal(session.id);
-        useGraphStore.getState().forget(session.id);
+        forgetSessionFiles(session.id);
       }
     }
     try {
@@ -156,7 +157,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // so re-reading the same project does not blank the panel.
       const arriving = new Set(sessions.map((session) => session.id));
       for (const departing of get().sessions) {
-        if (!arriving.has(departing.id)) useGraphStore.getState().forget(departing.id);
+        if (!arriving.has(departing.id)) forgetSessionFiles(departing.id);
       }
       set((state) => ({
         sessions,
@@ -167,7 +168,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     } catch (error) {
       if (generation !== loadGeneration) return;
       for (const departing of get().sessions) {
-        useGraphStore.getState().forget(departing.id);
+        forgetSessionFiles(departing.id);
       }
       set({
         error: errorMessage(error),
@@ -253,7 +254,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // Restarting mints a new session id, so the old terminal has nothing left
       // to attach to and the graph of the run it replaced is not its own.
       disposeTerminal(id);
-      useGraphStore.getState().forget(id);
+      forgetSessionFiles(id);
       set((state) => ({
         sessions: replaceInPane(
           state.sessions.filter((existing) => existing.id !== id),
@@ -285,7 +286,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       await api.closeSession(id);
       disposeTerminal(id);
-      useGraphStore.getState().forget(id);
+      forgetSessionFiles(id);
       set((state) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
@@ -395,11 +396,21 @@ function keepOnly<T>(bySession: Record<string, T>, ids: Set<string>): Record<str
   return next;
 }
 
+/** Drops the files a closed or departed session was showing. */
+function forgetSessionFiles(id: string) {
+  useGraphStore.getState().forget(id);
+  useStepStore.getState().forget(id);
+}
+
 export function sessionForPane(sessions: Session[], paneId: string): Session | undefined {
   return sessions.find((session) => session.paneId === paneId);
 }
 
-/** The store may still hold another project's sessions until its load returns. */
+/**
+ * Sessions that belong to this project. The store can still hold the previous
+ * project's list until `loadSessions` returns; anything that draws panes or
+ * rails has to filter, or a reused pane id shows the last project's session.
+ */
 export function sessionsForProject(sessions: Session[], projectId: string): Session[] {
   return sessions.filter((session) => session.projectId === projectId);
 }

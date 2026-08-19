@@ -11,6 +11,7 @@ import { useGraphStore } from "./stores/graphStore";
 import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useMemoryStore } from "./stores/memoryStore";
 import { useSessionStore } from "./stores/sessionStore";
+import { useStepStore } from "./stores/stepStore";
 import { useTaskStore } from "./stores/taskStore";
 import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -25,6 +26,10 @@ interface SessionExited {
 
 /** The backend also reports `path` and `removed`; the re-read covers both. */
 interface GraphChanged {
+  sessionId: string;
+}
+
+interface StepsChanged {
   sessionId: string;
 }
 
@@ -52,6 +57,7 @@ export default function App() {
   const taskError = useTaskStore((state) => state.error);
   const memoryError = useMemoryStore((state) => state.error);
   const graphError = useGraphStore((state) => state.error);
+  const stepError = useStepStore((state) => state.error);
   const settingsError = useSettingsStore((state) => state.error);
   const diffError = useDiffStore((state) => state.error);
   const clearProjectError = useProjectStore((state) => state.clearError);
@@ -59,6 +65,7 @@ export default function App() {
   const clearTaskError = useTaskStore((state) => state.clearError);
   const clearMemoryError = useMemoryStore((state) => state.clearError);
   const clearGraphError = useGraphStore((state) => state.clearError);
+  const clearStepError = useStepStore((state) => state.clearError);
   const clearSettingsError = useSettingsStore((state) => state.clearError);
   const clearDiffError = useDiffStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
@@ -74,6 +81,7 @@ export default function App() {
     taskError ??
     memoryError ??
     graphError ??
+    stepError ??
     settingsError ??
     diffError;
 
@@ -179,6 +187,19 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const unlisten = listen<StepsChanged>("steps-changed", (event) => {
+      const { sessionId } = event.payload;
+      const isOpen = useSessionStore
+        .getState()
+        .sessions.some((session) => session.id === sessionId);
+      useStepStore.getState().refresh(sessionId, isOpen);
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
   return (
     <div className="flex h-full flex-col bg-canvas text-ink">
       <TitleBar />
@@ -207,6 +228,7 @@ export default function App() {
               clearTaskError();
               clearMemoryError();
               clearGraphError();
+              clearStepError();
               clearSettingsError();
               clearDiffError();
             }}

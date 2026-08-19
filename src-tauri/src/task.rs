@@ -7,6 +7,7 @@ use tauri::State;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
+use crate::steps;
 use crate::AppState;
 
 /// The assigned session is resolved through a subquery rather than read straight
@@ -202,6 +203,10 @@ pub fn dispatch(conn: &Connection, id: &str, session_id: &str) -> Result<Task> {
     if affected == 0 {
         return Err(Error::TaskNotFound(id.to_string()));
     }
+
+    // A newly assigned job is a new list. Completing steps never moves the card,
+    // but leaving the last job's checklist standing would show the wrong breakdown.
+    steps::clear(conn, session_id)?;
 
     get(conn, id)
 }
@@ -422,6 +427,36 @@ mod tests {
         let undone = undispatch(&conn, &task.id).unwrap();
         assert_eq!(undone.assigned_session_id, None);
         assert_eq!(undone.status, TaskStatus::Backlog);
+    }
+
+    #[test]
+    fn dispatching_clears_the_session_s_previous_steps() {
+        let (conn, project_id) = fixture();
+        let session = session::insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        crate::steps::ingest(
+            &conn,
+            &session.id,
+            r#"{"steps":[{"title":"The last job"}]}"#,
+        )
+        .unwrap();
+        let task = insert(&conn, &project_id, "Ship it", None).unwrap();
+
+        dispatch(&conn, &task.id, &session.id).unwrap();
+
+        let snap = crate::steps::snapshot(&conn, &session.id).unwrap();
+        assert_eq!(snap.phase, crate::steps::StepsPhase::None);
+        assert!(
+            snap.steps.is_empty(),
+            "a new dispatch is a new list, not the last job's leftovers"
+        );
     }
 
     #[test]

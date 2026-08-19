@@ -13,6 +13,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_session_command.sql"),
     include_str!("../migrations/0003_app_settings.sql"),
     include_str!("../migrations/0004_session_permissions.sql"),
+    include_str!("../migrations/0005_session_steps.sql"),
 ];
 
 /// GrokSpace keeps all of its state under `~/.grokspace` rather than the
@@ -109,6 +110,7 @@ mod tests {
                 "memory_entries",
                 "projects",
                 "session_permissions",
+                "session_steps",
                 "sessions",
                 "tasks"
             ]
