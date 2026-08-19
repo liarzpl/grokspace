@@ -332,7 +332,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         error: null,
       }));
     } catch (error) {
-      set({ error: errorMessage(error) });
+      const message = errorMessage(error);
+      // The branch is already on the project; only teardown failed. The backend
+      // cleared worktree_path, so the chip must go too or Merge offers a retry
+      // that says "nothing to merge".
+      if (message.includes("the branch landed")) {
+        set((state) => ({
+          sessions: state.sessions.map((existing) =>
+            existing.id === id ? { ...existing, worktreePath: null } : existing,
+          ),
+          error: message,
+        }));
+        return;
+      }
+      set({ error: message });
     }
   },
 

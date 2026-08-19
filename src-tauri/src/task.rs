@@ -3,6 +3,7 @@
 
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tauri::State;
 
 use crate::db::now_ms;
@@ -247,7 +248,16 @@ pub fn review_assigned(conn: &Connection, session_id: &str) -> Result<Vec<Task>>
 /// Review while the person is still looking at Approve. `none` (no list, or
 /// the agent skipped the gate) and `approved` (the work after Approve) are
 /// the idles that mean the turn is over.
-pub fn review_on_idle(conn: &Connection, session_id: &str) -> Result<Vec<Task>> {
+///
+/// The steps watcher and this callback share one db lock. The agent writes the
+/// file and then goes idle, so the file is often on disk while SQLite still
+/// says `none`. Fold it here before the phase check, or the gate is skipped.
+pub fn review_on_idle(
+    conn: &Connection,
+    session_id: &str,
+    project_path: &Path,
+) -> Result<Vec<Task>> {
+    let _ = steps::ingest_from_disk(conn, project_path, session_id);
     let phase = match steps::snapshot(conn, session_id) {
         Ok(snapshot) => snapshot.phase,
         Err(Error::SessionNotFound(_)) => return Ok(Vec::new()),
@@ -354,6 +364,12 @@ mod tests {
     use crate::db;
     use crate::project;
     use crate::session::{self, SessionKind};
+    use std::path::Path;
+
+    /// No steps file lives here; ingest is a no-op so phase tests stay explicit.
+    fn no_steps() -> &'static Path {
+        Path::new("/tmp/grokspace-no-steps")
+    }
 
     fn fixture() -> (Connection, String) {
         let conn = db::open_in_memory().expect("in-memory database should open");
@@ -582,7 +598,7 @@ mod tests {
         let (conn, project_id) = fixture();
         let (session_id, task_id) = agent_on_a_task(&conn, &project_id);
 
-        let moved = review_on_idle(&conn, &session_id).unwrap();
+        let moved = review_on_idle(&conn, &session_id, no_steps()).unwrap();
 
         assert_eq!(moved.len(), 1);
         assert_eq!(moved[0].id, task_id);
@@ -605,7 +621,7 @@ mod tests {
         )
         .unwrap();
 
-        let moved = review_on_idle(&conn, &session_id).unwrap();
+        let moved = review_on_idle(&conn, &session_id, no_steps()).unwrap();
 
         assert!(moved.is_empty(), "the gate is still open");
         assert_eq!(get(&conn, &task_id).unwrap().status, TaskStatus::InProgress);
@@ -624,7 +640,7 @@ mod tests {
         session::set_status(&conn, &session_id, session::SessionStatus::Idle, None).unwrap();
         crate::steps::approve(&conn, &session_id).unwrap();
 
-        let moved = review_on_idle(&conn, &session_id).unwrap();
+        let moved = review_on_idle(&conn, &session_id, no_steps()).unwrap();
 
         assert_eq!(moved.len(), 1);
         assert_eq!(moved[0].id, task_id);
@@ -637,7 +653,7 @@ mod tests {
         let (first, _) = agent_on_a_task(&conn, &project_id);
         let (second, other_task) = agent_on_a_task(&conn, &project_id);
 
-        review_on_idle(&conn, &first).unwrap();
+        review_on_idle(&conn, &first, no_steps()).unwrap();
 
         assert_eq!(
             get(&conn, &other_task).unwrap().status,
@@ -655,6 +671,36 @@ mod tests {
     #[test]
     fn idle_review_on_a_missing_session_moves_nothing() {
         let (conn, _project_id) = fixture();
-        assert!(review_on_idle(&conn, "nope").unwrap().is_empty());
+        assert!(review_on_idle(&conn, "nope", no_steps())
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn idle_review_waits_for_a_steps_file_not_yet_ingested() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let project = project::upsert_by_path(
+            &conn,
+            dir.path().to_str().expect("utf-8 path"),
+            "ingest-idle",
+        )
+        .unwrap();
+        let (session_id, task_id) = agent_on_a_task(&conn, &project.id);
+        let steps = crate::steps::ensure_steps_dir(dir.path()).unwrap();
+        std::fs::write(
+            steps.join(crate::steps::steps_file_name(&session_id)),
+            r#"{"steps":[{"title":"Write the file"}]}"#,
+        )
+        .unwrap();
+
+        let moved = review_on_idle(&conn, &session_id, dir.path()).unwrap();
+
+        assert!(moved.is_empty(), "the gate is on disk even if SQLite lags");
+        assert_eq!(get(&conn, &task_id).unwrap().status, TaskStatus::InProgress);
+        assert_eq!(
+            crate::steps::snapshot(&conn, &session_id).unwrap().phase,
+            crate::steps::StepsPhase::Proposed
+        );
     }
 }

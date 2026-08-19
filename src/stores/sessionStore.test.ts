@@ -744,6 +744,28 @@ describe("mergeWorktree", () => {
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
     expect(useSessionStore.getState().error).toContain("stop the agent first");
   });
+
+  it("clears the path when the branch landed but teardown failed", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    mergeSessionWorktree.mockRejectedValue(
+      "the branch landed, but the worktree could not be removed: device busy",
+    );
+
+    await useSessionStore.getState().mergeWorktree("agent-1");
+
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
+    expect(useSessionStore.getState().error).toContain("the branch landed");
+  });
 });
 
 describe("toggleMaximized", () => {

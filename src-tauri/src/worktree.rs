@@ -213,9 +213,30 @@ fn commit_all(git_path: &str, worktree_path: &Path, message: &str) -> Result<()>
     }
     let commit = git(git_path, worktree_path, &["commit", "-m", message])?;
     if !commit.status.success() {
-        return Err(git_error(&commit, "git could not commit the agent's work"));
+        return Err(commit_error(&commit));
     }
     Ok(())
+}
+
+fn commit_error(output: &std::process::Output) -> Error {
+    let reason = String::from_utf8_lossy(&output.stderr);
+    if reason.contains("user.email")
+        || reason.contains("user.name")
+        || reason.contains("tell me who you are")
+    {
+        return Error::Invalid("set git user.name and user.email".into());
+    }
+    git_error(output, "git could not commit the agent's work")
+}
+
+fn is_ancestor(git_path: &str, cwd: &Path, ancestor: &str, descendant: &str) -> bool {
+    git(
+        git_path,
+        cwd,
+        &["merge-base", "--is-ancestor", ancestor, descendant],
+    )
+    .ok()
+    .is_some_and(|output| output.status.success())
 }
 
 /// Commits dirty files on the session branch, then merges that branch into the
@@ -251,7 +272,7 @@ pub fn merge_into_project(project_path: &Path, worktree_path: &Path, message: &s
 
     let project_head = rev_parse(&git_path, project_path, "HEAD")?;
     let worktree_head = rev_parse(&git_path, worktree_path, "HEAD")?;
-    if project_head == worktree_head {
+    if is_ancestor(&git_path, project_path, &worktree_head, &project_head) {
         return Err(Error::Invalid("nothing to merge".into()));
     }
 
@@ -501,6 +522,33 @@ mod tests {
         assert!(
             error.to_string().contains("nothing to merge"),
             "got: {error}"
+        );
+    }
+
+    #[test]
+    fn merge_refuses_when_the_worktree_is_behind_the_project() {
+        let dir = repo();
+        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        fs::write(dir.path().join("later.md"), "human\n").unwrap();
+        let git = program::find("git").unwrap();
+        for args in [vec!["add", "."], vec!["commit", "-qm", "later"]] {
+            let done = Command::new(&git)
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
+            assert!(done.status.success(), "git {args:?} failed");
+        }
+
+        let error = merge_into_project(dir.path(), &tree, "GrokSpace: agent").unwrap_err();
+        assert!(
+            error.to_string().contains("nothing to merge"),
+            "got: {error}"
+        );
+        assert!(tree.exists(), "refusing must leave the worktree");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("later.md")).unwrap(),
+            "human\n"
         );
     }
 }

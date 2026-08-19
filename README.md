@@ -370,10 +370,10 @@ the reservation was for.
 - **Phase 5 — Isolation and review.** ACP agents start in their own git
   worktree, the diff panel can read that tree, Close refuses to eat dirty work,
   Discard throws it away, Merge commits leftover files and lands the branch on
-  the project. An assigned card moves to `review` when the agent goes idle
-  (skipping the step-list Approve gate), a selected hunk can be sent back as a
-  prompt, and a graph node's file path opens in the Diff panel. Done, with the
-  same Mac/`grok` caveat Phase 2 carries.
+  the project. An assigned card moves to `review` when the agent goes idle,
+  except while the step list is still `proposed` (the Approve gate). A selected
+  hunk can be sent back as a prompt, and a graph node's file path opens in the
+  Diff panel. Done, with the same Mac/`grok` caveat Phase 2 carries.
 
 [`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
 merged with a hand-written one, every conflict, and which side won.

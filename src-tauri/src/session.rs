@@ -532,8 +532,15 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
                 // is doing, not of whether its process is alive.
                 let _ = set_status(&conn, &status_id, status, None);
                 if status == SessionStatus::Idle {
-                    if let Ok(moved) = task::review_on_idle(&conn, &status_id) {
-                        reviewed_project = moved.first().map(|task| task.project_id.clone());
+                    if let Ok(session) = get(&conn, &status_id) {
+                        if let Ok(project) = project::get(&conn, &session.project_id) {
+                            if let Ok(moved) =
+                                task::review_on_idle(&conn, &status_id, Path::new(&project.path))
+                            {
+                                reviewed_project =
+                                    moved.first().map(|task| task.project_id.clone());
+                            }
+                        }
                     }
                 }
             }
@@ -956,9 +963,18 @@ pub fn merge_session_worktree(state: State<'_, AppState>, id: String) -> Result<
         Path::new(tree),
         &merge_commit_message(&session),
     )?;
-    worktree::remove(Path::new(&project_path), Path::new(tree), false)?;
+    // The work is already on the project. Force-remove so a leftover dirty
+    // file cannot block teardown, and clear the path even if git still
+    // cannot delete the folder — otherwise a retry hits "nothing to merge".
+    let removed = worktree::remove(Path::new(&project_path), Path::new(tree), true);
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    set_worktree_path(&conn, &id, None)
+    let session = set_worktree_path(&conn, &id, None)?;
+    match removed {
+        Ok(()) => Ok(session),
+        Err(error) => Err(Error::Invalid(format!(
+            "the branch landed, but the worktree could not be removed: {error}"
+        ))),
+    }
 }
 
 fn merge_commit_message(session: &Session) -> String {
