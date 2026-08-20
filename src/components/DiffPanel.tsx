@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
+import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
 import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useDiffStore } from "../stores/diffStore";
 import type { ChangedFile, FileChange, Project, Session } from "../types";
@@ -7,8 +8,9 @@ import type { ChangedFile, FileChange, Project, Session } from "../types";
 /**
  * What the agents changed, read out of git.
  *
- * Read-only except Discard, which throws away a stopped agent's worktree so Close
- * can proceed. Merge into the project branch is the next half of this phase.
+ * Discard throws away a stopped agent's worktree so Close can proceed. Merge
+ * commits leftover files on that branch and lands them on the project. A selected
+ * hunk plus an optional sentence can be sent back to an idle agent.
  *
  * The default view is the project's tree. ACP agents that isolated into a worktree
  * appear as chips; picking one reads that checkout, which is a clean `HEAD` plus
@@ -42,35 +44,123 @@ function Centred({ children }: { children: React.ReactNode }) {
   );
 }
 
+function lineClass(line: string): string {
+  return line.startsWith("+++") || line.startsWith("---")
+    ? "text-ink-faint"
+    : line.startsWith("@@")
+      ? "text-accent"
+      : line.startsWith("+")
+        ? "text-success"
+        : line.startsWith("-")
+          ? "text-danger"
+          : "text-ink-muted";
+}
+
+function DiffLines({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("\n").map((line, index) => (
+        <div key={index} className={lineClass(line)}>
+          {line === "" ? "\u00a0" : line}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /**
  * One line of a diff, coloured by what it is.
  *
  * Rendered line by line rather than handed to a highlighter: a diff's meaning is
  * carried almost entirely by the first character of each line, and a dependency that
  * knows every language would be a lot of bytes to colour three cases.
+ *
+ * When `onSelectHunk` is set, each `@@` hunk is a click target so a follow-up
+ * prompt can name one change rather than the whole file.
  */
-function DiffBody({ body }: { body: string }) {
+function DiffBody({
+  body,
+  selectedHunk,
+  onSelectHunk,
+}: {
+  body: string;
+  selectedHunk: number | null;
+  onSelectHunk: ((index: number) => void) | null;
+}) {
+  if (onSelectHunk === null) {
+    return (
+      <pre className="selectable min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed">
+        <DiffLines text={body} />
+      </pre>
+    );
+  }
+
+  const { prelude, hunks } = splitDiff(body);
+
   return (
     <pre className="selectable min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed">
-      {body.split("\n").map((line, index) => (
-        <div
+      {prelude !== "" && <DiffLines text={prelude} />}
+      {hunks.map((hunk, index) => (
+        <button
           key={index}
-          className={
-            line.startsWith("+++") || line.startsWith("---")
-              ? "text-ink-faint"
-              : line.startsWith("@@")
-                ? "text-accent"
-                : line.startsWith("+")
-                  ? "text-success"
-                  : line.startsWith("-")
-                    ? "text-danger"
-                    : "text-ink-muted"
-          }
+          type="button"
+          onClick={() => onSelectHunk(index)}
+          className={`block w-full text-left ${
+            selectedHunk === index ? "bg-accent-soft" : "hover:bg-elevated"
+          }`}
         >
-          {line === "" ? "\u00a0" : line}
-        </div>
+          <DiffLines text={hunk} />
+        </button>
       ))}
     </pre>
+  );
+}
+
+function HunkPromptBar({
+  path,
+  hunk,
+  session,
+}: {
+  path: string;
+  hunk: string;
+  session: Session;
+}) {
+  const promptSession = useSessionStore((state) => state.promptSession);
+  const [sentence, setSentence] = useState("");
+  const idle = session.status === "idle" && session.kind === "agent";
+
+  const send = () => {
+    if (!idle) return;
+    const text = hunkPrompt(path, hunk, sentence);
+    setSentence("");
+    void promptSession(session.id, text);
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-1.5">
+      <input
+        type="text"
+        value={sentence}
+        onChange={(event) => setSentence(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            send();
+          }
+        }}
+        placeholder={idle ? "Ask about this hunk…" : "Agent has to be idle"}
+        disabled={!idle}
+        className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong disabled:opacity-40"
+      />
+      <button
+        type="button"
+        onClick={send}
+        disabled={!idle}
+        className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-40"
+      >
+        Send to agent
+      </button>
+    </div>
   );
 }
 
@@ -121,6 +211,9 @@ function ScopeChips({
 }) {
   if (sessions.length === 0) return null;
 
+  const scoped = sessions.find((session) => session.id === scope);
+  const stopped = scoped?.status === "stopped";
+
   return (
     <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
       <button
@@ -149,16 +242,33 @@ function ScopeChips({
         </button>
       ))}
       <div className="flex-1" />
-      {scope !== null &&
-        sessions.find((session) => session.id === scope)?.status === "stopped" && (
+      {stopped && scoped !== undefined && (
+        <>
           <button
             type="button"
             onClick={() => {
               void (async () => {
-                await useSessionStore.getState().discardWorktree(scope);
+                await useSessionStore.getState().mergeWorktree(scoped.id);
                 const leftover = useSessionStore
                   .getState()
-                  .sessions.find((session) => session.id === scope);
+                  .sessions.find((session) => session.id === scoped.id);
+                if (leftover?.worktreePath === null) {
+                  await useDiffStore.getState().loadDiff(projectId, null);
+                }
+              })();
+            }}
+            className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+          >
+            Merge
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                await useSessionStore.getState().discardWorktree(scoped.id);
+                const leftover = useSessionStore
+                  .getState()
+                  .sessions.find((session) => session.id === scoped.id);
                 if (leftover?.worktreePath === null) {
                   await useDiffStore.getState().loadDiff(projectId, null);
                 }
@@ -168,7 +278,8 @@ function ScopeChips({
           >
             Discard
           </button>
-        )}
+        </>
+      )}
     </div>
   );
 }
@@ -187,12 +298,20 @@ export default function DiffPanel({ project }: { project: Project }) {
       (session) => session.worktreePath !== null,
     ),
   );
+  const [hunkIndex, setHunkIndex] = useState<number | null>(null);
 
   useEffect(() => {
     void loadDiff(project.id, null);
   }, [project.id, loadDiff]);
 
+  useEffect(() => {
+    setHunkIndex(null);
+  }, [body, selected, scope]);
+
   const scoped = sessions.some((session) => session.id === scope) ? scope : null;
+  const scopedSession = sessions.find((session) => session.id === scoped) ?? null;
+  const hunks = scoped === null ? [] : splitDiff(body).hunks;
+  const selectedHunk = hunkIndex === null ? null : (hunks[hunkIndex] ?? null);
 
   if (diff.state === "gitMissing") {
     return (
@@ -310,7 +429,16 @@ export default function DiffPanel({ project }: { project: Project }) {
             </p>
           </Centred>
         ) : (
-          <DiffBody body={body} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <DiffBody
+              body={body}
+              selectedHunk={hunkIndex}
+              onSelectHunk={scoped === null ? null : setHunkIndex}
+            />
+            {scopedSession !== null && selectedHunk !== null && (
+              <HunkPromptBar path={selected} hunk={selectedHunk} session={scopedSession} />
+            )}
+          </div>
         )}
       </div>
     </div>

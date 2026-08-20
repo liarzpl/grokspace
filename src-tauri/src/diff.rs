@@ -1,9 +1,8 @@
 //! What the agents have changed, read out of git.
 //!
-//! Read-only on purpose, with one exception: Discard on a stopped session's
-//! worktree. Staging, committing and merging are decisions about a repository,
-//! and this half of Phase 5 only makes those decisions possible to take later
-//! by showing the right tree.
+//! Read-only on the project's tree. A stopped agent's worktree can be Discarded
+//! or Merged from the Diff panel — Merge commits leftover files on the session
+//! branch, then `git merge`s that branch into the project.
 //!
 //! The default view is the project's. An ACP agent that got a worktree can be
 //! selected so the panel reads *that* checkout — which is why

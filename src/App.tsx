@@ -33,6 +33,10 @@ interface StepsChanged {
   sessionId: string;
 }
 
+interface TasksChanged {
+  projectId: string;
+}
+
 interface SessionStatusChanged {
   id: string;
   status: SessionStatus;
@@ -194,6 +198,19 @@ export default function App() {
         .getState()
         .sessions.some((session) => session.id === sessionId);
       useStepStore.getState().refresh(sessionId, isOpen);
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    // Idle review writes the card to `review` in the database; this is the live
+    // path so the board does not wait for a tab switch to notice.
+    const unlisten = listen<TasksChanged>("tasks-changed", (event) => {
+      const active = useProjectStore.getState().activeProjectId;
+      if (active !== event.payload.projectId) return;
+      void useTaskStore.getState().loadTasks(event.payload.projectId);
     });
     return () => {
       void unlisten.then((stop) => stop());

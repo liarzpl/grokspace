@@ -71,6 +71,7 @@ pub fn run() {
             session::rename_session,
             session::close_session,
             session::discard_session_worktree,
+            session::merge_session_worktree,
             session::prompt_session,
             session::cancel_session,
             session::answer_session_permission,

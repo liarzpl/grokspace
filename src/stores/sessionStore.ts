@@ -98,6 +98,11 @@ interface SessionState {
    * a stuck Close button.
    */
   discardWorktree: (id: string) => Promise<void>;
+  /**
+   * Commits leftover files on a stopped agent's branch and merges that branch
+   * into the project. The tree is then removed, same as a successful Discard.
+   */
+  mergeWorktree: (id: string) => Promise<void>;
   markExited: (id: string, exitCode: number | null) => void;
   /** From the backend's status event, which only agents emit. */
   markStatus: (id: string, status: SessionStatus) => void;
@@ -314,6 +319,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }));
     } catch (error) {
       set({ error: errorMessage(error) });
+    }
+  },
+
+  mergeWorktree: async (id) => {
+    try {
+      const session = await api.mergeSessionWorktree(id);
+      set((state) => ({
+        sessions: state.sessions.map((existing) =>
+          existing.id === id ? session : existing,
+        ),
+        error: null,
+      }));
+    } catch (error) {
+      const message = errorMessage(error);
+      // The branch is already on the project; only teardown failed. The backend
+      // cleared worktree_path, so the chip must go too or Merge offers a retry
+      // that says "nothing to merge".
+      if (message.includes("the branch landed")) {
+        set((state) => ({
+          sessions: state.sessions.map((existing) =>
+            existing.id === id ? { ...existing, worktreePath: null } : existing,
+          ),
+          error: message,
+        }));
+        return;
+      }
+      set({ error: message });
     }
   },
 

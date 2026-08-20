@@ -14,6 +14,7 @@ import "@xyflow/react/dist/style.css";
 import { errorMessage } from "../lib/api";
 import { inferDirection, type GraphDocument } from "../lib/graph";
 import { askForGraph, canAskForGraph } from "../lib/graphAsk";
+import { openArtifactInDiff } from "../lib/graphArtifact";
 import { homeRelative } from "../lib/paths";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
@@ -201,10 +202,12 @@ function GraphCanvas({
   graph,
   warnings,
   compact,
+  session,
 }: {
   graph: GraphDocument;
   warnings: string[];
   compact: boolean;
+  session: Session;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -320,10 +323,23 @@ function GraphCanvas({
       {selected &&
         (compact ? (
           <div className="absolute inset-y-0 right-0 z-10 flex w-56 shadow-xl shadow-black/40">
-            <NodeInspector node={selected} onClose={() => setSelectedId(null)} compact />
+            <NodeInspector
+              node={selected}
+              onClose={() => setSelectedId(null)}
+              onOpenArtifact={(path) =>
+                void openArtifactInDiff(session.projectId, session.id, path)
+              }
+              compact
+            />
           </div>
         ) : (
-          <NodeInspector node={selected} onClose={() => setSelectedId(null)} />
+          <NodeInspector
+            node={selected}
+            onClose={() => setSelectedId(null)}
+            onOpenArtifact={(path) =>
+              void openArtifactInDiff(session.projectId, session.id, path)
+            }
+          />
         ))}
     </div>
   );
@@ -363,5 +379,12 @@ export default function GraphVisualizer({
     return <AwaitingGraph session={session} path={entry.path} />;
   }
 
-  return <GraphCanvas graph={entry.graph} warnings={entry.warnings} compact={compact} />;
+  return (
+    <GraphCanvas
+      graph={entry.graph}
+      warnings={entry.warnings}
+      compact={compact}
+      session={session}
+    />
+  );
 }

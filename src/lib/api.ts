@@ -92,6 +92,13 @@ export const api = {
     invoke<Session>("discard_session_worktree", { id }),
 
   /**
+   * Commits leftover files on a stopped session's branch and merges that branch
+   * into the project. The worktree is then removed; Discard is the other button.
+   */
+  mergeSessionWorktree: (id: string): Promise<Session> =>
+    invoke<Session>("merge_session_worktree", { id }),
+
+  /**
    * Sends a prompt to an `agent` session. `writeSession` is the terminal
    * equivalent and cannot know whether anything read what it typed; this is a
    * request, and the agent's reply is what returns the session to `idle`.

@@ -499,9 +499,10 @@ pub fn ingest_from_disk(
     ingest(conn, session_id, &json)
 }
 
-/// Watch-start recovery: fold a leftover file only when this session has no list
-/// yet. Re-reading while `proposed` would restore agent rows the user had deleted.
-fn ingest_if_none(
+/// Fold a leftover file only when this session has no list yet. Re-reading
+/// while `proposed` would restore agent rows the user had deleted. Watch-start
+/// and idle review share this gate.
+pub(crate) fn ingest_if_none(
     conn: &Connection,
     project_path: &Path,
     session_id: &str,

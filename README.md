@@ -304,12 +304,20 @@ worktree.
 
 Stop keeps the tree so the Diff panel can still read it. Close runs
 `git worktree remove` without `--force` and refuses while the tree is dirty.
-Discard, on a stopped session only, force-removes it. Restart mints a new session
-id but reuses the directory, so uncommitted files survive. Forgetting a project
+Discard, on a stopped session only, force-removes it. Merge, also stopped-only,
+commits leftover files on the session branch (a dirty tree cannot be merged
+otherwise) and `git merge`s that branch into the project. Uncommitted files on
+the project block the merge; `.grokspace/` does not, because that folder is
+GrokSpace's own. Conflicts abort. Restart mints a new session id but
+reuses the directory, so uncommitted files survive. Forgetting a project
 force-removes every leftover tree so git is not left with registered worktrees
 for a folder the sidebar no longer knows.
 
-Merge into the project branch is the second half of this phase.
+An assigned card moves from `in_progress` to `review` when the agent goes idle,
+except while its step list is still `proposed` — that idle is the Approve gate,
+not the end of the work. A selected diff hunk plus an optional sentence can be
+sent back to an idle agent. A graph node's file `artifactPath` opens that path
+in the Diff panel, scoped to the session.
 
 ### Database
 
@@ -359,12 +367,13 @@ the reservation was for.
   and a macOS runner, so the first tagged build is what verifies it. Tracked on
   [issue #8](https://github.com/liarzpl/grokspace/issues/8) with the other things that
   need a Mac and a licensed `grok`.
-- **Phase 5 — Isolation and review.** First half (this): ACP agents start in their
-  own git worktree, the diff panel can read that tree, Close refuses to eat dirty
-  work, Discard throws it away on purpose. Second half (not built): merge or drop a
-  worktree into the project branch, move the assigned card to `review` when the
-  agent goes idle, send a diff hunk back as a prompt, and link a graph node to a
-  file.
+- **Phase 5 — Isolation and review.** ACP agents start in their own git
+  worktree, the diff panel can read that tree, Close refuses to eat dirty work,
+  Discard throws it away, Merge commits leftover files and lands the branch on
+  the project. An assigned card moves to `review` when the agent goes idle,
+  except while the step list is still `proposed` (the Approve gate). A selected
+  hunk can be sent back as a prompt, and a graph node's file path opens in the
+  Diff panel. Done, with the same Mac/`grok` caveat Phase 2 carries.
 
 [`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
 merged with a hand-written one, every conflict, and which side won.
