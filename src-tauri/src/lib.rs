@@ -12,6 +12,7 @@ mod settings;
 mod skill;
 mod steps;
 mod task;
+mod worktree;
 
 use std::sync::Mutex;
 
@@ -69,6 +70,7 @@ pub fn run() {
             session::restart_session,
             session::rename_session,
             session::close_session,
+            session::discard_session_worktree,
             session::prompt_session,
             session::cancel_session,
             session::answer_session_permission,

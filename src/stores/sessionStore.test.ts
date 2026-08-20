@@ -8,6 +8,7 @@ const stopSession = vi.fn();
 const restartSession = vi.fn();
 const renameSession = vi.fn();
 const closeSession = vi.fn();
+const discardSessionWorktree = vi.fn();
 const answerSessionPermission = vi.fn();
 const promptSession = vi.fn();
 const cancelSession = vi.fn();
@@ -29,6 +30,7 @@ vi.mock("../lib/api", async () => {
       restartSession,
       renameSession,
       closeSession,
+      discardSessionWorktree,
       answerSessionPermission,
       promptSession,
       cancelSession,
@@ -639,6 +641,56 @@ describe("closeSession", () => {
 
     expect(useSessionStore.getState().sessions).toHaveLength(1);
     expect(disposeTerminal).not.toHaveBeenCalled();
+  });
+});
+
+describe("discardWorktree", () => {
+  it("clears the path on the session that kept its files", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    discardSessionWorktree.mockResolvedValue(
+      session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "stopped",
+        worktreePath: null,
+      }),
+    );
+
+    await useSessionStore.getState().discardWorktree("agent-1");
+
+    expect(discardSessionWorktree).toHaveBeenCalledWith("agent-1");
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
+  });
+
+  it("keeps the path when the backend refuses", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "running",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    discardSessionWorktree.mockRejectedValue("stop the agent first");
+
+    await useSessionStore.getState().discardWorktree("agent-1");
+
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
+    expect(useSessionStore.getState().error).toContain("stop the agent first");
   });
 });
 

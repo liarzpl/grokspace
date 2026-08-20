@@ -205,7 +205,7 @@ pub(crate) fn remove_and_stop_sessions(state: &AppState, id: &str) -> Result<()>
             .collect::<Vec<_>>()
     };
     for session_id in session_ids {
-        session::close(state, &session_id)?;
+        session::close_forgetting(state, &session_id)?;
     }
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
     remove(&conn, id)

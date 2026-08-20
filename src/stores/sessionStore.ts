@@ -92,6 +92,12 @@ interface SessionState {
   restartSession: (id: string, cols: number, rows: number) => Promise<Session | null>;
   renameSession: (id: string, title: string) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
+  /**
+   * Force-removes a stopped agent's worktree so Close can proceed. A live
+   * agent is refused: throwing away its cwd while it is writing is worse than
+   * a stuck Close button.
+   */
+  discardWorktree: (id: string) => Promise<void>;
   markExited: (id: string, exitCode: number | null) => void;
   /** From the backend's status event, which only agents emit. */
   markStatus: (id: string, status: SessionStatus) => void;
@@ -291,6 +297,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
         transcript: without(state.transcript, id),
+      }));
+    } catch (error) {
+      set({ error: errorMessage(error) });
+    }
+  },
+
+  discardWorktree: async (id) => {
+    try {
+      const session = await api.discardSessionWorktree(id);
+      set((state) => ({
+        sessions: state.sessions.map((existing) =>
+          existing.id === id ? session : existing,
+        ),
+        error: null,
       }));
     } catch (error) {
       set({ error: errorMessage(error) });

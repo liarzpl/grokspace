@@ -12,6 +12,7 @@ import {
 import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
+import AgentTranscript from "./AgentTranscript";
 
 const STATUS_TONE: Record<Session["status"], string> = {
   running: "bg-accent",
@@ -398,6 +399,7 @@ export function SessionStepsRail({
           </p>
         </div>
       )}
+      {selected?.kind === "agent" && <AgentTranscript session={selected} />}
     </aside>
   );
 }

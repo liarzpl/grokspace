@@ -11,6 +11,8 @@ const createSession = vi.fn();
 const updateProject = vi.fn();
 const stopSession = vi.fn();
 const closeSession = vi.fn();
+const restartSession = vi.fn();
+const discardSessionWorktree = vi.fn();
 const approveSessionSteps = vi.fn();
 const reopenSessionSteps = vi.fn();
 const writeSession = vi.fn();
@@ -27,6 +29,8 @@ vi.mock("../lib/api", async () => {
       listSessions: vi.fn(),
       stopSession,
       closeSession,
+      restartSession,
+      discardSessionWorktree,
       approveSessionSteps,
       reopenSessionSteps,
       writeSession,
@@ -129,6 +133,29 @@ describe("the command list", () => {
     expect(shown).toContain("Close Reviewer");
     expect(shown).not.toContain("Stop Grok");
     expect(shown).not.toContain("Close Grok");
+  });
+
+  it("offers Restart for a stopped agent, and Discard when it still has a worktree", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          title: "Reviewer",
+          status: "stopped",
+          worktreePath: "/tmp/acme/.grokspace/worktrees/agent-1",
+        }),
+      ],
+    });
+
+    const shown = labels(project());
+
+    expect(shown).toContain("Restart Reviewer");
+    expect(shown).toContain("Discard worktree for Reviewer");
+    expect(shown).toContain("Close Reviewer");
+    expect(shown).not.toContain("Stop Reviewer");
+    expect(shown).not.toContain("Cancel Reviewer");
   });
 
   it("does not offer another project's agent while this one is open", () => {

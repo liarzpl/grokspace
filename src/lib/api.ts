@@ -85,6 +85,13 @@ export const api = {
   closeSession: (id: string): Promise<void> => invoke<void>("close_session", { id }),
 
   /**
+   * Force-removes a stopped session's git worktree. Close refuses while the tree
+   * is dirty; this is the way to throw that work away on purpose.
+   */
+  discardSessionWorktree: (id: string): Promise<Session> =>
+    invoke<Session>("discard_session_worktree", { id }),
+
+  /**
    * Sends a prompt to an `agent` session. `writeSession` is the terminal
    * equivalent and cannot know whether anything read what it typed; this is a
    * request, and the agent's reply is what returns the session to `idle`.
@@ -139,17 +146,30 @@ export const api = {
 
   removeTask: (id: string): Promise<void> => invoke<void>("remove_task", { id }),
 
-  /** What the agents have changed in this project, according to git. */
-  projectDiff: (projectId: string): Promise<DiffState> =>
-    invoke<DiffState>("project_diff", { projectId }),
+  /**
+   * What the agents have changed, according to git. `sessionId` scopes the
+   * reading to that agent's worktree; omit it for the project's own tree.
+   */
+  projectDiff: (projectId: string, sessionId?: string | null): Promise<DiffState> =>
+    invoke<DiffState>("project_diff", { projectId, sessionId: sessionId ?? null }),
 
   /**
    * One file's diff. `untracked` picks the comparison: a file git has never seen has
    * nothing in HEAD to diff against, so it is diffed against nothing and reads as all
-   * additions.
+   * additions. `sessionId` is the same scope as `projectDiff`.
    */
-  fileDiff: (projectId: string, path: string, untracked: boolean): Promise<string> =>
-    invoke<string>("file_diff", { projectId, path, untracked }),
+  fileDiff: (
+    projectId: string,
+    path: string,
+    untracked: boolean,
+    sessionId?: string | null,
+  ): Promise<string> =>
+    invoke<string>("file_diff", {
+      projectId,
+      path,
+      untracked,
+      sessionId: sessionId ?? null,
+    }),
 
   readSettings: (): Promise<Settings> => invoke<Settings>("read_settings"),
 

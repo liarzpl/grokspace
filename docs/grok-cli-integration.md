@@ -82,6 +82,12 @@ Worktrees:
 - `--ref <ref>` — branch, tag, or commit to base the worktree on
 - `grok worktree list | show <id> | rm <id> [--dry-run] | gc [--max-age 7d]`
 
+GrokSpace does **not** pass `--worktree`. Every extra flag is a way for a session
+to fail to start on a `grok` that does not recognise it — the same reason graphs,
+memory, and roles stay out of flags. Isolation is `git worktree add` from
+[`src-tauri/src/worktree.rs`](../src-tauri/src/worktree.rs), and only for ACP
+agents. A Grok pane stays on the project folder.
+
 Terminal presentation:
 
 - `--no-alt-screen` — run inline instead of taking over the alternate screen
@@ -271,12 +277,29 @@ custom agent definitions and does work in agent mode. It was not used because it
 file format is undocumented in what is published, and a role that is a paragraph does
 not need a format.
 
+## What Phase 5 settled: isolation without a grok flag
+
+Per-session diffs needed each agent in its own checkout. `sessions.worktree_path`
+had been reserved since migration `0001`. Two ways to fill it were on the table
+and one was refused:
+
+- **`grok --worktree=`** is a flag, and this project has already twice refused to
+  add flags that a slightly older `grok` would not recognise. A session that will
+  not start is a worse failure than an agent that shares the project tree.
+- **`git worktree add`**, from GrokSpace, with cwd pointed at the new tree. The
+  process still starts if git is missing or the folder is not a repository; it
+  just does not isolate.
+
+The tree is a clean `HEAD`. An agent does not see the human's uncommitted files.
+Graphs, steps, and memory stay under the project via absolute environment
+variables, which is why those paths were made absolute in the first place.
+
+Merge into the project branch, idle→review, and hunk→prompt are the second half.
+
 ## Notes for later phases
 
 - A dispatched headless run should capture `sessionId` from
   `--output-format json` and persist it on the `sessions` row, so the session
   can later be resumed or exported.
-- An ACP-backed session needs no migration: `kind` is validated in Rust rather
-  than by a SQL `CHECK`, so a third value costs nothing. It does need somewhere to
-  be seen, having no pty — the task card and the Graph tab may be enough, since the
-  graph skill already teaches an agent to write its plan.
+- `--agent-profile` remains the untried option for roles; a paragraph of brief
+  was enough for Phase 3.
