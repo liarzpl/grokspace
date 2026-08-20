@@ -9,8 +9,6 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 
-import "@xyflow/react/dist/style.css";
-
 import { errorMessage } from "../lib/api";
 import { inferDirection, type GraphDocument } from "../lib/graph";
 import { askForGraph, canAskForGraph } from "../lib/graphAsk";

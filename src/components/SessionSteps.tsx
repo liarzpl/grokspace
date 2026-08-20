@@ -122,7 +122,7 @@ function StepRow({
   const reorder = useStepStore((state) => state.reorder);
   const [editing, setEditing] = useState<string | null>(null);
 
-  const mark = STEP_MARK[step.status];
+  const mark = STEP_MARK[step.status] ?? STEP_MARK.pending;
 
   const move = (delta: number) => {
     const ids = useStepStore
