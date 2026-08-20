@@ -14,17 +14,19 @@ interface Props {
 
 interface State {
   error: Error | null;
+  stack: string | null;
 }
 
 export default class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, stack: null };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(error, info.componentStack);
+    this.setState({ stack: info.componentStack ?? null });
   }
 
   render() {
@@ -59,9 +61,29 @@ export default class ErrorBoundary extends Component<Props, State> {
         >
           {this.state.error.message}
         </p>
+        {this.state.stack !== null && (
+          <pre
+            style={{
+              margin: "12px 0 0",
+              maxWidth: 52 * 13,
+              maxHeight: 12 * 16,
+              overflow: "auto",
+              padding: 12,
+              borderRadius: 6,
+              background: "#101319",
+              color: "#5b6474",
+              fontFamily: '"SF Mono", ui-monospace, Menlo, monospace',
+              fontSize: 11,
+              lineHeight: 1.45,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {this.state.stack.trim()}
+          </pre>
+        )}
         <button
           type="button"
-          onClick={() => this.setState({ error: null })}
+          onClick={() => this.setState({ error: null, stack: null })}
           style={{
             alignSelf: "flex-start",
             marginTop: 16,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
 import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
@@ -293,8 +293,10 @@ export default function DiffPanel({ project }: { project: Project }) {
   const isLoadingBody = useDiffStore((state) => state.isLoadingBody);
   const loadDiff = useDiffStore((state) => state.loadDiff);
   const selectFile = useDiffStore((state) => state.selectFile);
-  const sessions = useSessionsForProject(project.id).filter(
-    (session) => session.worktreePath !== null,
+  const projectSessions = useSessionsForProject(project.id);
+  const sessions = useMemo(
+    () => projectSessions.filter((session) => session.worktreePath !== null),
+    [projectSessions],
   );
   const [hunkIndex, setHunkIndex] = useState<number | null>(null);
 

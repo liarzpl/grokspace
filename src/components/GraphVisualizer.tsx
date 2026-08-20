@@ -213,6 +213,13 @@ function GraphCanvas({
   // edges and send React Flow into an update loop.
   const theme = useMemo(() => graphTheme(), []);
 
+  // React Flow's StoreUpdater tracks `fitViewOptions` by reference. An inline
+  // object every render re-queues fitView and can blow the update depth.
+  const fitViewOptions = useMemo(
+    () => ({ padding: 0.12, minZoom: compact ? 0.4 : 0.62, maxZoom: 1 }),
+    [compact],
+  );
+
   const direction = useMemo(() => inferDirection(graph.nodes), [graph.nodes]);
 
   const nodes = useMemo<GraphFlowNode[]>(
@@ -272,7 +279,7 @@ function GraphCanvas({
               // enough that the labels stop being readable, so fitting has a floor
               // and the rest is left to panning. A pane is narrower again, so its
               // floor is lower.
-              fitViewOptions={{ padding: 0.12, minZoom: compact ? 0.4 : 0.62, maxZoom: 1 }}
+              fitViewOptions={fitViewOptions}
               minZoom={0.2}
               maxZoom={1.6}
               // This visualises a graph rather than editing one.

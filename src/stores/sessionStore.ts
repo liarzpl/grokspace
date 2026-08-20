@@ -1,5 +1,5 @@
+import { useMemo } from "react";
 import { create } from "zustand";
-import { useShallow } from "zustand/react/shallow";
 
 import { api, errorMessage } from "../lib/api";
 import { briefPrompt, type Role } from "../lib/roles";
@@ -472,9 +472,16 @@ export function sessionsForProject(sessions: Session[], projectId: string): Sess
   return sessions.filter((session) => session.projectId === projectId);
 }
 
-/** Filtered list for render. Same session objects, stable array identity. */
+/**
+ * Filtered list for render. Selects the store's `sessions` array (stable until
+ * the store replaces it) and filters in `useMemo`, so `getSnapshot` never
+ * returns a fresh reference. Prefer this over putting `sessionsForProject` or
+ * `useShallow` in the selector.
+ */
 export function useSessionsForProject(projectId: string): Session[] {
-  return useSessionStore(
-    useShallow((state) => sessionsForProject(state.sessions, projectId)),
+  const sessions = useSessionStore((state) => state.sessions);
+  return useMemo(
+    () => sessionsForProject(sessions, projectId),
+    [sessions, projectId],
   );
 }
