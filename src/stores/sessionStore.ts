@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 
 import { api, errorMessage } from "../lib/api";
 import { briefPrompt, type Role } from "../lib/roles";
@@ -462,7 +463,18 @@ export function sessionForPane(sessions: Session[], paneId: string): Session | u
  * Sessions that belong to this project. The store can still hold the previous
  * project's list until `loadSessions` returns; anything that draws panes or
  * rails has to filter, or a reused pane id shows the last project's session.
+ *
+ * This allocates a new array every call. Do not use it as a Zustand selector:
+ * React 19's `useSyncExternalStore` loops if `getSnapshot` returns a fresh
+ * reference. `useSessionsForProject` is the hook that is safe to render with.
  */
 export function sessionsForProject(sessions: Session[], projectId: string): Session[] {
   return sessions.filter((session) => session.projectId === projectId);
+}
+
+/** Filtered list for render. Same session objects, stable array identity. */
+export function useSessionsForProject(projectId: string): Session[] {
+  return useSessionStore(
+    useShallow((state) => sessionsForProject(state.sessions, projectId)),
+  );
 }

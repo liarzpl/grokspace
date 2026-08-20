@@ -209,9 +209,9 @@ function GraphCanvas({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Read per render rather than at module load: the stylesheet has to be applied
-  // before getComputedStyle can see a variable, and a module body runs too early.
-  const theme = graphTheme();
+  // Tokens are fixed for the process; a fresh object every render would rebuild
+  // edges and send React Flow into an update loop.
+  const theme = useMemo(() => graphTheme(), []);
 
   const direction = useMemo(() => inferDirection(graph.nodes), [graph.nodes]);
 

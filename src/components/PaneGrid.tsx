@@ -1,5 +1,5 @@
 import { layoutOf, useProjectStore } from "../stores/projectStore";
-import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
+import { sessionForPane, useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { PANE_LAYOUTS, paneCount, type PaneLayout, type Project } from "../types";
 import TerminalPane from "./TerminalPane";
 
@@ -41,7 +41,7 @@ export default function PaneGrid({ project }: { project: Project }) {
   // Filtered rather than taken whole: the store still holds the previous
   // project's sessions until `loadSessions` returns, and drawing those here is
   // the bug where Grok stays on screen after a sidebar click.
-  const sessions = useSessionStore((state) => sessionsForProject(state.sessions, project.id));
+  const sessions = useSessionsForProject(project.id);
   const maximizedPane = useSessionStore((state) => state.maximizedPane);
 
   const panes = Array.from({ length: paneCount(layout) }, (_, index) => String(index));

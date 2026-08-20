@@ -9,7 +9,7 @@ import {
 } from "../lib/dispatch";
 import { ROLES, rolesInPlay } from "../lib/roles";
 import { sessionsWithSteps, stepProgress } from "../lib/steps";
-import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
+import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { tasksInColumn, useTaskStore } from "../stores/taskStore";
 import {
@@ -469,9 +469,7 @@ function DispatchRow({
  */
 function SwarmLauncher({ project }: { project: Project }) {
   const launchSwarm = useSessionStore((state) => state.launchSwarm);
-  const sessions = useSessionStore((state) =>
-    sessionsForProject(state.sessions, project.id),
-  );
+  const sessions = useSessionsForProject(project.id);
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState<readonly string[]>([]);
   const [launching, setLaunching] = useState(false);
@@ -562,9 +560,8 @@ function SwarmLauncher({ project }: { project: Project }) {
 }
 
 function CardStepTally({ sessionId }: { sessionId: string }) {
-  const progress = useStepStore((state) =>
-    stepProgress(stepsFor(state.bySession, sessionId).steps),
-  );
+  const steps = useStepStore((state) => stepsFor(state.bySession, sessionId).steps);
+  const progress = stepProgress(steps);
   if (progress === null) return null;
   return (
     <span className="shrink-0 font-mono text-ink-faint">
@@ -575,9 +572,7 @@ function CardStepTally({ sessionId }: { sessionId: string }) {
 
 export default function TaskBoard({ project }: { project: Project }) {
   const tasks = useTaskStore((state) => state.tasks);
-  const sessions = useSessionStore((state) =>
-    sessionsForProject(state.sessions, project.id),
-  );
+  const sessions = useSessionsForProject(project.id);
   const [dragging, setDragging] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 

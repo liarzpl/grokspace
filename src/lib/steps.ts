@@ -59,6 +59,10 @@ export async function sendApproval(
 /**
  * Done against the length of the list, or null when there is nothing to count.
  * Skipped items are not done: they were deliberately not done.
+ *
+ * A non-empty list returns a new object every call. Do not use this as a Zustand
+ * selector: React 19's `useSyncExternalStore` loops if `getSnapshot` returns a
+ * fresh reference. Select the steps array and count in render instead.
  */
 export function stepProgress(
   steps: readonly SessionStep[],

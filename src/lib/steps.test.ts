@@ -127,6 +127,11 @@ describe("stepProgress", () => {
   it("is silent when the list is empty", () => {
     expect(stepProgress([])).toBeNull();
   });
+
+  it("allocates a new object on every call when there is something to count", () => {
+    const steps = [step({ status: "done" })];
+    expect(stepProgress(steps)).not.toBe(stepProgress(steps));
+  });
 });
 
 describe("sessionsWithSteps", () => {
