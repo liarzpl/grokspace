@@ -99,6 +99,13 @@ export const api = {
     invoke<Session>("merge_session_worktree", { id }),
 
   /**
+   * Why Merge would refuse this session, without writing. `null` means leftover
+   * commit + merge may run. Conflicts are not predicted.
+   */
+  sessionMergeReadiness: (id: string): Promise<string | null> =>
+    invoke<string | null>("session_merge_readiness", { id }),
+
+  /**
    * Sends a prompt to an `agent` session. `writeSession` is the terminal
    * equivalent and cannot know whether anything read what it typed; this is a
    * request, and the agent's reply is what returns the session to `idle`.
