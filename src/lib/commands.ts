@@ -65,6 +65,48 @@ function startInFreePane(project: Project, kind: SessionKind) {
 }
 
 /**
+ * Installs graph, memory, and steps in that order. Each installer catches its own
+ * failure, so one refusal does not skip the rest; the combined command then names
+ * which skill failed, because the banner no longer has a single-skill button label
+ * to lean on.
+ */
+async function installGrokspaceSkills(): Promise<void> {
+  const skills: {
+    name: string;
+    install: () => Promise<void>;
+    readError: () => string | null;
+    writeError: (error: string) => void;
+  }[] = [
+    {
+      name: "graph",
+      install: () => useGraphStore.getState().installSkill(),
+      readError: () => useGraphStore.getState().error,
+      writeError: (error) => useGraphStore.setState({ error }),
+    },
+    {
+      name: "memory",
+      install: () => useMemoryStore.getState().installSkill(),
+      readError: () => useMemoryStore.getState().error,
+      writeError: (error) => useMemoryStore.setState({ error }),
+    },
+    {
+      name: "steps",
+      install: () => useStepStore.getState().installSkill(),
+      readError: () => useStepStore.getState().error,
+      writeError: (error) => useStepStore.setState({ error }),
+    },
+  ];
+
+  for (const skill of skills) {
+    await skill.install();
+    const error = skill.readError();
+    if (error !== null) {
+      skill.writeError(`Could not install the ${skill.name} skill: ${error}`);
+    }
+  }
+}
+
+/**
  * Everything the palette offers right now.
  *
  * Rebuilt on each open rather than memoised: which projects exist and which panes
@@ -270,6 +312,16 @@ export function commands(project: Project | null): Command[] {
       },
     });
   }
+
+  list.push({
+    id: "install-grokspace-skills",
+    label: "Install or refresh GrokSpace skills",
+    group: "Skills",
+    run: () => {
+      useUiStore.getState().closePalette();
+      void installGrokspaceSkills();
+    },
+  });
 
   list.push({
     id: "install-graph-skill",
