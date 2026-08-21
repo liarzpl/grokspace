@@ -15,7 +15,7 @@ import type { ChangedFile, DiffState } from "../types";
  * null for the project's own tree.
  */
 
-const NOTHING: DiffState = { state: "clean", branch: null };
+const NOTHING: DiffState = { state: "clean", branch: null, overlaps: [] };
 
 /** Drops in-flight `loadDiff` results that a newer project or scope has replaced. */
 let loadGeneration = 0;

@@ -12,7 +12,12 @@ vi.mock("../lib/api", async () => {
 
 const { changedCount, useDiffStore } = await import("./diffStore");
 
-const changed = (files: ChangedFile[]): DiffState => ({ state: "changed", branch: "main", files });
+const changed = (files: ChangedFile[]): DiffState => ({
+  state: "changed",
+  branch: "main",
+  files,
+  overlaps: [],
+});
 
 const initialState = useDiffStore.getState();
 
@@ -62,7 +67,7 @@ describe("loadDiff", () => {
     await useDiffStore.getState().loadDiff("p2");
 
     const state = useDiffStore.getState();
-    expect(state.diff).toEqual({ state: "clean", branch: null });
+    expect(state.diff).toEqual({ state: "clean", branch: null, overlaps: [] });
     expect(state.selected).toBeNull();
     expect(state.body).toBe("");
   });
@@ -156,5 +161,35 @@ describe("changedCount", () => {
     expect(changedCount({ state: "clean", branch: "main" })).toBe(0);
     expect(changedCount({ state: "gitMissing" })).toBe(0);
     expect(changedCount({ state: "notARepo" })).toBe(0);
+  });
+});
+
+describe("overlaps", () => {
+  it("keeps the overlap list the backend reports", async () => {
+    projectDiff.mockResolvedValue({
+      state: "changed",
+      branch: "grokspace/aaaaaaaa",
+      files: [{ path: "agent.rs", change: "untracked" }],
+      overlaps: [
+        {
+          path: "agent.rs",
+          hotspot: false,
+          peers: [{ sessionId: "agent-2", title: "Reviewer" }],
+        },
+      ],
+    });
+
+    await useDiffStore.getState().loadDiff("p1", "agent-1");
+
+    const { diff } = useDiffStore.getState();
+    expect(diff.state).toBe("changed");
+    if (diff.state !== "changed") return;
+    expect(diff.overlaps).toEqual([
+      {
+        path: "agent.rs",
+        hotspot: false,
+        peers: [{ sessionId: "agent-2", title: "Reviewer" }],
+      },
+    ]);
   });
 });
