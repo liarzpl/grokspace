@@ -117,8 +117,18 @@ export const api = {
   cancelSession: (id: string): Promise<void> => invoke<void>("cancel_session", { id }),
 
   /** Answers what an agent is blocked on, which is what lets it carry on. */
-  answerSessionPermission: (id: string, requestId: number, allow: boolean): Promise<void> =>
-    invoke<void>("answer_session_permission", { id, requestId, allow }),
+  answerSessionPermission: (
+    id: string,
+    requestId: number,
+    allow: boolean,
+    optionId?: string,
+  ): Promise<void> =>
+    invoke<void>("answer_session_permission", {
+      id,
+      requestId,
+      allow,
+      optionId: optionId ?? null,
+    }),
 
   listTasks: (projectId: string): Promise<Task[]> => invoke<Task[]>("list_tasks", { projectId }),
 

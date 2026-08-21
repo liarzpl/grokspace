@@ -130,6 +130,8 @@ pub struct Session {
 pub struct PendingPermission {
     pub request_id: u64,
     pub summary: String,
+    #[serde(default)]
+    pub options: Vec<acp::PermissionOption>,
 }
 
 fn from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
@@ -274,14 +276,16 @@ fn attach_permissions(conn: &Connection, sessions: &mut [Session]) -> Result<()>
         return Ok(());
     }
     let mut stmt = conn.prepare(
-        "SELECT session_id, request_id, summary FROM session_permissions ORDER BY request_id ASC",
+        "SELECT session_id, request_id, summary, options FROM session_permissions ORDER BY request_id ASC",
     )?;
     let rows = stmt.query_map([], |row| {
+        let options_json: String = row.get(3)?;
         Ok((
             row.get::<_, String>(0)?,
             PendingPermission {
                 request_id: row.get::<_, i64>(1)? as u64,
                 summary: row.get(2)?,
+                options: serde_json::from_str(&options_json).unwrap_or_default(),
             },
         ))
     })?;
@@ -304,11 +308,13 @@ pub fn record_permission(
     session_id: &str,
     request_id: u64,
     summary: &str,
+    options: &[acp::PermissionOption],
 ) -> Result<()> {
+    let options_json = serde_json::to_string(options)?;
     conn.execute(
-        "INSERT OR REPLACE INTO session_permissions (session_id, request_id, summary)
-         VALUES (?1, ?2, ?3)",
-        rusqlite::params![session_id, request_id as i64, summary],
+        "INSERT OR REPLACE INTO session_permissions (session_id, request_id, summary, options)
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![session_id, request_id as i64, summary, options_json],
     )?;
     Ok(())
 }
@@ -501,6 +507,7 @@ struct PermissionAsked {
     id: String,
     request_id: u64,
     summary: String,
+    options: Vec<acp::PermissionOption>,
 }
 
 #[derive(Clone, Serialize)]
@@ -570,7 +577,13 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
         on_permission: Box::new(move |request| {
             let state = permission_app.state::<AppState>();
             if let Ok(conn) = state.db.lock() {
-                let _ = record_permission(&conn, &permission_id, request.id, &request.summary);
+                let _ = record_permission(
+                    &conn,
+                    &permission_id,
+                    request.id,
+                    &request.summary,
+                    &request.options,
+                );
             }
             let _ = permission_app.emit(
                 PERMISSION_EVENT,
@@ -578,6 +591,7 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
                     id: permission_id.clone(),
                     request_id: request.id,
                     summary: request.summary,
+                    options: request.options,
                 },
             );
         }),
@@ -870,8 +884,11 @@ pub fn answer_session_permission(
     id: String,
     request_id: u64,
     allow: bool,
+    option_id: Option<String>,
 ) -> Result<()> {
-    state.acp.answer_permission(&id, request_id, allow)?;
+    state
+        .acp
+        .answer_permission(&id, request_id, allow, option_id.as_deref())?;
     if let Ok(conn) = state.db.lock() {
         let _ = clear_permission(&conn, &id, request_id);
     }
@@ -1548,7 +1565,7 @@ mod tests {
         let (conn, project_id) = fixture();
         let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
 
-        record_permission(&conn, &session.id, 9, "Write a file").unwrap();
+        record_permission(&conn, &session.id, 9, "Write a file", &[]).unwrap();
 
         let listed = list(&conn, &project_id).unwrap();
         assert_eq!(
@@ -1556,6 +1573,7 @@ mod tests {
             vec![PendingPermission {
                 request_id: 9,
                 summary: "Write a file".into(),
+                options: Vec::new(),
             }]
         );
 
@@ -1566,10 +1584,35 @@ mod tests {
     }
 
     #[test]
+    fn a_pending_permission_keeps_the_options_the_agent_offered() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        let options = vec![
+            acp::PermissionOption {
+                option_id: "allow-once".into(),
+                kind: "allow_once".into(),
+                name: "Allow once".into(),
+            },
+            acp::PermissionOption {
+                option_id: "allow-always".into(),
+                kind: "allow_always".into(),
+                name: "Always allow".into(),
+            },
+        ];
+
+        record_permission(&conn, &session.id, 9, "Write a file", &options).unwrap();
+
+        assert_eq!(
+            list(&conn, &project_id).unwrap()[0].pending_permissions[0].options,
+            options
+        );
+    }
+
+    #[test]
     fn stopping_a_session_drops_its_pending_permissions() {
         let (conn, project_id) = fixture();
         let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
-        record_permission(&conn, &session.id, 9, "Write a file").unwrap();
+        record_permission(&conn, &session.id, 9, "Write a file", &[]).unwrap();
 
         set_status(&conn, &session.id, SessionStatus::Stopped, None).unwrap();
 

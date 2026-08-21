@@ -18,7 +18,7 @@ import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { TABS, useUiStore } from "./stores/uiStore";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
-import type { SessionStatus, AgentUpdateKind } from "./types";
+import type { PermissionRequest, SessionStatus, AgentUpdateKind } from "./types";
 
 interface SessionExited {
   id: string;
@@ -43,10 +43,8 @@ interface SessionStatusChanged {
   status: SessionStatus;
 }
 
-interface PermissionAsked {
+interface PermissionAsked extends PermissionRequest {
   id: string;
-  requestId: number;
-  summary: string;
 }
 
 interface SessionUpdated {
@@ -162,8 +160,12 @@ export default function App() {
     // An agent blocked on a permission does nothing until it is answered, which is
     // why this is an event rather than something to be polled for.
     const unlisten = listen<PermissionAsked>("session-permission", (event) => {
-      const { id, requestId, summary } = event.payload;
-      useSessionStore.getState().askPermission(id, { requestId, summary });
+      const { id, requestId, summary, options } = event.payload;
+      useSessionStore.getState().askPermission(id, {
+        requestId,
+        summary,
+        options: options ?? [],
+      });
     });
     return () => {
       void unlisten.then((stop) => stop());
