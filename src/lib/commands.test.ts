@@ -17,6 +17,9 @@ const approveSessionSteps = vi.fn();
 const reopenSessionSteps = vi.fn();
 const writeSession = vi.fn();
 const promptSession = vi.fn();
+const installGraphSkill = vi.fn();
+const installMemorySkill = vi.fn();
+const installStepsSkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -35,11 +38,16 @@ vi.mock("../lib/api", async () => {
       reopenSessionSteps,
       writeSession,
       promptSession,
+      installGraphSkill,
+      installMemorySkill,
+      installStepsSkill,
     },
   };
 });
 
 const { commands, matching } = await import("./commands");
+const { useGraphStore } = await import("../stores/graphStore");
+const { useMemoryStore } = await import("../stores/memoryStore");
 const { useProjectStore } = await import("../stores/projectStore");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useStepStore } = await import("../stores/stepStore");
@@ -79,6 +87,8 @@ const initialUi = useUiStore.getState();
 const initialProjects = useProjectStore.getState();
 const initialSessions = useSessionStore.getState();
 const initialSteps = useStepStore.getState();
+const initialGraph = useGraphStore.getState();
+const initialMemory = useMemoryStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -86,6 +96,8 @@ beforeEach(() => {
   useProjectStore.setState(initialProjects, true);
   useSessionStore.setState(initialSessions, true);
   useStepStore.setState(initialSteps, true);
+  useGraphStore.setState(initialGraph, true);
+  useMemoryStore.setState(initialMemory, true);
 });
 
 const labels = (project: Project | null) => commands(project).map((command) => command.label);
@@ -205,6 +217,15 @@ describe("the command list", () => {
     });
 
     expect(labels(project())).toContain("Approve steps for Reviewer");
+  });
+
+  it("offers one click for all three skills once there is a project", () => {
+    const with_ = labels(project());
+
+    expect(with_).toContain("Install or refresh GrokSpace skills");
+    expect(with_).toContain("Install or refresh the graph skill");
+    expect(with_).toContain("Install or refresh the memory skill");
+    expect(labels(null)).not.toContain("Install or refresh GrokSpace skills");
   });
 
   it("gives every command a distinct id", () => {
@@ -357,6 +378,24 @@ describe("running a command", () => {
 
     expect(approveSessionSteps).not.toHaveBeenCalled();
     expect(promptSession).not.toHaveBeenCalled();
+  });
+
+  it("installs graph, memory, and steps together, and names a failure without stopping", async () => {
+    const ok = { path: "/h/.grok/skills/x", installed: true, current: true };
+    installGraphSkill.mockRejectedValue("permission denied");
+    installMemorySkill.mockResolvedValue(ok);
+    installStepsSkill.mockResolvedValue(ok);
+
+    commands(project()).find((command) => command.id === "install-grokspace-skills")?.run();
+    await vi.waitFor(() => expect(installStepsSkill).toHaveBeenCalled());
+
+    expect(installGraphSkill).toHaveBeenCalled();
+    expect(installMemorySkill).toHaveBeenCalled();
+    expect(useGraphStore.getState().error).toBe(
+      "Could not install the graph skill: permission denied",
+    );
+    expect(useMemoryStore.getState().skill?.current).toBe(true);
+    expect(useStepStore.getState().skill?.current).toBe(true);
   });
 });
 
