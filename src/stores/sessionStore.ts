@@ -45,6 +45,18 @@ function permissionsFrom(sessions: Session[]): Record<string, PermissionRequest[
 /** Drops in-flight `loadSessions` results that a newer project switch has replaced. */
 let loadGeneration = 0;
 
+/**
+ * Drops in-flight `inspectMerge` results that a newer inspect or merge replaced,
+ * so a late "ready" cannot hide a conflict abort that already landed on the strip.
+ */
+const inspectGeneration: Record<string, number> = {};
+
+function bumpInspect(id: string): number {
+  const next = (inspectGeneration[id] ?? 0) + 1;
+  inspectGeneration[id] = next;
+  return next;
+}
+
 interface StartInput {
   projectId: string;
   /** Absent for an agent, which runs beside the grid rather than in it. */
@@ -132,6 +144,12 @@ interface SessionState {
   isolationReasons: Record<string, string>;
   isLoading: boolean;
   error: string | null;
+  /**
+   * Why Merge would refuse each session, keyed by id. `null` means the
+   * pre-checks passed; absent means not yet inspected. A conflict abort is
+   * written here after click — it cannot be known before `git merge` runs.
+   */
+  mergeReasons: Record<string, string | null>;
 
   loadSessions: (projectId: string) => Promise<void>;
   startSession: (input: StartInput) => Promise<Session | null>;
@@ -155,6 +173,11 @@ interface SessionState {
    * into the project. The tree is then removed, same as a successful Discard.
    */
   mergeWorktree: (id: string) => Promise<void>;
+  /**
+   * Reads why Merge would refuse this session, without writing. The Diff
+   * panel calls this when a stopped worktree is scoped.
+   */
+  inspectMerge: (id: string) => Promise<void>;
   markExited: (id: string, exitCode: number | null) => void;
   /** From the backend's status event, which only agents emit. */
   markStatus: (id: string, status: SessionStatus) => void;
@@ -184,6 +207,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isolationReasons: {},
   isLoading: false,
   error: null,
+  mergeReasons: {},
 
   clearError: () => set({ error: null }),
 
@@ -206,12 +230,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       error: null,
       maximizedPane: null,
       paneViews: {},
-      ...(switching ? { sessions: [], permissions: {}, busyPanes: {} } : {}),
+      ...(switching
+        ? { sessions: [], permissions: {}, busyPanes: {}, mergeReasons: {}, isolationReasons: {} }
+        : {}),
     });
     if (switching) {
       for (const session of leaving) {
         detachTerminal(session.id);
         forgetSessionFiles(session.id);
+        bumpInspect(session.id);
       }
     }
     try {
@@ -231,6 +258,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isLoading: false,
         isolationReasons: isolationFrom(sessions, state.isolationReasons),
         transcript: switching ? state.transcript : keepOnly(state.transcript, arriving),
+        mergeReasons: keepOnly(state.mergeReasons, arriving),
       }));
     } catch (error) {
       if (generation !== loadGeneration) return;
@@ -242,6 +270,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isLoading: false,
         sessions: [],
         permissions: {},
+        mergeReasons: {},
       });
     }
   },
@@ -326,6 +355,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // to attach to and the graph of the run it replaced is not its own.
       disposeTerminal(id);
       forgetSessionFiles(id);
+      bumpInspect(id);
       set((state) => {
         const sessions = replaceInPane(
           state.sessions.filter((existing) => existing.id !== id),
@@ -335,6 +365,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           sessions,
           isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
           transcript: without(state.transcript, id),
+          mergeReasons: without(state.mergeReasons, id),
         };
       });
       return session;
@@ -362,11 +393,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await api.closeSession(id);
       disposeTerminal(id);
       forgetSessionFiles(id);
+      bumpInspect(id);
       set((state) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
         transcript: without(state.transcript, id),
         isolationReasons: without(state.isolationReasons, id),
+        mergeReasons: without(state.mergeReasons, id),
       }));
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -376,6 +409,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   discardWorktree: async (id) => {
     try {
       const session = await api.discardSessionWorktree(id);
+      bumpInspect(id);
       set((state) => {
         const sessions = state.sessions.map((existing) =>
           existing.id === id ? session : existing,
@@ -384,6 +418,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           sessions,
           isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
           error: null,
+          mergeReasons: without(state.mergeReasons, id),
         };
       });
     } catch (error) {
@@ -394,6 +429,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   mergeWorktree: async (id) => {
     try {
       const session = await api.mergeSessionWorktree(id);
+      bumpInspect(id);
       set((state) => {
         const sessions = state.sessions.map((existing) =>
           existing.id === id ? session : existing,
@@ -402,10 +438,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           sessions,
           isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
           error: null,
+          mergeReasons: without(state.mergeReasons, id),
         };
       });
     } catch (error) {
       const message = errorMessage(error);
+      bumpInspect(id);
       // The branch is already on the project; only teardown failed. The backend
       // cleared worktree_path, so the chip must go too or Merge offers a retry
       // that says "nothing to merge".
@@ -418,11 +456,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             sessions,
             isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
             error: message,
+            mergeReasons: without(state.mergeReasons, id),
           };
         });
         return;
       }
-      set({ error: message });
+      set((state) => ({
+        error: message,
+        mergeReasons: { ...state.mergeReasons, [id]: message },
+      }));
+    }
+  },
+
+  inspectMerge: async (id) => {
+    const generation = bumpInspect(id);
+    try {
+      const reason = await api.sessionMergeReadiness(id);
+      if (inspectGeneration[id] !== generation) return;
+      set((state) => ({
+        mergeReasons: { ...state.mergeReasons, [id]: reason },
+      }));
+    } catch (error) {
+      if (inspectGeneration[id] !== generation) return;
+      set((state) => ({
+        mergeReasons: { ...state.mergeReasons, [id]: errorMessage(error) },
+      }));
     }
   },
 

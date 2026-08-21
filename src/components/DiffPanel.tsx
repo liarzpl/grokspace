@@ -14,8 +14,10 @@ import type { ChangedFile, FileChange, Project, Session } from "../types";
  * What the agents changed, read out of git.
  *
  * Discard throws away a stopped agent's worktree so Close can proceed. Merge
- * commits leftover files on that branch and lands them on the project. A selected
- * hunk plus an optional sentence can be sent back to an idle agent.
+ * commits leftover files on that branch and lands them on the project. When a
+ * stopped worktree is scoped, a strip names why Merge would refuse (dirty
+ * project, nothing to merge) before a click; a conflict abort lands there too.
+ * A selected hunk plus an optional sentence can be sent back to an idle agent.
  *
  * The default view is the project's tree. ACP agents that isolated into a worktree
  * appear as chips; picking one reads that checkout, which is a clean `HEAD` plus
@@ -203,6 +205,34 @@ function sessionLabel(session: Session): string {
   return session.title ?? "Agent";
 }
 
+/**
+ * Why Merge will refuse this scoped, stopped worktree.
+ *
+ * Pre-checks (dirty project, nothing to merge, missing git) are read-only.
+ * A conflict abort only exists after click, and is written onto the same
+ * field so it is not only a toast at the bottom of the window.
+ */
+function MergeReadinessStrip({ sessionId }: { sessionId: string }) {
+  const reason = useSessionStore((state) => state.mergeReasons[sessionId]);
+  const inspectMerge = useSessionStore((state) => state.inspectMerge);
+  const diff = useDiffStore((state) => state.diff);
+
+  useEffect(() => {
+    void inspectMerge(sessionId);
+  }, [sessionId, inspectMerge, diff]);
+
+  if (reason == null || reason === "") return null;
+
+  return (
+    <div
+      role="status"
+      className="shrink-0 border-b border-danger/40 bg-danger/10 px-3 py-1.5 text-[11px] leading-relaxed text-danger"
+    >
+      {reason}
+    </div>
+  );
+}
+
 function ScopeChips({
   projectId,
   sessions,
@@ -217,87 +247,99 @@ function ScopeChips({
   onSelect: (sessionId: string | null) => void;
 }) {
   const reasons = useSessionStore((state) => state.isolationReasons);
+  const scoped = sessions.find((session) => session.id === scope);
+  const mergeReason = useSessionStore((state) =>
+    scoped !== undefined ? state.mergeReasons[scoped.id] : undefined,
+  );
+
   if (sessions.length === 0 && unisolated.length === 0) return null;
 
-  const scoped = sessions.find((session) => session.id === scope);
   const stopped = scoped?.status === "stopped";
 
   return (
-    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
-      <button
-        type="button"
-        onClick={() => onSelect(null)}
-        className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
-          scope === null
-            ? "border-accent bg-accent-soft text-ink"
-            : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
-        }`}
-      >
-        Project
-      </button>
-      {sessions.map((session) => (
+    <>
+      <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
         <button
-          key={session.id}
           type="button"
-          onClick={() => onSelect(session.id)}
+          onClick={() => onSelect(null)}
           className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
-            scope === session.id
+            scope === null
               ? "border-accent bg-accent-soft text-ink"
               : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
           }`}
         >
-          {sessionLabel(session)}
+          Project
         </button>
-      ))}
-      {unisolated.map((session) => (
-        <span
-          key={session.id}
-          title={isolationNotice(session, reasons[session.id])}
-          className="shrink-0 rounded-md border border-warning/40 px-2 py-0.5 text-[11px] text-warning"
-        >
-          {sessionLabel(session)} · project tree
-        </span>
-      ))}
-      <div className="flex-1" />
-      {stopped && scoped !== undefined && (
-        <>
+        {sessions.map((session) => (
           <button
+            key={session.id}
             type="button"
-            onClick={() => {
-              void (async () => {
-                await useSessionStore.getState().mergeWorktree(scoped.id);
-                const leftover = useSessionStore
-                  .getState()
-                  .sessions.find((session) => session.id === scoped.id);
-                if (leftover?.worktreePath === null) {
-                  await useDiffStore.getState().loadDiff(projectId, null);
-                }
-              })();
-            }}
-            className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+            onClick={() => onSelect(session.id)}
+            className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
+              scope === session.id
+                ? "border-accent bg-accent-soft text-ink"
+                : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
+            }`}
           >
-            Merge
+            {sessionLabel(session)}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              void (async () => {
-                await useSessionStore.getState().discardWorktree(scoped.id);
-                const leftover = useSessionStore
-                  .getState()
-                  .sessions.find((session) => session.id === scoped.id);
-                if (leftover?.worktreePath === null) {
-                  await useDiffStore.getState().loadDiff(projectId, null);
-                }
-              })();
-            }}
-            className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+        ))}
+        {unisolated.map((session) => (
+          <span
+            key={session.id}
+            title={isolationNotice(session, reasons[session.id])}
+            className="shrink-0 rounded-md border border-warning/40 px-2 py-0.5 text-[11px] text-warning"
           >
-            Discard
-          </button>
-        </>
-      )}
-    </div>
+            {sessionLabel(session)} · project tree
+          </span>
+        ))}
+        <div className="flex-1" />
+        {stopped && scoped !== undefined && (
+          <>
+            <button
+              type="button"
+              title={
+                mergeReason != null && mergeReason !== ""
+                  ? mergeReason
+                  : "Merge this agent's branch into the project"
+              }
+              onClick={() => {
+                void (async () => {
+                  await useSessionStore.getState().mergeWorktree(scoped.id);
+                  const leftover = useSessionStore
+                    .getState()
+                    .sessions.find((session) => session.id === scoped.id);
+                  if (leftover?.worktreePath === null) {
+                    await useDiffStore.getState().loadDiff(projectId, null);
+                  }
+                })();
+              }}
+              className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+            >
+              Merge
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void (async () => {
+                  await useSessionStore.getState().discardWorktree(scoped.id);
+                  const leftover = useSessionStore
+                    .getState()
+                    .sessions.find((session) => session.id === scoped.id);
+                  if (leftover?.worktreePath === null) {
+                    await useDiffStore.getState().loadDiff(projectId, null);
+                  }
+                })();
+              }}
+              className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+            >
+              Discard
+            </button>
+          </>
+        )}
+      </div>
+      {stopped && scoped !== undefined && <MergeReadinessStrip sessionId={scoped.id} />}
+    </>
   );
 }
 

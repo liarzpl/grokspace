@@ -9,6 +9,7 @@ const restartSession = vi.fn();
 const renameSession = vi.fn();
 const closeSession = vi.fn();
 const mergeSessionWorktree = vi.fn();
+const sessionMergeReadiness = vi.fn();
 const discardSessionWorktree = vi.fn();
 const answerSessionPermission = vi.fn();
 const promptSession = vi.fn();
@@ -33,6 +34,7 @@ vi.mock("../lib/api", async () => {
       closeSession,
       discardSessionWorktree,
       mergeSessionWorktree,
+      sessionMergeReadiness,
       answerSessionPermission,
       promptSession,
       cancelSession,
@@ -715,6 +717,7 @@ describe("mergeWorktree", () => {
           worktreePath: "/tmp/tree",
         }),
       ],
+      mergeReasons: { "agent-1": "nothing to merge" },
     });
     mergeSessionWorktree.mockResolvedValue(
       session({
@@ -730,6 +733,7 @@ describe("mergeWorktree", () => {
 
     expect(mergeSessionWorktree).toHaveBeenCalledWith("agent-1");
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toBeUndefined();
   });
 
   it("keeps the path when the backend refuses", async () => {
@@ -750,6 +754,35 @@ describe("mergeWorktree", () => {
 
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
     expect(useSessionStore.getState().error).toContain("stop the agent first");
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toContain(
+      "stop the agent first",
+    );
+  });
+
+  it("writes a conflict abort onto the reason field", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+      mergeReasons: { "agent-1": null },
+    });
+    mergeSessionWorktree.mockRejectedValue(
+      "git could not merge the agent's branch — the merge was aborted",
+    );
+
+    await useSessionStore.getState().mergeWorktree("agent-1");
+
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toContain(
+      "the merge was aborted",
+    );
+    expect(useSessionStore.getState().error).toContain("the merge was aborted");
   });
 
   it("clears the path when the branch landed but teardown failed", async () => {
@@ -763,6 +796,7 @@ describe("mergeWorktree", () => {
           worktreePath: "/tmp/tree",
         }),
       ],
+      mergeReasons: { "agent-1": null },
     });
     mergeSessionWorktree.mockRejectedValue(
       "the branch landed, but the worktree could not be removed: device busy",
@@ -772,6 +806,39 @@ describe("mergeWorktree", () => {
 
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
     expect(useSessionStore.getState().error).toContain("the branch landed");
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toBeUndefined();
+  });
+});
+
+describe("inspectMerge", () => {
+  it("stores the reason the backend reports", async () => {
+    sessionMergeReadiness.mockResolvedValue("commit or stash the project first");
+
+    await useSessionStore.getState().inspectMerge("agent-1");
+
+    expect(sessionMergeReadiness).toHaveBeenCalledWith("agent-1");
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toBe(
+      "commit or stash the project first",
+    );
+  });
+
+  it("stores null when leftover commit and merge may run", async () => {
+    sessionMergeReadiness.mockResolvedValue(null);
+
+    await useSessionStore.getState().inspectMerge("agent-1");
+
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toBeNull();
+  });
+
+  it("writes a thrown inspect onto the reason field rather than the toast", async () => {
+    sessionMergeReadiness.mockRejectedValue("no session found with id agent-1");
+
+    await useSessionStore.getState().inspectMerge("agent-1");
+
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toBe(
+      "no session found with id agent-1",
+    );
+    expect(useSessionStore.getState().error).toBeNull();
   });
 });
 

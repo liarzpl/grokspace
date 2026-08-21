@@ -304,6 +304,48 @@ fn is_ancestor(git_path: &str, cwd: &Path, ancestor: &str, descendant: &str) -> 
     .is_some_and(|output| output.status.success())
 }
 
+const NO_WORKTREE: &str = "this session has no worktree";
+const GIT_MISSING: &str = "git is not installed, so the worktree cannot be merged";
+const PROJECT_DIRTY: &str = "commit or stash the project first";
+const NOT_ON_A_BRANCH: &str = "this worktree is not on a branch, so there is nothing to merge";
+const NOTHING_TO_MERGE: &str = "nothing to merge";
+const MERGE_ABORTED: &str = "git could not merge the agent's branch — the merge was aborted";
+
+/// Why Merge would refuse without writing. `None` means leftover commit +
+/// `git merge --no-edit` may run. Conflicts are not predicted: they only
+/// exist after that merge aborts.
+pub fn merge_refusal(project_path: &Path, worktree_path: &Path) -> Result<Option<String>> {
+    if !worktree_path.exists() {
+        return Ok(Some(NO_WORKTREE.into()));
+    }
+
+    let Some(git_path) = program::find("git") else {
+        return Ok(Some(GIT_MISSING.into()));
+    };
+
+    if is_project_dirty(&git_path, project_path)? {
+        return Ok(Some(PROJECT_DIRTY.into()));
+    }
+
+    // A detached HEAD is refused even when leftover files would otherwise
+    // make a commit. Inspect does not create that commit.
+    if current_branch(&git_path, worktree_path).is_none() {
+        return Ok(Some(NOT_ON_A_BRANCH.into()));
+    }
+
+    if is_dirty(worktree_path)? {
+        return Ok(None);
+    }
+
+    let project_head = rev_parse(&git_path, project_path, "HEAD")?;
+    let worktree_head = rev_parse(&git_path, worktree_path, "HEAD")?;
+    if is_ancestor(&git_path, project_path, &worktree_head, &project_head) {
+        return Ok(Some(NOTHING_TO_MERGE.into()));
+    }
+
+    Ok(None)
+}
+
 /// Commits dirty files on the session branch, then merges that branch into the
 /// project's current `HEAD`.
 ///
@@ -316,38 +358,32 @@ fn is_ancestor(git_path: &str, cwd: &Path, ancestor: &str, descendant: &str) -> 
 /// GrokSpace would not own a commit until the Diff panel could show the work.
 pub fn merge_into_project(project_path: &Path, worktree_path: &Path, message: &str) -> Result<()> {
     if !worktree_path.exists() {
-        return Err(Error::Invalid("this session has no worktree".into()));
+        return Err(Error::Invalid(NO_WORKTREE.into()));
     }
 
-    let git_path = program::find("git").ok_or_else(|| {
-        Error::Invalid("git is not installed, so the worktree cannot be merged".into())
-    })?;
+    let git_path = program::find("git").ok_or_else(|| Error::Invalid(GIT_MISSING.into()))?;
 
     if is_project_dirty(&git_path, project_path)? {
-        return Err(Error::Invalid("commit or stash the project first".into()));
+        return Err(Error::Invalid(PROJECT_DIRTY.into()));
     }
 
     if is_dirty(worktree_path)? {
         commit_all(&git_path, worktree_path, message)?;
     }
 
-    let branch = current_branch(&git_path, worktree_path).ok_or_else(|| {
-        Error::Invalid("this worktree is not on a branch, so there is nothing to merge".into())
-    })?;
+    let branch = current_branch(&git_path, worktree_path)
+        .ok_or_else(|| Error::Invalid(NOT_ON_A_BRANCH.into()))?;
 
     let project_head = rev_parse(&git_path, project_path, "HEAD")?;
     let worktree_head = rev_parse(&git_path, worktree_path, "HEAD")?;
     if is_ancestor(&git_path, project_path, &worktree_head, &project_head) {
-        return Err(Error::Invalid("nothing to merge".into()));
+        return Err(Error::Invalid(NOTHING_TO_MERGE.into()));
     }
 
     let merged = git(&git_path, project_path, &["merge", "--no-edit", &branch])?;
     if !merged.status.success() {
         let _ = git(&git_path, project_path, &["merge", "--abort"]);
-        return Err(git_error(
-            &merged,
-            "git could not merge the agent's branch — the merge was aborted",
-        ));
+        return Err(git_error(&merged, MERGE_ABORTED));
     }
     Ok(())
 }
@@ -652,5 +688,81 @@ mod tests {
             fs::read_to_string(dir.path().join("later.md")).unwrap(),
             "human\n"
         );
+    }
+
+    #[test]
+    fn merge_refusal_names_a_dirty_project_without_writing() {
+        let dir = repo();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
+        fs::write(dir.path().join("README.md"), "human edit\n").unwrap();
+
+        assert_eq!(
+            merge_refusal(dir.path(), &tree).unwrap().as_deref(),
+            Some("commit or stash the project first")
+        );
+        assert!(
+            !dir.path().join("agent.rs").exists(),
+            "inspect must not copy the agent's file"
+        );
+        assert!(is_dirty(&tree).unwrap(), "inspect must not commit");
+    }
+
+    #[test]
+    fn merge_refusal_names_nothing_to_merge_on_the_same_head() {
+        let dir = repo();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+        assert_eq!(
+            merge_refusal(dir.path(), &tree).unwrap().as_deref(),
+            Some("nothing to merge")
+        );
+    }
+
+    #[test]
+    fn merge_refusal_is_silent_when_the_worktree_has_uncommitted_work() {
+        let dir = repo();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
+
+        assert_eq!(merge_refusal(dir.path(), &tree).unwrap(), None);
+        assert!(is_dirty(&tree).unwrap(), "inspect must not commit");
+        assert!(
+            !dir.path().join("agent.rs").exists(),
+            "inspect must not merge"
+        );
+    }
+
+    #[test]
+    fn merge_refusal_names_a_missing_worktree() {
+        let dir = repo();
+        let missing = dir.path().join("no-such-worktree");
+
+        assert_eq!(
+            merge_refusal(dir.path(), &missing).unwrap().as_deref(),
+            Some("this session has no worktree")
+        );
+    }
+
+    #[test]
+    fn merge_refusal_names_a_worktree_that_is_behind_the_project() {
+        let dir = repo();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fs::write(dir.path().join("later.md"), "human\n").unwrap();
+        let git = program::find("git").unwrap();
+        for args in [vec!["add", "."], vec!["commit", "-qm", "later"]] {
+            let done = Command::new(&git)
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
+            assert!(done.status.success(), "git {args:?} failed");
+        }
+
+        assert_eq!(
+            merge_refusal(dir.path(), &tree).unwrap().as_deref(),
+            Some("nothing to merge")
+        );
+        assert!(tree.exists(), "inspect must leave the worktree");
     }
 }

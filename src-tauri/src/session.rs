@@ -1003,6 +1003,28 @@ pub fn merge_session_worktree(state: State<'_, AppState>, id: String) -> Result<
     }
 }
 
+/// Why Merge would refuse this session, without committing or merging.
+///
+/// `None` means leftover commit + `git merge --no-edit` may run. Conflicts
+/// are not predicted. The Diff panel reads this onto a strip so the reasons
+/// are visible before a click, rather than only on the toast afterwards.
+#[tauri::command]
+pub fn session_merge_readiness(state: State<'_, AppState>, id: String) -> Result<Option<String>> {
+    let (session, project_path) = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        let session = get(&conn, &id)?;
+        let project = project::get(&conn, &session.project_id)?;
+        (session, project.path)
+    };
+    if session.status != SessionStatus::Stopped {
+        return Ok(Some("stop the agent first".into()));
+    }
+    let Some(tree) = session.worktree_path.as_deref() else {
+        return Ok(Some("this session has no worktree".into()));
+    };
+    worktree::merge_refusal(Path::new(&project_path), Path::new(tree))
+}
+
 fn merge_commit_message(session: &Session) -> String {
     let label = session
         .title
