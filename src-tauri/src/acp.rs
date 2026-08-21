@@ -23,7 +23,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::error::{Error, Result};
@@ -58,10 +58,13 @@ pub enum AgentStatus {
 }
 
 /// One choice the agent offered on a permission request.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PermissionOption {
     pub option_id: String,
+    #[serde(default)]
     pub kind: String,
+    #[serde(default)]
     pub name: String,
 }
 
@@ -278,10 +281,19 @@ fn permission_options(message: &Value) -> Vec<PermissionOption> {
 
 /// The JSON-RPC `result` for a permission reply, matching ACP v1.
 ///
-/// Deny selects a reject option. `cancelled` means the prompt turn was cancelled,
-/// which is not what Allow/Deny on a card means.
-pub fn permission_result(allow: bool, options: &[PermissionOption]) -> Result<Value> {
-    let option = pick_option(allow, options).ok_or_else(|| {
+/// Deny selects `reject_once`. `cancelled` means the prompt turn was cancelled,
+/// which is not what Allow/Deny on a card means. Allow never selects
+/// `allow_always`; that is a separate named chip.
+fn permission_choice(
+    allow: bool,
+    options: &[PermissionOption],
+    option_id: Option<&str>,
+) -> Result<Value> {
+    let option = match option_id {
+        Some(id) => options.iter().find(|option| option.option_id == id),
+        None => pick_option(allow, options),
+    };
+    let option = option.ok_or_else(|| {
         Error::Invalid("the agent offered no permission option that matches the answer".into())
     })?;
     Ok(json!({
@@ -292,34 +304,24 @@ pub fn permission_result(allow: bool, options: &[PermissionOption]) -> Result<Va
     }))
 }
 
+/// Primary Allow is `allow_once` only. `allow_always` is a separate chip the
+/// user has to pick by name; folding it into Allow is the silent
+/// `--always-approve` bug. Empty kinds are not guessed as Allow.
 fn pick_option(allow: bool, options: &[PermissionOption]) -> Option<&PermissionOption> {
-    if options.is_empty() {
-        return None;
-    }
-    let preferred: &[&str] = if allow {
-        &["allow_once", "allow_always"]
-    } else {
-        &["reject_once", "reject_always"]
-    };
-    for kind in preferred {
-        if let Some(option) = options.iter().find(|option| option.kind == *kind) {
-            return Some(option);
-        }
-    }
-    // No kinds at all: the first option is the only honest guess. Mixed kinds
-    // with nothing matching would pick the wrong allow/deny, so that is refused.
-    if options.iter().all(|option| option.kind.is_empty()) {
-        options.first()
-    } else {
-        None
-    }
+    let wanted = if allow { "allow_once" } else { "reject_once" };
+    options.iter().find(|option| option.kind == wanted)
 }
 
-fn permission_reply(rpc_id: &Value, allow: bool, options: &[PermissionOption]) -> Result<Value> {
+fn permission_reply(
+    rpc_id: &Value,
+    allow: bool,
+    options: &[PermissionOption],
+    option_id: Option<&str>,
+) -> Result<Value> {
     Ok(json!({
         "jsonrpc": "2.0",
         "id": rpc_id,
-        "result": permission_result(allow, options)?,
+        "result": permission_choice(allow, options, option_id)?,
     }))
 }
 
@@ -591,7 +593,16 @@ impl AcpManager {
     }
 
     /// Answers a permission request, which is what lets the agent carry on.
-    pub fn answer_permission(&self, id: &str, request_id: u64, allow: bool) -> Result<()> {
+    ///
+    /// `option_id` is the extra chip (Always allow / Always deny). Primary
+    /// Allow/Deny leave it unset and map to `allow_once` / `reject_once` only.
+    pub fn answer_permission(
+        &self,
+        id: &str,
+        request_id: u64,
+        allow: bool,
+        option_id: Option<&str>,
+    ) -> Result<()> {
         let agent = self.agent(id)?;
         let (rpc_id, options) = {
             let tracker = lock(&agent.tracker);
@@ -600,7 +611,7 @@ impl AcpManager {
                 tracker.options_for(request_id),
             )
         };
-        let reply = permission_reply(&rpc_id, allow, &options)?;
+        let reply = permission_reply(&rpc_id, allow, &options, option_id)?;
 
         let mut stdin = lock(&agent.stdin);
         let sent = write_message(&mut *stdin, &reply);
@@ -1032,11 +1043,15 @@ mod tests {
         assert_eq!(request.options, v1_options());
     }
 
+    fn permission_result(allow: bool, options: &[PermissionOption]) -> Result<Value> {
+        permission_choice(allow, options, None)
+    }
+
     #[test]
-    fn allow_selects_the_nested_v1_outcome_and_the_request_option_id() {
+    fn allow_selects_the_nested_v1_permission_outcome_and_the_request_option_id() {
         // The published ACP v1 example, not a flattened guess.
         assert_eq!(
-            permission_reply(&json!(5), true, &v1_options()).unwrap(),
+            permission_reply(&json!(5), true, &v1_options(), None).unwrap(),
             json!({
                 "jsonrpc": "2.0",
                 "id": 5,
@@ -1051,9 +1066,10 @@ mod tests {
     }
 
     #[test]
-    fn deny_selects_a_reject_option_rather_than_cancelling_the_turn() {
+    fn deny_selects_a_reject_once_permission_rather_than_cancelling_the_turn() {
+        let reply = permission_reply(&json!(5), false, &v1_options(), None).unwrap();
         assert_eq!(
-            permission_reply(&json!(5), false, &v1_options()).unwrap(),
+            reply,
             json!({
                 "jsonrpc": "2.0",
                 "id": 5,
@@ -1065,10 +1081,77 @@ mod tests {
                 }
             })
         );
+        assert_ne!(reply["result"]["outcome"]["outcome"], json!("cancelled"));
     }
 
     #[test]
-    fn the_option_id_is_read_from_the_request_not_assumed() {
+    fn allow_with_only_allow_always_sends_no_permission_option() {
+        let options = vec![PermissionOption {
+            option_id: "allow-always".into(),
+            kind: "allow_always".into(),
+            name: "Always allow".into(),
+        }];
+        let error = permission_result(true, &options).unwrap_err();
+        assert!(
+            error.to_string().contains("no permission option"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn allow_picks_the_allow_once_permission_not_allow_always() {
+        let options = vec![
+            PermissionOption {
+                option_id: "allow-always".into(),
+                kind: "allow_always".into(),
+                name: "Always allow".into(),
+            },
+            PermissionOption {
+                option_id: "allow-once".into(),
+                kind: "allow_once".into(),
+                name: "Allow once".into(),
+            },
+        ];
+        let result = permission_result(true, &options).unwrap();
+        assert_eq!(result["outcome"]["optionId"], json!("allow-once"));
+    }
+
+    #[test]
+    fn empty_permission_kinds_are_not_guessed_as_allow() {
+        let options = vec![PermissionOption {
+            option_id: "first".into(),
+            kind: String::new(),
+            name: "Sure".into(),
+        }];
+        assert!(permission_result(true, &options).is_err());
+        assert!(permission_result(false, &options).is_err());
+    }
+
+    #[test]
+    fn deny_does_not_fall_back_to_a_reject_always_permission() {
+        let options = vec![PermissionOption {
+            option_id: "reject-always".into(),
+            kind: "reject_always".into(),
+            name: "Always reject".into(),
+        }];
+        assert!(permission_result(false, &options).is_err());
+    }
+
+    #[test]
+    fn an_explicit_permission_option_id_selects_allow_always() {
+        let options = vec![PermissionOption {
+            option_id: "allow-always".into(),
+            kind: "allow_always".into(),
+            name: "Always allow".into(),
+        }];
+        assert!(permission_result(true, &options).is_err());
+        let result = permission_choice(true, &options, Some("allow-always")).unwrap();
+        assert_eq!(result["outcome"]["optionId"], json!("allow-always"));
+        assert_eq!(result["outcome"]["outcome"], json!("selected"));
+    }
+
+    #[test]
+    fn the_permission_option_id_is_read_from_the_request_not_assumed() {
         let options = vec![PermissionOption {
             option_id: "allow-this-run".into(),
             kind: "allow_once".into(),
@@ -1081,7 +1164,7 @@ mod tests {
 
     #[test]
     fn a_string_rpc_id_is_echoed_rather_than_rewritten_as_a_number() {
-        let reply = permission_reply(&json!("9"), true, &v1_options()).unwrap();
+        let reply = permission_reply(&json!("9"), true, &v1_options(), None).unwrap();
         assert_eq!(reply["id"], json!("9"));
     }
 
@@ -1362,7 +1445,7 @@ mod tests {
         }));
         assert_eq!(lock(&tracker).status(), AgentStatus::NeedsInput);
 
-        manager.answer_permission("a1", 9, true).unwrap();
+        manager.answer_permission("a1", 9, true, None).unwrap();
 
         assert_eq!(rx.recv().unwrap(), AgentStatus::Running);
         assert_eq!(lock(&tracker).status(), AgentStatus::Running);

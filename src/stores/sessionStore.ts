@@ -183,7 +183,12 @@ interface SessionState {
   markStatus: (id: string, status: SessionStatus) => void;
   /** From the backend's permission event. */
   askPermission: (id: string, request: PermissionRequest) => void;
-  answerPermission: (id: string, requestId: number, allow: boolean) => Promise<void>;
+  answerPermission: (
+    id: string,
+    requestId: number,
+    allow: boolean,
+    optionId?: string,
+  ) => Promise<void>;
   /** From the backend's `session-isolation` event. */
   noteIsolation: (id: string, reason: string) => void;
   /** From the backend's `session-update` event. */
@@ -524,9 +529,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       };
     }),
 
-  answerPermission: async (id, requestId, allow) => {
+  answerPermission: async (id, requestId, allow, optionId) => {
     try {
-      await api.answerSessionPermission(id, requestId, allow);
+      await api.answerSessionPermission(id, requestId, allow, optionId);
       set((state) => ({
         permissions: {
           ...state.permissions,

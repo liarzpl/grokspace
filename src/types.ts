@@ -46,6 +46,13 @@ export type SessionStatus = "idle" | "running" | "needs_input" | "stopped";
  */
 export type SessionKind = "grok" | "shell" | "agent";
 
+/** One choice the agent listed on a permission request. */
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: string;
+}
+
 /**
  * Something an agent is blocked on. It does nothing further until this is
  * answered, which is what `needs_input` means.
@@ -54,6 +61,8 @@ export interface PermissionRequest {
   /** The id to answer with; the agent is waiting on this exact one. */
   requestId: number;
   summary: string;
+  /** The choices the agent listed. Allow uses only `allow_once`. */
+  options?: PermissionOption[];
 }
 
 export interface Session {

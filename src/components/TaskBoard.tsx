@@ -19,6 +19,7 @@ import {
   type Task,
   type TaskStatus,
 } from "../types";
+import { PermissionActions } from "./PermissionActions";
 import { SessionStepsRail } from "./SessionSteps";
 
 /** The four columns, left to right. */
@@ -273,17 +274,16 @@ function TaskCard({
       {pending.map((request) => (
         <div key={request.requestId} className="mt-1.5 rounded-sm bg-elevated p-1.5">
           <p className="text-[10px] leading-snug text-ink-muted">{request.summary}</p>
-          <div className="mt-1 flex items-center gap-0.5">
-            <CardButton
-              label="Allow"
-              onClick={() =>
-                void answerPermission(assigned?.id ?? "", request.requestId, true)
-              }
-            />
-            <CardButton
-              label="Deny"
-              onClick={() =>
-                void answerPermission(assigned?.id ?? "", request.requestId, false)
+          <div className="mt-1">
+            <PermissionActions
+              request={request}
+              onAnswer={(allow, optionId) =>
+                void answerPermission(
+                  assigned?.id ?? "",
+                  request.requestId,
+                  allow,
+                  optionId,
+                )
               }
             />
           </div>

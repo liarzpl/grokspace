@@ -451,8 +451,18 @@ describe("permissions", () => {
 
     await useSessionStore.getState().answerPermission("s1", 9, true);
 
-    expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true);
+    expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true, undefined);
     expect(useSessionStore.getState().permissions["s1"]?.map((p) => p.requestId)).toEqual([10]);
+  });
+
+  it("forwards an explicit option id so Always allow is not smuggled through Allow", async () => {
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
+    useSessionStore.getState().askPermission("s1", asked);
+    answerSessionPermission.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().answerPermission("s1", 9, true, "allow-always");
+
+    expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true, "allow-always");
   });
 
   it("leaves the question standing when the answer could not be sent", async () => {

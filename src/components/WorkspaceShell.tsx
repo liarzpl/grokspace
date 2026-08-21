@@ -21,6 +21,7 @@ import DiffPanel from "./DiffPanel";
 import GraphVisualizer from "./GraphVisualizer";
 import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
+import { PermissionActions } from "./PermissionActions";
 import SessionSteps from "./SessionSteps";
 import TaskBoard from "./TaskBoard";
 
@@ -231,16 +232,12 @@ function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
               {" · "}
               {request.summary}
             </p>
-            <div className="flex shrink-0 items-center gap-0.5">
-              <ChipButton
-                label="Allow"
-                onClick={() => void answerPermission(sessionId, request.requestId, true)}
-              />
-              <ChipButton
-                label="Deny"
-                onClick={() => void answerPermission(sessionId, request.requestId, false)}
-              />
-            </div>
+            <PermissionActions
+              request={request}
+              onAnswer={(allow, optionId) =>
+                void answerPermission(sessionId, request.requestId, allow, optionId)
+              }
+            />
           </div>
         ));
       })}
