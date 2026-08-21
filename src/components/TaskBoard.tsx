@@ -167,6 +167,7 @@ function TaskCard({
 
   const [choosing, setChoosing] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [editingDesc, setEditingDesc] = useState<string | null>(null);
 
   const column = COLUMNS.findIndex(({ status }) => status === task.status);
 
@@ -190,9 +191,17 @@ function TaskCard({
     }
   };
 
+  const commitDescription = () => {
+    const next = editingDesc;
+    setEditingDesc(null);
+    if (next !== null && next.trim() !== (task.description ?? "")) {
+      void editTask(task.id, { description: next });
+    }
+  };
+
   return (
     <div
-      draggable={editing === null}
+      draggable={editing === null && editingDesc === null}
       onDragStart={(event) => {
         event.dataTransfer.setData(DRAG_MIME, task.id);
         event.dataTransfer.effectAllowed = "move";
@@ -223,9 +232,26 @@ function TaskCard({
         </p>
       )}
 
-      {task.description !== null && (
-        <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-ink-faint">
-          {task.description}
+      {editingDesc !== null ? (
+        <input
+          autoFocus
+          value={editingDesc}
+          onChange={(event) => setEditingDesc(event.target.value)}
+          onBlur={commitDescription}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commitDescription();
+            if (event.key === "Escape") setEditingDesc(null);
+          }}
+          placeholder="Context for the agent (optional)"
+          className="selectable mt-1 w-full rounded-sm border border-accent bg-canvas px-1 py-0.5 text-[10px] text-ink focus:outline-none"
+        />
+      ) : (
+        <p
+          onDoubleClick={() => setEditingDesc(task.description ?? "")}
+          title="Double-click to edit description"
+          className="mt-1 line-clamp-2 text-[10px] leading-snug text-ink-faint"
+        >
+          {task.description ?? "Add description…"}
         </p>
       )}
 
