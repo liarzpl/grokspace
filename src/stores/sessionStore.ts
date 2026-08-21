@@ -63,12 +63,23 @@ const FALLBACK_SIZE = { cols: 80, rows: 24 };
  * An ACP agent that never got a worktree is on the project tree. The sentence is
  * what the banner says when the live skip reason has not arrived, or after a
  * reload that only has `kind` and a null path.
+ *
+ * Stopped sessions are excluded: Merge and Discard clear `worktreePath` on a
+ * session that *did* isolate, and a stopped agent is no longer writing anywhere.
  */
 export const UNISOLATED_REASON =
   "Isolation did not happen, so this agent is on the project tree.";
 
+function isLiveAgent(session: Session): boolean {
+  return (
+    session.status === "running" ||
+    session.status === "idle" ||
+    session.status === "needs_input"
+  );
+}
+
 export function isUnisolatedAgent(session: Session): boolean {
-  return session.kind === "agent" && session.worktreePath === null;
+  return session.kind === "agent" && session.worktreePath === null && isLiveAgent(session);
 }
 
 /** The banner line for one unisolated agent. `reason` is the skip, when we have it. */
@@ -116,7 +127,7 @@ interface SessionState {
   transcript: Record<string, AgentUpdate[]>;
   /**
    * Why isolation failed, keyed by session. Live events fill the skip reason;
-   * reload derives the generic sentence from `kind === "agent"` and a null path.
+   * reload derives the generic sentence from a live agent with a null path.
    */
   isolationReasons: Record<string, string>;
   isLoading: boolean;
@@ -421,15 +432,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
    * no-op here.
    */
   markExited: (id, exitCode) =>
-    set((state) => ({
-      sessions: state.sessions.map((session) =>
+    set((state) => {
+      const sessions = state.sessions.map((session) =>
         session.id === id
           ? { ...session, status: "stopped" as const, exitCode, processId: null }
           : session,
-      ),
-      // Nothing can answer what a session that has gone was asking.
-      permissions: without(state.permissions, id),
-    })),
+      );
+      return {
+        sessions,
+        isolationReasons: isolationFrom(sessions, state.isolationReasons),
+        // Nothing can answer what a session that has gone was asking.
+        permissions: without(state.permissions, id),
+      };
+    }),
 
   markStatus: (id, status) =>
     set((state) => ({

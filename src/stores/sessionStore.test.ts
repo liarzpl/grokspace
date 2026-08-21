@@ -818,9 +818,26 @@ describe("sessionForPane", () => {
 });
 
 describe("isUnisolatedAgent", () => {
-  it("is an agent with no worktree", () => {
+  it("is a live agent with no worktree", () => {
     expect(
-      isUnisolatedAgent(session({ kind: "agent", paneId: null, worktreePath: null })),
+      isUnisolatedAgent(
+        session({ kind: "agent", paneId: null, status: "idle", worktreePath: null }),
+      ),
+    ).toBe(true);
+    expect(
+      isUnisolatedAgent(
+        session({ kind: "agent", paneId: null, status: "running", worktreePath: null }),
+      ),
+    ).toBe(true);
+    expect(
+      isUnisolatedAgent(
+        session({
+          kind: "agent",
+          paneId: null,
+          status: "needs_input",
+          worktreePath: null,
+        }),
+      ),
     ).toBe(true);
   });
 
@@ -832,6 +849,19 @@ describe("isUnisolatedAgent", () => {
     expect(
       isUnisolatedAgent(
         session({ kind: "agent", paneId: null, worktreePath: "/tmp/tree" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is not a stopped agent, even with no worktree", () => {
+    expect(
+      isUnisolatedAgent(
+        session({
+          kind: "agent",
+          paneId: null,
+          status: "stopped",
+          worktreePath: null,
+        }),
       ),
     ).toBe(false);
   });
@@ -863,6 +893,7 @@ describe("isolationReasons", () => {
         id: "agent-1",
         paneId: null,
         kind: "agent",
+        status: "idle",
         worktreePath: null,
         title: "Reviewer",
       }),
@@ -879,12 +910,13 @@ describe("isolationReasons", () => {
     expect(useSessionStore.getState().isolationReasons["agent-1"]).toBe(UNISOLATED_REASON);
   });
 
-  it("flags an agent with no worktree after reload, without a live event", async () => {
+  it("flags a live agent with no worktree after reload, without a live event", async () => {
     listSessions.mockResolvedValue([
       session({
         id: "agent-1",
         paneId: null,
         kind: "agent",
+        status: "idle",
         worktreePath: null,
         title: "Reviewer",
       }),
@@ -895,6 +927,23 @@ describe("isolationReasons", () => {
     expect(useSessionStore.getState().isolationReasons["agent-1"]).toBe(UNISOLATED_REASON);
   });
 
+  it("does not flag a stopped agent after reload", async () => {
+    listSessions.mockResolvedValue([
+      session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "stopped",
+        worktreePath: null,
+        title: "Reviewer",
+      }),
+    ]);
+
+    await useSessionStore.getState().loadSessions("p1");
+
+    expect(useSessionStore.getState().isolationReasons).toEqual({});
+  });
+
   it("keeps a live skip reason across reload", async () => {
     useSessionStore.getState().noteIsolation("agent-1", "this folder is not a git repository");
     listSessions.mockResolvedValue([
@@ -902,6 +951,7 @@ describe("isolationReasons", () => {
         id: "agent-1",
         paneId: null,
         kind: "agent",
+        status: "idle",
         worktreePath: null,
         title: "Reviewer",
       }),
@@ -953,6 +1003,88 @@ describe("isolationReasons", () => {
 
     await useSessionStore.getState().closeSession("agent-1");
 
+    expect(useSessionStore.getState().isolationReasons).toEqual({});
+  });
+
+  it("drops the flag when a live unisolated agent stops", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "running",
+          worktreePath: null,
+        }),
+      ],
+      isolationReasons: { "agent-1": UNISOLATED_REASON },
+    });
+
+    useSessionStore.getState().markExited("agent-1", null);
+
+    const stopped = useSessionStore.getState().sessions[0];
+    expect(stopped?.status).toBe("stopped");
+    expect(isUnisolatedAgent(stopped!)).toBe(false);
+    expect(useSessionStore.getState().isolationReasons).toEqual({});
+  });
+
+  it("does not flag a session after its worktree is discarded", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    discardSessionWorktree.mockResolvedValue(
+      session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "stopped",
+        worktreePath: null,
+      }),
+    );
+
+    await useSessionStore.getState().discardWorktree("agent-1");
+
+    const leftover = useSessionStore.getState().sessions[0];
+    expect(leftover?.worktreePath).toBeNull();
+    expect(isUnisolatedAgent(leftover!)).toBe(false);
+    expect(useSessionStore.getState().isolationReasons).toEqual({});
+  });
+
+  it("does not flag a session after its worktree is merged", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    mergeSessionWorktree.mockResolvedValue(
+      session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "stopped",
+        worktreePath: null,
+      }),
+    );
+
+    await useSessionStore.getState().mergeWorktree("agent-1");
+
+    const leftover = useSessionStore.getState().sessions[0];
+    expect(leftover?.worktreePath).toBeNull();
+    expect(isUnisolatedAgent(leftover!)).toBe(false);
     expect(useSessionStore.getState().isolationReasons).toEqual({});
   });
 });
