@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Permissions granted to the main GrokSpace window.",
   "windows": ["main"],
-  "permissions": ["core:default", "core:window:allow-start-dragging", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-badge-count",
+    "core:window:allow-request-user-attention",
+    "dialog:allow-open"
+  ]
 }

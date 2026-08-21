@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 
 import CommandPalette from "./components/CommandPalette";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -17,8 +18,23 @@ import { useTaskStore } from "./stores/taskStore";
 import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { TABS, useUiStore } from "./stores/uiStore";
+import { createDockTracker, type DockNative } from "./lib/dockAttention";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
 import type { PermissionRequest, SessionStatus, AgentUpdateKind } from "./types";
+
+const dockAttention = createDockTracker();
+
+function dockNative(): DockNative {
+  const current = getCurrentWindow();
+  return {
+    setBadgeCount: (count) => {
+      void current.setBadgeCount(count);
+    },
+    requestUserAttention: () => {
+      void current.requestUserAttention(UserAttentionType.Informational);
+    },
+  };
+}
 
 interface SessionExited {
   id: string;
@@ -134,10 +150,37 @@ export default function App() {
   }, [closePalette, pickAndOpenProject, togglePalette]);
 
   useEffect(() => {
+    // Badge follows the session list; bounce is a transition, handled on the
+    // status and permission events. Focus only changes whether the badge is
+    // shown — the card already has Allow/Deny when this window is in front.
+    const current = getCurrentWindow();
+    const native = dockNative();
+    const unsubscribe = useSessionStore.subscribe((state) => {
+      dockAttention.apply(state.sessions, native);
+    });
+    const unlisten = current.onFocusChanged(({ payload: focused }) => {
+      dockAttention.setFocused(focused, useSessionStore.getState().sessions, native);
+    });
+    void current.isFocused().then((focused) => {
+      dockAttention.setFocused(focused, useSessionStore.getState().sessions, native);
+    });
+    return () => {
+      unsubscribe();
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
     // Terminal output streams over a channel; exits are infrequent enough to
     // belong on the event system.
     const unlisten = listen<SessionExited>("session-exited", (event) => {
       useSessionStore.getState().markExited(event.payload.id, event.payload.exitCode);
+      dockAttention.note(
+        event.payload.id,
+        "stopped",
+        useSessionStore.getState().sessions,
+        dockNative(),
+      );
     });
     return () => {
       void unlisten.then((stop) => stop());
@@ -150,6 +193,12 @@ export default function App() {
     // is the live path rather than the only one.
     const unlisten = listen<SessionStatusChanged>("session-status", (event) => {
       useSessionStore.getState().markStatus(event.payload.id, event.payload.status);
+      dockAttention.note(
+        event.payload.id,
+        event.payload.status,
+        useSessionStore.getState().sessions,
+        dockNative(),
+      );
     });
     return () => {
       void unlisten.then((stop) => stop());
@@ -158,7 +207,9 @@ export default function App() {
 
   useEffect(() => {
     // An agent blocked on a permission does nothing until it is answered, which is
-    // why this is an event rather than something to be polled for.
+    // why this is an event rather than something to be polled for. Permission is
+    // also what needs_input means, and the backend emits it before the status
+    // event, so the bounce starts here rather than waiting on the follow-up.
     const unlisten = listen<PermissionAsked>("session-permission", (event) => {
       const { id, requestId, summary, options } = event.payload;
       useSessionStore.getState().askPermission(id, {
@@ -166,6 +217,7 @@ export default function App() {
         summary,
         options: options ?? [],
       });
+      dockAttention.note(id, "needs_input", useSessionStore.getState().sessions, dockNative());
     });
     return () => {
       void unlisten.then((stop) => stop());
