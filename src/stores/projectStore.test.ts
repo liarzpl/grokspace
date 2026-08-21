@@ -243,3 +243,19 @@ describe("forgetProject", () => {
     expect(removeProject).toHaveBeenCalledWith("a");
   });
 });
+
+describe("layoutOf", () => {
+  it("does not throw when settings is null", () => {
+    // A JSON `null` blob would make `settings["terminalLayout"]` throw, and that
+    // throw is in PaneGrid's render — production React then blanks the window.
+    expect(
+      layoutOf(project({ settings: null as unknown as Project["settings"] })),
+    ).toBe("2x2");
+  });
+
+  it("ignores a settings value that is not a record", () => {
+    expect(
+      layoutOf(project({ settings: [] as unknown as Project["settings"] })),
+    ).toBe("2x2");
+  });
+});

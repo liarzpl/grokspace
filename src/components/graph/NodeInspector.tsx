@@ -30,7 +30,7 @@ export default function NodeInspector({
   /** Fills a floating container instead of claiming a column of its own. */
   compact?: boolean;
 }) {
-  const status = STATUS_META[node.status];
+  const status = STATUS_META[node.status] ?? STATUS_META.pending;
   const artifactPath = node.data.artifactPath;
   const artifactOpens =
     onOpenArtifact !== undefined && isFileArtifact(artifactPath);

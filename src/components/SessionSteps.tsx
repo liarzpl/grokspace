@@ -122,7 +122,7 @@ function StepRow({
   const reorder = useStepStore((state) => state.reorder);
   const [editing, setEditing] = useState<string | null>(null);
 
-  const mark = STEP_MARK[step.status];
+  const mark = STEP_MARK[step.status] ?? STEP_MARK.pending;
 
   const move = (delta: number) => {
     const ids = useStepStore
@@ -405,7 +405,8 @@ export function SessionStepsRail({
 }
 
 function StepTally({ sessionId }: { sessionId: string }) {
-  const progress = useStepStore((state) => stepProgress(stepsFor(state.bySession, sessionId).steps));
+  const steps = useStepStore((state) => stepsFor(state.bySession, sessionId).steps);
+  const progress = stepProgress(steps);
   if (progress === null) return null;
   return (
     <span className="shrink-0 font-mono text-[10px] text-ink-faint">

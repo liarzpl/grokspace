@@ -52,8 +52,8 @@ export const STATUS_META: Record<NodeStatus, { label: string; border: string; do
 
 export default function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNode>) {
   const { node, direction } = data;
-  const type = TYPE_META[node.type];
-  const status = STATUS_META[node.status];
+  const type = TYPE_META[node.type] ?? TYPE_META.agent;
+  const status = STATUS_META[node.status] ?? STATUS_META.pending;
 
   const handleClass = "size-1.5! border-0! bg-line-strong!";
 

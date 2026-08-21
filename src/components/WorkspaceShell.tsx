@@ -7,7 +7,7 @@ import { orphanedPermissions } from "../lib/permissions";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
-import { sessionsForProject, useSessionStore } from "../stores/sessionStore";
+import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useStepStore } from "../stores/stepStore";
 import AgentTranscript from "./AgentTranscript";
 import { useTaskStore } from "../stores/taskStore";
@@ -171,9 +171,7 @@ function ChipButton({ label, onClick }: { label: string; onClick: () => void }) 
  */
 function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
   const permissions = useSessionStore((state) => state.permissions);
-  const sessions = useSessionStore((state) =>
-    sessionsForProject(state.sessions, projectId),
-  );
+  const sessions = useSessionsForProject(projectId);
   const tasks = useTaskStore((state) => state.tasks);
   const answerPermission = useSessionStore((state) => state.answerPermission);
   const orphaned = orphanedPermissions(
@@ -312,9 +310,7 @@ function GraphSummary({ session }: { session: Session | undefined }) {
 
 export default function WorkspaceShell({ project }: { project: Project }) {
   const loadSessions = useSessionStore((state) => state.loadSessions);
-  const sessions = useSessionStore((state) =>
-    sessionsForProject(state.sessions, project.id),
-  );
+  const sessions = useSessionsForProject(project.id);
   const loadGraph = useGraphStore((state) => state.load);
   const syncSteps = useStepStore((state) => state.syncSessions);
   const loadTasks = useTaskStore((state) => state.loadTasks);

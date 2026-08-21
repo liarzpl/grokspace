@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import CommandPalette from "./components/CommandPalette";
+import ErrorBoundary from "./components/ErrorBoundary";
 import SettingsPanel from "./components/SettingsPanel";
 import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
@@ -15,7 +16,7 @@ import { useStepStore } from "./stores/stepStore";
 import { useTaskStore } from "./stores/taskStore";
 import { useDiffStore } from "./stores/diffStore";
 import { useSettingsStore } from "./stores/settingsStore";
-import { useUiStore } from "./stores/uiStore";
+import { TABS, useUiStore } from "./stores/uiStore";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
 import type { SessionStatus, AgentUpdateKind } from "./types";
 
@@ -100,7 +101,11 @@ export default function App() {
     void useSettingsStore
       .getState()
       .loadSettings()
-      .then((settings) => useUiStore.getState().setTab(settings.openingTab));
+      .then((settings) => {
+        if (TABS.some((tab) => tab.id === settings.openingTab)) {
+          useUiStore.getState().setTab(settings.openingTab);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -224,7 +229,9 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <ProjectSidebar />
         <main className="flex min-w-0 flex-1 flex-col">
-          {activeProject ? <WorkspaceShell project={activeProject} /> : <EmptyState />}
+          <ErrorBoundary>
+            {activeProject ? <WorkspaceShell project={activeProject} /> : <EmptyState />}
+          </ErrorBoundary>
         </main>
       </div>
 

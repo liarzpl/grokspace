@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "@xyflow/react/dist/style.css" layer(components);
+@import "@xterm/xterm/css/xterm.css" layer(components);
 
 /* Dark-only palette for now.
    
@@ -64,8 +66,8 @@
 
 @layer base {
   html,
-  body,
-  #root {
+  body {
+    width: 100%;
     height: 100%;
   }
 
@@ -132,4 +134,16 @@
   .animate-node-pulse {
     animation: none;
   }
+}
+
+/*
+  Unlayered on purpose. Overlay titlebar webviews have reported a 0-height
+  percentage chain (html → body → #root → h-full), which clips the UI after the
+  first unstyled paint — components flash, then only the window background
+  remains. `inset: 0` sizes against the viewport instead of that chain.
+*/
+#root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }

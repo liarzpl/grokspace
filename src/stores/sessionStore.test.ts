@@ -820,6 +820,12 @@ describe("sessionsForProject", () => {
     expect(sessionsForProject(sessions, "p1").map((item) => item.id)).toEqual(["a"]);
     expect(sessionsForProject(sessions, "p2").map((item) => item.id)).toEqual(["b"]);
   });
+
+  it("allocates a new array on every call even when contents match", () => {
+    const sessions = [session({ id: "a", projectId: "p1" })];
+    expect(sessionsForProject(sessions, "p1")).not.toBe(sessionsForProject(sessions, "p1"));
+    expect(sessionsForProject([], "p1")).not.toBe(sessionsForProject([], "p1"));
+  });
 });
 
 describe("appendUpdate", () => {

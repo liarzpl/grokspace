@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
@@ -462,7 +463,25 @@ export function sessionForPane(sessions: Session[], paneId: string): Session | u
  * Sessions that belong to this project. The store can still hold the previous
  * project's list until `loadSessions` returns; anything that draws panes or
  * rails has to filter, or a reused pane id shows the last project's session.
+ *
+ * This allocates a new array every call. Do not use it as a Zustand selector:
+ * React 19's `useSyncExternalStore` loops if `getSnapshot` returns a fresh
+ * reference. `useSessionsForProject` is the hook that is safe to render with.
  */
 export function sessionsForProject(sessions: Session[], projectId: string): Session[] {
   return sessions.filter((session) => session.projectId === projectId);
+}
+
+/**
+ * Filtered list for render. Selects the store's `sessions` array (stable until
+ * the store replaces it) and filters in `useMemo`, so `getSnapshot` never
+ * returns a fresh reference. Prefer this over putting `sessionsForProject` or
+ * `useShallow` in the selector.
+ */
+export function useSessionsForProject(projectId: string): Session[] {
+  const sessions = useSessionStore((state) => state.sessions);
+  return useMemo(
+    () => sessionsForProject(sessions, projectId),
+    [sessions, projectId],
+  );
 }
