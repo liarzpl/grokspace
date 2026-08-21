@@ -7,7 +7,12 @@ import { orphanedPermissions } from "../lib/permissions";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
-import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
+import {
+  isolationNotice,
+  isUnisolatedAgent,
+  useSessionsForProject,
+  useSessionStore,
+} from "../stores/sessionStore";
 import { useStepStore } from "../stores/stepStore";
 import AgentTranscript from "./AgentTranscript";
 import { useTaskStore } from "../stores/taskStore";
@@ -95,6 +100,7 @@ function SessionChip({
   const cancelSession = useSessionStore((state) => state.cancelSession);
   const restartSession = useSessionStore((state) => state.restartSession);
   const discardWorktree = useSessionStore((state) => state.discardWorktree);
+  const isolationReason = useSessionStore((state) => state.isolationReasons[session.id]);
   const status = entry.graph?.status;
   const tone =
     entry.error !== null
@@ -127,6 +133,14 @@ function SessionChip({
         <span className="max-w-40 truncate">{sessionLabel(session)}</span>
         {session.kind === "agent" && (
           <span className="shrink-0 font-mono text-[10px] text-ink-faint">{session.status}</span>
+        )}
+        {isUnisolatedAgent(session) && (
+          <span
+            title={isolationNotice(session, isolationReason)}
+            className="shrink-0 text-[10px] text-warning"
+          >
+            project tree
+          </span>
         )}
       </button>
       {session.kind === "agent" && (
@@ -169,6 +183,30 @@ function ChipButton({ label, onClick }: { label: string; onClick: () => void }) 
  * Allow/Deny for agents that no task card owns. Swarm launches and palette-started
  * agents would otherwise sit on `needs_input` with no way to answer.
  */
+/**
+ * ACP agents that never got a worktree. Derived from the session list so a
+ * reload still shows it; the live skip reason is extra, not the only path.
+ */
+function IsolationBanner({ projectId }: { projectId: string }) {
+  const sessions = useSessionsForProject(projectId);
+  const reasons = useSessionStore((state) => state.isolationReasons);
+  const unisolated = sessions.filter(isUnisolatedAgent);
+  if (unisolated.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 flex-col gap-1.5 border-b border-warning/40 bg-warning/10 px-4 py-2"
+    >
+      {unisolated.map((session) => (
+        <p key={session.id} className="text-[11px] leading-snug text-ink-muted">
+          {isolationNotice(session, reasons[session.id])}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
   const permissions = useSessionStore((state) => state.permissions);
   const sessions = useSessionsForProject(projectId);
@@ -397,6 +435,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         {tab === "memory" && <MemorySummary />}
       </header>
 
+      <IsolationBanner projectId={project.id} />
       <OrphanedPermissionBanner projectId={project.id} />
 
       {/*

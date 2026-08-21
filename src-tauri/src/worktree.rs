@@ -9,7 +9,9 @@
 //!
 //! Isolation is best-effort. Missing git, a folder that is not a repository, or a
 //! `worktree add` that fails all mean the agent starts in the project folder with
-//! no `worktree_path`, rather than refusing to start at all.
+//! no `worktree_path`, rather than refusing to start at all. The miss is a skip
+//! with a reason: silent `None` is how an agent ends up writing on the project
+//! tree without anyone being told.
 //!
 //! Merge commits leftover files on the session branch, then merges that branch
 //! into the project. The worktree is left for the caller to remove.
@@ -71,34 +73,97 @@ fn is_repo(git_path: &str, project_path: &Path) -> bool {
     .is_some_and(|output| output.status.success())
 }
 
-/// Creates a clean checkout of `HEAD` for this session, or `None` when isolation
+/// Why an ACP agent started in the project folder instead of its own checkout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IsolationSkip {
+    GitMissing,
+    NotARepo,
+    Failed(String),
+}
+
+impl IsolationSkip {
+    /// Short enough to sit in a banner, specific enough to tell the cases apart.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::GitMissing => "git is not installed",
+            Self::NotARepo => "this folder is not a git repository",
+            Self::Failed(reason) => reason,
+        }
+    }
+}
+
+/// Outcome of trying to give an ACP agent its own checkout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Isolation {
+    Isolated(PathBuf),
+    Skipped(IsolationSkip),
+}
+
+impl Isolation {
+    pub fn path(self) -> Option<PathBuf> {
+        match self {
+            Self::Isolated(path) => Some(path),
+            Self::Skipped(_) => None,
+        }
+    }
+}
+
+fn add_failed(reason: impl Into<String>) -> Isolation {
+    let reason = reason.into();
+    Isolation::Skipped(IsolationSkip::Failed(if reason.is_empty() {
+        "git worktree add failed".into()
+    } else {
+        reason
+    }))
+}
+
+fn worktree_stderr(output: &std::process::Output) -> String {
+    let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    reason
+        .lines()
+        .next()
+        .unwrap_or("git worktree add failed")
+        .to_string()
+}
+
+/// Creates a clean checkout of `HEAD` for this session, or a skip when isolation
 /// is not possible. An existing directory is reused: Restart keeps the files.
-pub fn add(project_path: &Path, session_id: &str) -> Option<PathBuf> {
-    let git_path = program::find("git")?;
+pub fn add(project_path: &Path, session_id: &str) -> Isolation {
+    let Some(git_path) = program::find("git") else {
+        return Isolation::Skipped(IsolationSkip::GitMissing);
+    };
     if !is_repo(&git_path, project_path) {
-        return None;
+        return Isolation::Skipped(IsolationSkip::NotARepo);
     }
 
     let dest = path_for(project_path, session_id);
     if dest.is_dir() {
-        return Some(dest);
+        return Isolation::Isolated(dest);
     }
 
-    let parent = dest.parent()?;
-    std::fs::create_dir_all(parent).ok()?;
+    let Some(parent) = dest.parent() else {
+        return add_failed("could not create the worktree directory");
+    };
+    if let Err(error) = std::fs::create_dir_all(parent) {
+        return add_failed(format!("could not create the worktree directory: {error}"));
+    }
 
     let branch = branch_name(session_id);
-    let dest_str = dest.to_str()?;
-    let output = git(
+    let Some(dest_str) = dest.to_str() else {
+        return add_failed("the worktree path is not valid UTF-8");
+    };
+    let output = match git(
         &git_path,
         project_path,
         &["worktree", "add", "-b", &branch, dest_str],
-    )
-    .ok()?;
+    ) {
+        Ok(output) => output,
+        Err(error) => return add_failed(error.to_string()),
+    };
     if !output.status.success() {
-        return None;
+        return add_failed(worktree_stderr(&output));
     }
-    Some(dest)
+    Isolation::Isolated(dest)
 }
 
 /// Whether the worktree has uncommitted or untracked changes.
@@ -330,20 +395,55 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
+    fn checkout(dir: &tempfile::TempDir, session: &str) -> PathBuf {
+        add(dir.path(), session)
+            .path()
+            .expect("a real repo should isolate")
+    }
+
     #[test]
     fn a_folder_that_is_not_a_repository_gets_no_worktree() {
         let dir = tempfile::tempdir().unwrap();
+        let outcome = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(outcome.clone().path(), None);
+        assert_eq!(outcome, Isolation::Skipped(IsolationSkip::NotARepo));
+    }
+
+    #[test]
+    fn skip_reasons_name_the_miss() {
+        assert_eq!(IsolationSkip::GitMissing.as_str(), "git is not installed");
         assert_eq!(
-            add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-            None
+            IsolationSkip::NotARepo.as_str(),
+            "this folder is not a git repository"
         );
+        assert_eq!(
+            IsolationSkip::Failed("fatal: invalid reference: HEAD".into()).as_str(),
+            "fatal: invalid reference: HEAD"
+        );
+    }
+
+    #[test]
+    fn a_blocked_worktree_path_gets_no_worktree() {
+        let dir = repo();
+        let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let dest = path_for(dir.path(), session);
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        fs::write(&dest, "blocked\n").unwrap();
+
+        let outcome = add(dir.path(), session);
+        match outcome {
+            Isolation::Skipped(IsolationSkip::Failed(reason)) => {
+                assert!(!reason.is_empty(), "git stderr should explain the miss");
+            }
+            other => panic!("expected a failed add, got {other:?}"),
+        }
     }
 
     #[test]
     fn add_checks_out_head_on_a_session_branch() {
         let dir = repo();
         let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-        let tree = add(dir.path(), session).expect("a real repo should isolate");
+        let tree = checkout(&dir, session);
 
         assert_eq!(tree, path_for(dir.path(), session));
         assert!(tree.join("README.md").is_file());
@@ -358,7 +458,7 @@ mod tests {
     #[test]
     fn a_file_written_in_the_worktree_does_not_dirty_the_project() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
 
         assert!(is_dirty(&tree).unwrap());
@@ -373,10 +473,12 @@ mod tests {
     fn add_reuses_an_existing_directory() {
         let dir = repo();
         let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-        let first = add(dir.path(), session).unwrap();
+        let first = checkout(&dir, session);
         fs::write(first.join("kept.rs"), "keep\n").unwrap();
 
-        let second = add(dir.path(), session).expect("reuse rather than fail");
+        let second = add(dir.path(), session)
+            .path()
+            .expect("reuse rather than fail");
         assert_eq!(first, second);
         assert_eq!(fs::read_to_string(first.join("kept.rs")).unwrap(), "keep\n");
     }
@@ -385,7 +487,7 @@ mod tests {
     fn a_clean_worktree_removes() {
         let dir = repo();
         let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-        let tree = add(dir.path(), session).unwrap();
+        let tree = checkout(&dir, session);
 
         remove(dir.path(), &tree, false).unwrap();
 
@@ -408,7 +510,7 @@ mod tests {
     #[test]
     fn a_dirty_worktree_is_refused_without_force() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
 
         let error = remove(dir.path(), &tree, false).unwrap_err();
@@ -419,7 +521,7 @@ mod tests {
     #[test]
     fn force_removes_a_dirty_worktree() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
 
         remove(dir.path(), &tree, true).unwrap();
@@ -440,7 +542,7 @@ mod tests {
     #[test]
     fn merge_commits_dirty_work_and_lands_it_on_the_project() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
 
         merge_into_project(dir.path(), &tree, "GrokSpace: agent").unwrap();
@@ -460,7 +562,7 @@ mod tests {
     #[test]
     fn merge_refuses_a_dirty_project() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
         fs::write(dir.path().join("README.md"), "human edit\n").unwrap();
 
@@ -479,7 +581,7 @@ mod tests {
     #[test]
     fn merge_aborts_a_conflict_and_leaves_both_trees() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("README.md"), "agent\n").unwrap();
         fs::write(dir.path().join("README.md"), "human\n").unwrap();
         let git = program::find("git").unwrap();
@@ -516,7 +618,7 @@ mod tests {
     #[test]
     fn a_clean_worktree_on_the_same_head_has_nothing_to_merge() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
 
         let error = merge_into_project(dir.path(), &tree, "GrokSpace: agent").unwrap_err();
         assert!(
@@ -528,7 +630,7 @@ mod tests {
     #[test]
     fn merge_refuses_when_the_worktree_is_behind_the_project() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(dir.path().join("later.md"), "human\n").unwrap();
         let git = program::find("git").unwrap();
         for args in [vec!["add", "."], vec!["commit", "-qm", "later"]] {

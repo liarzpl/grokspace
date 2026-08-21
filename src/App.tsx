@@ -55,6 +55,11 @@ interface SessionUpdated {
   text: string;
 }
 
+interface IsolationFailed {
+  id: string;
+  reason: string;
+}
+
 export default function App() {
   const activeProject = useActiveProject();
   const projectError = useProjectStore((state) => state.error);
@@ -159,6 +164,17 @@ export default function App() {
     const unlisten = listen<PermissionAsked>("session-permission", (event) => {
       const { id, requestId, summary } = event.payload;
       useSessionStore.getState().askPermission(id, { requestId, summary });
+    });
+    return () => {
+      void unlisten.then((stop) => stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    // Isolation is best-effort and the session has already started. This is the
+    // live skip reason; reload still shows the banner from a null worktree path.
+    const unlisten = listen<IsolationFailed>("session-isolation", (event) => {
+      useSessionStore.getState().noteIsolation(event.payload.id, event.payload.reason);
     });
     return () => {
       void unlisten.then((stop) => stop());

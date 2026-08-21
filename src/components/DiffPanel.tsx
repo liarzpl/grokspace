@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
-import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
+import {
+  isolationNotice,
+  isUnisolatedAgent,
+  useSessionsForProject,
+  useSessionStore,
+} from "../stores/sessionStore";
 import { useDiffStore } from "../stores/diffStore";
 import type { ChangedFile, FileChange, Project, Session } from "../types";
 
@@ -201,15 +206,18 @@ function sessionLabel(session: Session): string {
 function ScopeChips({
   projectId,
   sessions,
+  unisolated,
   scope,
   onSelect,
 }: {
   projectId: string;
   sessions: Session[];
+  unisolated: Session[];
   scope: string | null;
   onSelect: (sessionId: string | null) => void;
 }) {
-  if (sessions.length === 0) return null;
+  const reasons = useSessionStore((state) => state.isolationReasons);
+  if (sessions.length === 0 && unisolated.length === 0) return null;
 
   const scoped = sessions.find((session) => session.id === scope);
   const stopped = scoped?.status === "stopped";
@@ -240,6 +248,15 @@ function ScopeChips({
         >
           {sessionLabel(session)}
         </button>
+      ))}
+      {unisolated.map((session) => (
+        <span
+          key={session.id}
+          title={isolationNotice(session, reasons[session.id])}
+          className="shrink-0 rounded-md border border-warning/40 px-2 py-0.5 text-[11px] text-warning"
+        >
+          {sessionLabel(session)} · project tree
+        </span>
       ))}
       <div className="flex-1" />
       {stopped && scoped !== undefined && (
@@ -296,6 +313,10 @@ export default function DiffPanel({ project }: { project: Project }) {
   const projectSessions = useSessionsForProject(project.id);
   const sessions = useMemo(
     () => projectSessions.filter((session) => session.worktreePath !== null),
+    [projectSessions],
+  );
+  const unisolated = useMemo(
+    () => projectSessions.filter(isUnisolatedAgent),
     [projectSessions],
   );
   const [hunkIndex, setHunkIndex] = useState<number | null>(null);
@@ -366,6 +387,7 @@ export default function DiffPanel({ project }: { project: Project }) {
     <ScopeChips
       projectId={project.id}
       sessions={sessions}
+      unisolated={unisolated}
       scope={scoped}
       onSelect={(sessionId) => void loadDiff(project.id, sessionId)}
     />

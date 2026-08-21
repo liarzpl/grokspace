@@ -499,6 +499,7 @@ mod tests {
         let dir = repo();
         commit(dir.path(), "README.md", "hello\n");
         let tree = crate::worktree::add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            .path()
             .expect("a real repo should isolate");
         std::fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
         std::fs::write(dir.path().join("human.rs"), "on the project\n").unwrap();

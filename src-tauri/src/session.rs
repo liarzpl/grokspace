@@ -31,6 +31,9 @@ const PERMISSION_EVENT: &str = "session-permission";
 /// An ACP session produced visible output: a message, a thought, a tool, or a plan.
 const UPDATE_EVENT: &str = "session-update";
 
+/// Isolation did not happen. The session still starts; the UI has to say so.
+const ISOLATION_EVENT: &str = "session-isolation";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStatus {
@@ -508,6 +511,15 @@ struct SessionUpdated {
     text: String,
 }
 
+/// Why this agent is on the project tree. Infrequent, and the row still starts,
+/// so the event system carries the reason without a schema change.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IsolationFailed {
+    id: String,
+    reason: String,
+}
+
 /// The three things a live agent reports, each landing in the database first and on
 /// the event system second, so a webview that reloads reads the same story.
 fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
@@ -614,19 +626,21 @@ struct StartRequest {
 ///
 /// Grok panes and shells stay on the project folder. Missing git, a folder that
 /// is not a repository, or a failed `worktree add` all fall through to that
-/// folder rather than refusing to start.
+/// folder rather than refusing to start. `None` here means "not an agent"; a
+/// skip is `Some(Skipped(...))`, which is what the UI needs to tell apart from
+/// a grok pane that was never meant to isolate.
 fn isolate_agent(
     request: &StartRequest,
     session: &Session,
     project_path: &Path,
-) -> Option<PathBuf> {
+) -> Option<worktree::Isolation> {
     if request.kind != SessionKind::Agent {
         return None;
     }
     if let Some(existing) = request.reuse_worktree.as_ref().filter(|path| path.is_dir()) {
-        return Some(existing.clone());
+        return Some(worktree::Isolation::Isolated(existing.clone()));
     }
-    worktree::add(project_path, &session.id)
+    Some(worktree::add(project_path, &session.id))
 }
 
 /// Creates the row first and spawns second. The other order races: a child that
@@ -660,7 +674,19 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
     };
 
     let project_path = PathBuf::from(project_path);
-    let worktree = isolate_agent(&request, &session, &project_path);
+    let isolation = isolate_agent(&request, &session, &project_path);
+    if let Some(worktree::Isolation::Skipped(skip)) = &isolation {
+        // The row still starts. The event is how the UI learns why, without a
+        // column to persist it; reload falls back to kind + a null path.
+        let _ = app.emit(
+            ISOLATION_EVENT,
+            IsolationFailed {
+                id: session.id.clone(),
+                reason: skip.as_str().to_string(),
+            },
+        );
+    }
+    let worktree = isolation.and_then(worktree::Isolation::path);
     if let Some(ref path) = worktree {
         // Best-effort: a row without the path still starts, and Diff simply
         // will not offer this session as a scope.
@@ -1586,5 +1612,53 @@ mod tests {
             reuse_worktree: None,
         };
         assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
+    }
+
+    #[test]
+    fn isolate_agent_leaves_shells_on_the_project() {
+        let (conn, project_id) = fixture();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Shell,
+            "Shell",
+            None,
+        )
+        .unwrap();
+        let request = StartRequest {
+            project_id,
+            pane_id: Some("0".into()),
+            kind: SessionKind::Shell,
+            title: None,
+            role: None,
+            cols: 80,
+            rows: 24,
+            reuse_worktree: None,
+        };
+        assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
+    }
+
+    #[test]
+    fn isolate_agent_skips_a_folder_that_is_not_a_repository() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        let request = StartRequest {
+            project_id,
+            pane_id: None,
+            kind: SessionKind::Agent,
+            title: None,
+            role: None,
+            cols: 80,
+            rows: 24,
+            reuse_worktree: None,
+        };
+        assert_eq!(
+            isolate_agent(&request, &session, dir.path()),
+            Some(worktree::Isolation::Skipped(
+                worktree::IsolationSkip::NotARepo
+            ))
+        );
     }
 }
