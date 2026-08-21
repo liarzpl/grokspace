@@ -8,9 +8,15 @@
 //! selected so the panel reads *that* checkout — which is why
 //! `sessions.worktree_path` is written at last.
 //!
+//! When two worktrees (or a worktree and the project) touch the same path, the
+//! payload names the overlap. That is a warning: Merge stays clickable. Lockfiles
+//! and migrations speak louder because they conflict more often, still without a
+//! lock.
+//!
 //! GrokSpace shells out to `git` rather than linking libgit2: it already spawns `grok`
 //! and the user's shell, so a third is consistent, and a diff is text a command prints.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -75,11 +81,40 @@ pub enum DiffState {
     NotARepo,
     Clean {
         branch: Option<String>,
+        overlaps: Vec<PathOverlap>,
     },
     Changed {
         branch: Option<String>,
         files: Vec<ChangedFile>,
+        overlaps: Vec<PathOverlap>,
     },
+}
+
+/// Another tree that also touched a path on screen. `session_id` is absent when
+/// the other side is the project itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlapPeer {
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+}
+
+/// One path touched by the tree on screen and by at least one other tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathOverlap {
+    pub path: String,
+    pub peers: Vec<OverlapPeer>,
+    /// Lockfiles and migration paths: the same warning, a louder sentence.
+    pub hotspot: bool,
+}
+
+/// A checkout that might share paths with the tree on screen. Not serialized;
+/// `project_diff` builds these from the session list and `overlaps_with` reads them.
+struct OverlapTree {
+    session_id: Option<String>,
+    title: Option<String>,
+    path: PathBuf,
 }
 
 fn git(git: &str, cwd: &Path, args: &[&str]) -> Result<std::process::Output> {
@@ -135,10 +170,12 @@ pub fn state_of(project_path: &Path) -> Result<DiffState> {
     let branch = branch_of(&git_path, project_path);
 
     // Porcelain rather than `diff --name-status`, because it reports untracked files
-    // too — and an agent's first write to a new file is untracked. A spawn failure
-    // or a non-zero status used to read as Clean, which claimed the agents changed
-    // nothing when git could not actually answer.
-    let output = git(&git_path, project_path, &["status", "--porcelain"])?;
+    // too — and an agent's first write to a new file is untracked. `-uall` names
+    // files inside a new directory so overlap can see `migrations/0001.sql` instead
+    // of only `src-tauri/`. A spawn failure or a non-zero status used to read as
+    // Clean, which claimed the agents changed nothing when git could not actually
+    // answer.
+    let output = git(&git_path, project_path, &["status", "--porcelain", "-uall"])?;
     interpret_porcelain(output, branch)
 }
 
@@ -157,10 +194,142 @@ fn interpret_porcelain(output: std::process::Output, branch: Option<String>) -> 
         .collect();
 
     Ok(if files.is_empty() {
-        DiffState::Clean { branch }
+        DiffState::Clean {
+            branch,
+            overlaps: Vec::new(),
+        }
     } else {
-        DiffState::Changed { branch, files }
+        DiffState::Changed {
+            branch,
+            files,
+            overlaps: Vec::new(),
+        }
     })
+}
+
+/// Paths GrokSpace owns. Graphs, steps, memory, and the worktrees themselves live
+/// here; they are not the human's files, so they must not count as overlap.
+fn is_grokspace_path(path: &str) -> bool {
+    let path = path.trim_matches('"');
+    path == ".grokspace" || path.starts_with(".grokspace/")
+}
+
+/// Lockfiles and migration directories speak louder than an ordinary shared path.
+/// Still a warning: this does not refuse Merge.
+fn is_hotspot(path: &str) -> bool {
+    let path = path.trim_matches('"').trim_end_matches('/');
+    let name = path.rsplit('/').next().unwrap_or(path);
+    if name == "package-lock.json" || name == "Cargo.lock" {
+        return true;
+    }
+    path.split('/').any(|segment| segment == "migrations")
+}
+
+fn rev_parse(git_path: &str, cwd: &Path, rev: &str) -> Option<String> {
+    let output = git(git_path, cwd, &["rev-parse", rev]).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
+}
+
+fn porcelain_paths(git_path: &str, cwd: &Path) -> BTreeSet<String> {
+    let Ok(output) = git(git_path, cwd, &["status", "--porcelain", "-uall"]) else {
+        return BTreeSet::new();
+    };
+    if !output.status.success() {
+        return BTreeSet::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_line)
+        .map(|file| file.path)
+        .filter(|path| !is_grokspace_path(path))
+        .collect()
+}
+
+/// Committed changes on this tree since it forked from the project's `HEAD`.
+///
+/// `git diff --name-only <project-head>...HEAD` is the three-dot form: merge-base
+/// to this `HEAD`. Uncommitted files are not in it; porcelain covers those.
+fn committed_paths(git_path: &str, cwd: &Path, project_head: &str) -> BTreeSet<String> {
+    let spec = format!("{project_head}...HEAD");
+    let Ok(output) = git(git_path, cwd, &["diff", "--name-only", &spec]) else {
+        return BTreeSet::new();
+    };
+    if !output.status.success() {
+        return BTreeSet::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| line.trim().trim_matches('"').to_string())
+        .filter(|path| !path.is_empty() && !is_grokspace_path(path))
+        .collect()
+}
+
+fn touched_paths(git_path: &str, cwd: &Path, project_head: &str) -> BTreeSet<String> {
+    if !cwd.exists() {
+        return BTreeSet::new();
+    }
+    let mut paths = porcelain_paths(git_path, cwd);
+    paths.extend(committed_paths(git_path, cwd, project_head));
+    paths
+}
+
+fn sort_peers(peers: &mut [OverlapPeer]) {
+    peers.sort_by(|left, right| match (&left.session_id, &right.session_id) {
+        (Some(left), Some(right)) => left.cmp(right),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+}
+
+/// Paths this tree shares with `peers`. Empty when git cannot answer; a miss
+/// must not hide the diff itself. Never refuses Merge.
+fn overlaps_with(ours: &Path, project_path: &Path, peers: &[OverlapTree]) -> Vec<PathOverlap> {
+    let Some(git_path) = program::find("git") else {
+        return Vec::new();
+    };
+    let Some(project_head) = rev_parse(&git_path, project_path, "HEAD") else {
+        return Vec::new();
+    };
+    let ours_paths = touched_paths(&git_path, ours, &project_head);
+    if ours_paths.is_empty() {
+        return Vec::new();
+    }
+
+    let mut by_path: BTreeMap<String, Vec<OverlapPeer>> = BTreeMap::new();
+    for peer in peers {
+        if peer.path == ours {
+            continue;
+        }
+        let theirs = touched_paths(&git_path, &peer.path, &project_head);
+        for path in ours_paths.intersection(&theirs) {
+            by_path.entry(path.clone()).or_default().push(OverlapPeer {
+                session_id: peer.session_id.clone(),
+                title: peer.title.clone(),
+            });
+        }
+    }
+
+    by_path
+        .into_iter()
+        .filter_map(|(path, mut peers)| {
+            sort_peers(&mut peers);
+            peers.dedup_by(|left, right| left.session_id == right.session_id);
+            if peers.is_empty() {
+                return None;
+            }
+            let hotspot = is_hotspot(&path);
+            Some(PathOverlap {
+                path,
+                peers,
+                hotspot,
+            })
+        })
+        .collect()
 }
 
 /// Resolves `path` to a location inside `project_path`, as a path relative to it.
@@ -279,6 +448,56 @@ fn diff_root(
         .ok_or_else(|| Error::Invalid("this session has no worktree".into()))
 }
 
+/// The tree on screen plus every other worktree-scoped session (and the project,
+/// when the screen is a session). Paths are read under the lock; git runs after.
+fn overlap_peers(
+    state: &State<'_, AppState>,
+    project_id: &str,
+    session_id: Option<&str>,
+) -> Result<(PathBuf, PathBuf, Vec<OverlapTree>)> {
+    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+    let project = project::get(&conn, project_id)?;
+    let ours_id = session_id.map(str::trim).filter(|id| !id.is_empty());
+    let root = match ours_id {
+        None => PathBuf::from(&project.path),
+        Some(id) => {
+            let chosen = session::get(&conn, id)?;
+            if chosen.project_id != project.id {
+                return Err(Error::Invalid(
+                    "that session does not belong to this project".into(),
+                ));
+            }
+            chosen
+                .worktree_path
+                .map(PathBuf::from)
+                .ok_or_else(|| Error::Invalid("this session has no worktree".into()))?
+        }
+    };
+
+    let mut peers = Vec::new();
+    if ours_id.is_some() {
+        peers.push(OverlapTree {
+            session_id: None,
+            title: None,
+            path: PathBuf::from(&project.path),
+        });
+    }
+    for other in session::list(&conn, project_id)? {
+        if ours_id == Some(other.id.as_str()) {
+            continue;
+        }
+        let Some(path) = other.worktree_path else {
+            continue;
+        };
+        peers.push(OverlapTree {
+            session_id: Some(other.id),
+            title: other.title,
+            path: PathBuf::from(path),
+        });
+    }
+    Ok((root, PathBuf::from(project.path), peers))
+}
+
 #[tauri::command]
 pub fn project_diff(
     state: State<'_, AppState>,
@@ -287,8 +506,15 @@ pub fn project_diff(
 ) -> Result<DiffState> {
     // The path is read under the lock and git is run after it: spawning a process is
     // slower than any query, and every command shares the one connection.
-    let path = diff_root(&state, &project_id, session_id.as_deref())?;
-    state_of(&path)
+    let (path, project_path, peers) = overlap_peers(&state, &project_id, session_id.as_deref())?;
+    let mut diff = state_of(&path)?;
+    match &mut diff {
+        DiffState::Clean { overlaps, .. } | DiffState::Changed { overlaps, .. } => {
+            *overlaps = overlaps_with(&path, &project_path, &peers);
+        }
+        _ => {}
+    }
+    Ok(diff)
 }
 
 #[tauri::command]
@@ -523,5 +749,187 @@ mod tests {
             files.iter().all(|file| file.path != "agent.rs"),
             "the agent's file must not leak into the project status, got {files:?}"
         );
+    }
+
+    fn checkout(dir: &tempfile::TempDir, session: &str) -> PathBuf {
+        crate::worktree::add(dir.path(), session)
+            .path()
+            .expect("a real repo should isolate")
+    }
+
+    fn peer(session_id: &str, title: &str, path: PathBuf) -> OverlapTree {
+        OverlapTree {
+            session_id: Some(session_id.into()),
+            title: Some(title.into()),
+            path,
+        }
+    }
+
+    #[test]
+    fn lockfiles_and_migrations_are_hotspots() {
+        assert!(is_hotspot("Cargo.lock"));
+        assert!(is_hotspot("package-lock.json"));
+        assert!(is_hotspot("src-tauri/Cargo.lock"));
+        assert!(is_hotspot("src-tauri/migrations/0001_initial.sql"));
+        assert!(is_hotspot("migrations/20240101_init.sql"));
+        assert!(is_hotspot("src-tauri/migrations"));
+        assert!(!is_hotspot("src/lib.rs"));
+        assert!(!is_hotspot("migrations.rs"));
+        assert!(!is_hotspot("package.json"));
+    }
+
+    #[test]
+    fn two_worktrees_touching_the_same_path_are_an_overlap() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        std::fs::write(a.join("agent.rs"), "fn a() {}\n").unwrap();
+        std::fs::write(b.join("agent.rs"), "fn b() {}\n").unwrap();
+
+        let overlaps = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
+        );
+
+        assert_eq!(overlaps.len(), 1, "got {overlaps:?}");
+        assert_eq!(overlaps[0].path, "agent.rs");
+        assert!(!overlaps[0].hotspot);
+        assert_eq!(
+            overlaps[0].peers,
+            vec![OverlapPeer {
+                session_id: Some("bbbbbbbb-cccc-dddd-eeee-ffffffffffff".into()),
+                title: Some("Reviewer".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_session_and_the_project_touching_the_same_path_are_an_overlap() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        std::fs::write(tree.join("README.md"), "agent\n").unwrap();
+        std::fs::write(dir.path().join("README.md"), "human\n").unwrap();
+
+        let overlaps = overlaps_with(
+            &tree,
+            dir.path(),
+            &[OverlapTree {
+                session_id: None,
+                title: None,
+                path: dir.path().to_path_buf(),
+            }],
+        );
+
+        assert_eq!(overlaps.len(), 1, "got {overlaps:?}");
+        assert_eq!(overlaps[0].path, "README.md");
+        assert_eq!(
+            overlaps[0].peers,
+            vec![OverlapPeer {
+                session_id: None,
+                title: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn different_paths_are_not_an_overlap() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        std::fs::write(a.join("a.rs"), "fn a() {}\n").unwrap();
+        std::fs::write(b.join("b.rs"), "fn b() {}\n").unwrap();
+
+        let overlaps = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
+        );
+        assert!(overlaps.is_empty(), "got {overlaps:?}");
+    }
+
+    #[test]
+    fn committed_changes_since_the_fork_count_when_the_tree_is_clean() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        commit(&a, "agent.rs", "fn a() {}\n");
+        commit(&b, "agent.rs", "fn b() {}\n");
+
+        assert!(
+            matches!(state_of(&a).unwrap(), DiffState::Clean { .. }),
+            "the overlap has to be visible after leftover commit, not only while dirty"
+        );
+
+        let overlaps = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
+        );
+        assert_eq!(overlaps.len(), 1, "got {overlaps:?}");
+        assert_eq!(overlaps[0].path, "agent.rs");
+    }
+
+    #[test]
+    fn a_shared_lockfile_is_a_hotspot() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        std::fs::write(a.join("Cargo.lock"), "a\n").unwrap();
+        std::fs::write(b.join("Cargo.lock"), "b\n").unwrap();
+
+        let overlaps = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
+        );
+        assert_eq!(overlaps.len(), 1, "got {overlaps:?}");
+        assert_eq!(overlaps[0].path, "Cargo.lock");
+        assert!(overlaps[0].hotspot);
+    }
+
+    #[test]
+    fn a_shared_migration_is_a_hotspot() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        std::fs::create_dir_all(a.join("src-tauri/migrations")).unwrap();
+        std::fs::create_dir_all(b.join("src-tauri/migrations")).unwrap();
+        std::fs::write(a.join("src-tauri/migrations/0001.sql"), "a\n").unwrap();
+        std::fs::write(b.join("src-tauri/migrations/0001.sql"), "b\n").unwrap();
+
+        let overlaps = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
+        );
+        assert_eq!(overlaps.len(), 1, "got {overlaps:?}");
+        assert_eq!(overlaps[0].path, "src-tauri/migrations/0001.sql");
+        assert!(overlaps[0].hotspot);
+    }
+
+    #[test]
+    fn grokspace_paths_do_not_count_as_overlap() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        std::fs::create_dir_all(a.join(".grokspace/graphs")).unwrap();
+        std::fs::create_dir_all(b.join(".grokspace/graphs")).unwrap();
+        std::fs::write(a.join(".grokspace/graphs/a.json"), "{}\n").unwrap();
+        std::fs::write(b.join(".grokspace/graphs/a.json"), "{}\n").unwrap();
+
+        let overlaps = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
+        );
+        assert!(overlaps.is_empty(), "got {overlaps:?}");
     }
 }

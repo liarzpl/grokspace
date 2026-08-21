@@ -153,17 +153,37 @@ export interface ChangedFile {
 }
 
 /**
+ * Another tree that also touched a path. `sessionId` is null when the other
+ * side is the project itself.
+ */
+export interface OverlapPeer {
+  sessionId: string | null;
+  title: string | null;
+}
+
+/** A path the tree on screen shares with at least one other tree. */
+export interface PathOverlap {
+  path: string;
+  peers: OverlapPeer[];
+  /** Lockfiles and migrations: the same warning, a louder sentence. */
+  hotspot: boolean;
+}
+
+/**
  * What the diff panel has to draw, as one of four things it can honestly say.
  *
  * A union rather than a struct of optionals: "git is missing" and "nothing has
  * changed" are different sentences, and a `files: []` that meant either would leave
  * the panel guessing.
+ *
+ * `overlaps` is a warning list, not a lock. Absent on older payloads and on
+ * git-missing / not-a-repo, where there is nothing to compare.
  */
 export type DiffState =
   | { state: "gitMissing" }
   | { state: "notARepo" }
-  | { state: "clean"; branch: string | null }
-  | { state: "changed"; branch: string | null; files: ChangedFile[] };
+  | { state: "clean"; branch: string | null; overlaps?: PathOverlap[] }
+  | { state: "changed"; branch: string | null; files: ChangedFile[]; overlaps?: PathOverlap[] };
 
 /**
  * Preferences that belong to the app rather than to one project. Missing keys read

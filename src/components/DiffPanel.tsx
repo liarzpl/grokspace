@@ -2,13 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 
 import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
 import {
+  overlapFor,
+  overlapMarkTitle,
+  overlapStrip,
+  overlapsOf,
+} from "../lib/overlap";
+import {
   isolationNotice,
   isUnisolatedAgent,
   useSessionsForProject,
   useSessionStore,
 } from "../stores/sessionStore";
 import { useDiffStore } from "../stores/diffStore";
-import type { ChangedFile, FileChange, Project, Session } from "../types";
+import type { ChangedFile, FileChange, PathOverlap, Project, Session } from "../types";
 
 /**
  * What the agents changed, read out of git.
@@ -17,7 +23,9 @@ import type { ChangedFile, FileChange, Project, Session } from "../types";
  * commits leftover files on that branch and lands them on the project. When a
  * stopped worktree is scoped, a strip names why Merge would refuse (dirty
  * project, nothing to merge) before a click; a conflict abort lands there too.
- * A selected hunk plus an optional sentence can be sent back to an idle agent.
+ * Shared paths with another worktree (or the project) get a red mark and a
+ * warning strip that names the other session — Merge stays clickable. A selected
+ * hunk plus an optional sentence can be sent back to an idle agent.
  *
  * The default view is the project's tree. ACP agents that isolated into a worktree
  * appear as chips; picking one reads that checkout, which is a clean `HEAD` plus
@@ -174,17 +182,20 @@ function HunkPromptBar({
 function FileRow({
   file,
   active,
+  overlap,
   onSelect,
 }: {
   file: ChangedFile;
   active: boolean;
+  overlap: PathOverlap | undefined;
   onSelect: () => void;
 }) {
+  const mark = overlap !== undefined ? overlapMarkTitle(overlap) : null;
   return (
     <button
       type="button"
       onClick={onSelect}
-      title={file.path}
+      title={mark === null ? file.path : `${file.path} — ${mark}`}
       className={`flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left transition-colors ${
         active ? "bg-accent-soft" : "hover:bg-elevated"
       }`}
@@ -192,9 +203,16 @@ function FileRow({
       <span className={`shrink-0 font-mono text-[10px] ${CHANGE_TONE[file.change]}`}>
         {CHANGE_LABEL[file.change]}
       </span>
+      {mark !== null && (
+        <span aria-label={mark} className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-danger" />
+      )}
       {/* Reversed so the end of a long path stays visible: the file name is what
           identifies it, and the directories above it usually repeat. */}
-      <span className="min-w-0 flex-1 truncate text-left text-[11px] text-ink-muted [direction:rtl]">
+      <span
+        className={`min-w-0 flex-1 truncate text-left text-[11px] [direction:rtl] ${
+          overlap?.hotspot === true ? "text-danger" : "text-ink-muted"
+        }`}
+      >
         {file.path}
       </span>
     </button>
@@ -233,17 +251,43 @@ function MergeReadinessStrip({ sessionId }: { sessionId: string }) {
   );
 }
 
+/**
+ * Shared paths with another worktree or the project. Warning, not a refusal:
+ * Merge stays clickable. Lockfiles and migrations use the same strip with a
+ * louder sentence.
+ */
+function OverlapStrip({ overlaps }: { overlaps: PathOverlap[] }) {
+  const text = overlapStrip(overlaps);
+  if (text === null) return null;
+  const loud = overlaps.some((item) => item.hotspot);
+
+  return (
+    <div
+      role="status"
+      className={`shrink-0 border-b px-3 py-1.5 text-[11px] leading-relaxed ${
+        loud
+          ? "border-warning/60 bg-warning/15 text-warning"
+          : "border-warning/40 bg-warning/10 text-warning"
+      }`}
+    >
+      {text}
+    </div>
+  );
+}
+
 function ScopeChips({
   projectId,
   sessions,
   unisolated,
   scope,
+  overlaps,
   onSelect,
 }: {
   projectId: string;
   sessions: Session[];
   unisolated: Session[];
   scope: string | null;
+  overlaps: PathOverlap[];
   onSelect: (sessionId: string | null) => void;
 }) {
   const reasons = useSessionStore((state) => state.isolationReasons);
@@ -301,7 +345,7 @@ function ScopeChips({
               title={
                 mergeReason != null && mergeReason !== ""
                   ? mergeReason
-                  : "Merge this agent's branch into the project"
+                  : (overlapStrip(overlaps) ?? "Merge this agent's branch into the project")
               }
               onClick={() => {
                 void (async () => {
@@ -339,6 +383,7 @@ function ScopeChips({
         )}
       </div>
       {stopped && scoped !== undefined && <MergeReadinessStrip sessionId={scoped.id} />}
+      <OverlapStrip overlaps={overlaps} />
     </>
   );
 }
@@ -425,12 +470,15 @@ export default function DiffPanel({ project }: { project: Project }) {
     </header>
   );
 
+  const overlaps = overlapsOf(diff);
+
   const chips = (
     <ScopeChips
       projectId={project.id}
       sessions={sessions}
       unisolated={unisolated}
       scope={scoped}
+      overlaps={overlaps}
       onSelect={(sessionId) => void loadDiff(project.id, sessionId)}
     />
   );
@@ -471,6 +519,7 @@ export default function DiffPanel({ project }: { project: Project }) {
               key={file.path}
               file={file}
               active={file.path === selected}
+              overlap={overlapFor(overlaps, file.path)}
               onSelect={() => void selectFile(project.id, file)}
             />
           ))}
