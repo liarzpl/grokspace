@@ -31,7 +31,7 @@ use crate::error::{Error, Result};
 /// The ACP revision `grok` speaks. Its own documented client example sends this,
 /// and it matters: `state_update`, which would have answered the status question
 /// directly, only exists from v2 onwards.
-const PROTOCOL_VERSION: &str = "1";
+const PROTOCOL_VERSION: u16 = 1;
 
 /// How long the opening handshake may take before the agent is called unusable.
 /// Generous, because a first run can be doing a token refresh, but finite: a
@@ -710,6 +710,11 @@ fn handshake(
                 // does not implement would have the agent wait on a reply that
                 // never comes.
                 "clientCapabilities": {},
+                "clientInfo": {
+                    "name": "grokspace",
+                    "title": "GrokSpace",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
             },
         }),
     )?;
@@ -1192,7 +1197,13 @@ mod tests {
 
         assert_eq!(session, "sess_abc");
         let written = String::from_utf8(sent).unwrap();
-        assert!(written.contains(r#""protocolVersion":"1""#));
+        assert!(written.contains(r#""protocolVersion":1"#));
+        assert!(
+            !written.contains(r#""protocolVersion":"1""#),
+            "protocolVersion must be an integer, not a string"
+        );
+        assert!(written.contains("clientInfo"));
+        assert!(written.contains("grokspace"));
         assert!(written.contains(r#""method":"initialize""#));
         assert!(written.contains(r#""method":"session/new""#));
         assert!(written.contains("/tmp/acme"));

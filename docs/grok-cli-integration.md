@@ -157,7 +157,7 @@ itself drives over ACP, which are exactly the dispatched ones. A session someone
 started by hand in a pane stays `running` or `stopped`, and honestly so.
 
 **Grok speaks ACP v1.** Its own documented client example sends
-`protocolVersion: "1"` and switches on `sessionUpdate` values including
+`protocolVersion: 1` and switches on `sessionUpdate` values including
 `agent_message_chunk`, `agent_thought_chunk`, `tool_call`, and `plan`. v1 has no
 `state_update` — that arrived in v2 — so the four statuses come from the request
 lifecycle instead, which happens to line up exactly with the column the schema
