@@ -693,7 +693,7 @@ mod tests {
     #[test]
     fn merge_refusal_names_a_dirty_project_without_writing() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
         fs::write(dir.path().join("README.md"), "human edit\n").unwrap();
 
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn merge_refusal_names_nothing_to_merge_on_the_same_head() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
 
         assert_eq!(
             merge_refusal(dir.path(), &tree).unwrap().as_deref(),
@@ -722,7 +722,7 @@ mod tests {
     #[test]
     fn merge_refusal_is_silent_when_the_worktree_has_uncommitted_work() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
 
         assert_eq!(merge_refusal(dir.path(), &tree).unwrap(), None);
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn merge_refusal_names_a_worktree_that_is_behind_the_project() {
         let dir = repo();
-        let tree = add(dir.path(), "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
         fs::write(dir.path().join("later.md"), "human\n").unwrap();
         let git = program::find("git").unwrap();
         for args in [vec!["add", "."], vec!["commit", "-qm", "later"]] {
