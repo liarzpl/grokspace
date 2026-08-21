@@ -685,8 +685,14 @@ impl AcpManager {
     }
 }
 
-/// The two ids the handshake uses, so a prompt can never collide with them.
-const HANDSHAKE_IDS: u64 = 2;
+/// The ids the handshake may use (`initialize`, optional `authenticate`,
+/// `session/new`), so a prompt can never collide with them.
+const HANDSHAKE_IDS: u64 = 3;
+
+/// Auth methods GrokSpace can finish without a terminal. Device-code would hang
+/// waiting on a browser this process does not drive.
+const AUTH_CACHED_TOKEN: &str = "cached_token";
+const AUTH_API_KEY: &str = "xai.api_key";
 
 fn write_message(stdin: &mut impl Write, message: &Value) -> Result<()> {
     // Newline-delimited, which is what the stdio transport expects: one JSON
@@ -699,15 +705,27 @@ fn write_message(stdin: &mut impl Write, message: &Value) -> Result<()> {
         .map_err(|error| Error::Pty(format!("could not write to the agent: {error}")))
 }
 
-/// `initialize` then `session/new`, returning the id ACP gave the conversation.
+/// `initialize`, then `authenticate` when the agent listed a method we can
+/// finish, then `session/new`.
 ///
 /// Split out so it can be driven against a scripted agent in the tests rather
-/// than only against the real binary. `session/new` is not sent until initialize
-/// has succeeded: a refused protocol must not look like an open session.
+/// than only against the real binary. `session/new` is not sent until
+/// initialize (and authenticate, when it ran) has succeeded: a refused
+/// protocol must not look like an open session. Device-code is not faked —
+/// that would hang waiting on a browser this process does not have.
 fn handshake(
     stdin: &mut impl Write,
     reader: &mut impl BufRead,
     cwd: &std::path::Path,
+) -> Result<String> {
+    handshake_with(stdin, reader, cwd, xai_api_key_present())
+}
+
+fn handshake_with(
+    stdin: &mut impl Write,
+    reader: &mut impl BufRead,
+    cwd: &std::path::Path,
+    prefer_api_key: bool,
 ) -> Result<String> {
     write_message(
         stdin,
@@ -719,7 +737,8 @@ fn handshake(
                 "protocolVersion": PROTOCOL_VERSION,
                 // Only what GrokSpace can actually honour. Claiming a capability it
                 // does not implement would have the agent wait on a reply that
-                // never comes.
+                // never comes. `auth.terminal` is not one of those: GrokSpace
+                // has no ACP terminal to drive a device-code login.
                 "clientCapabilities": {},
                 "clientInfo": {
                     "name": "grokspace",
@@ -729,18 +748,33 @@ fn handshake(
             },
         }),
     )?;
-    wait_for_reply(reader, 1, "the agent refused to initialize")?;
+    let initialized = wait_for_reply(reader, 1, "the agent refused to initialize")?;
+
+    let mut rpc_id = 2u64;
+    if let Some(method_id) = auth_method_to_use(&initialized, prefer_api_key)? {
+        write_message(
+            stdin,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "method": "authenticate",
+                "params": { "methodId": method_id },
+            }),
+        )?;
+        wait_for_reply(reader, rpc_id, "the agent refused to authenticate")?;
+        rpc_id += 1;
+    }
 
     write_message(
         stdin,
         &json!({
             "jsonrpc": "2.0",
-            "id": 2,
+            "id": rpc_id,
             "method": "session/new",
             "params": { "cwd": cwd.to_string_lossy(), "mcpServers": [] },
         }),
     )?;
-    let opened = wait_for_reply(reader, 2, "the agent refused a session")?;
+    let opened = wait_for_reply(reader, rpc_id, "the agent refused a session")?;
     if let Some(session) = opened
         .get("result")
         .and_then(|result| result.get("sessionId"))
@@ -753,8 +787,60 @@ fn handshake(
     ))
 }
 
+fn xai_api_key_present() -> bool {
+    std::env::var("XAI_API_KEY").is_ok_and(|value| !value.trim().is_empty())
+}
+
+fn auth_required_error() -> Error {
+    Error::Pty(
+        "the agent requires authentication GrokSpace cannot complete. Run grok login first.".into(),
+    )
+}
+
+/// Picks `cached_token` or `xai.api_key` from initialize's `authMethods`.
+/// Empty or absent means no authenticate step. Anything else is a hard stop.
+fn auth_method_to_use(initialized: &Value, prefer_api_key: bool) -> Result<Option<&'static str>> {
+    let Some(methods) = initialized
+        .get("result")
+        .and_then(|result| result.get("authMethods"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(None);
+    };
+    if methods.is_empty() {
+        return Ok(None);
+    }
+    let ids: Vec<&str> = methods
+        .iter()
+        .filter_map(|method| method.get("id").and_then(Value::as_str))
+        .filter(|id| !id.is_empty())
+        .collect();
+    choose_auth_method(&ids, prefer_api_key)
+}
+
+fn choose_auth_method(ids: &[&str], prefer_api_key: bool) -> Result<Option<&'static str>> {
+    if ids.is_empty() {
+        return Err(auth_required_error());
+    }
+    let has_cached = ids.contains(&AUTH_CACHED_TOKEN);
+    let has_api_key = ids.contains(&AUTH_API_KEY);
+    if !has_cached && !has_api_key {
+        return Err(auth_required_error());
+    }
+    // Grok's own client: the API key when `XAI_API_KEY` is set, otherwise
+    // the cached login token.
+    if prefer_api_key && has_api_key {
+        Ok(Some(AUTH_API_KEY))
+    } else if has_cached {
+        Ok(Some(AUTH_CACHED_TOKEN))
+    } else {
+        Ok(Some(AUTH_API_KEY))
+    }
+}
+
 /// Reads until a JSON-RPC reply with `expected_id` arrives. Other lines are
-/// ignored: initialize and session/new share stdout with notifications.
+/// ignored: initialize, authenticate, and session/new share stdout with
+/// notifications.
 fn wait_for_reply(
     reader: &mut impl BufRead,
     expected_id: u64,
@@ -1289,6 +1375,15 @@ mod tests {
         assert!(written.contains("grokspace"));
         assert!(written.contains(r#""method":"initialize""#));
         assert!(written.contains(r#""method":"session/new""#));
+        assert!(
+            !written.contains(r#""method":"authenticate""#),
+            "absent authMethods must not insert an authenticate step"
+        );
+        assert!(written.contains(r#""clientCapabilities":{}"#));
+        assert!(
+            !written.contains("terminal"),
+            "clientCapabilities must not claim auth.terminal"
+        );
         assert!(written.contains("/tmp/acme"));
         assert_eq!(
             written.lines().count(),
@@ -1339,6 +1434,183 @@ mod tests {
             !written.contains(r#""method":"session/new""#),
             "session/new must not be sent after initialize failed"
         );
+    }
+
+    fn handshake_rpc_methods(sent: &[u8]) -> Vec<String> {
+        String::from_utf8_lossy(sent)
+            .lines()
+            .filter_map(|line| {
+                serde_json::from_str::<Value>(line)
+                    .ok()?
+                    .get("method")?
+                    .as_str()
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn empty_auth_methods_still_complete_the_handshake() {
+        let mut sent = Vec::new();
+        let replies = concat!(
+            r#"{"jsonrpc":"2.0","id":1,"result":{"authMethods":[]}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"sess_open"}}"#,
+            "\n",
+        );
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        let session = handshake(&mut sent, &mut reader, std::path::Path::new("/tmp"))
+            .expect("an empty authMethods list is not a login wall");
+
+        assert_eq!(session, "sess_open");
+        assert_eq!(handshake_rpc_methods(&sent), ["initialize", "session/new"]);
+    }
+
+    #[test]
+    fn the_handshake_rejects_device_code_and_does_not_open_a_session() {
+        let mut sent = Vec::new();
+        let replies =
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"authMethods\":[{\"id\":\"device-code\"}]}}\n";
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        let error = handshake(&mut sent, &mut reader, std::path::Path::new("/tmp")).unwrap_err();
+
+        assert!(
+            error.to_string().contains("Run grok login first"),
+            "the user has to be told what to do, got: {error}"
+        );
+        let written = String::from_utf8(sent).unwrap();
+        assert!(
+            !written.contains(r#""method":"session/new""#),
+            "session/new must not be sent when authenticate cannot be finished"
+        );
+        assert!(
+            !written.contains(r#""method":"authenticate""#),
+            "device-code must not be faked over ACP"
+        );
+    }
+
+    #[test]
+    fn the_handshake_authenticates_with_a_cached_token_before_opening_a_session() {
+        let mut sent = Vec::new();
+        let replies = concat!(
+            r#"{"jsonrpc":"2.0","id":1,"result":{"authMethods":[{"id":"cached_token"}]}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"result":{}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":3,"result":{"sessionId":"sess_auth"}}"#,
+            "\n",
+        );
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        let session = handshake(&mut sent, &mut reader, std::path::Path::new("/tmp"))
+            .expect("cached_token is an authenticate method GrokSpace can finish");
+
+        assert_eq!(session, "sess_auth");
+        let messages: Vec<Value> = String::from_utf8(sent)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            messages
+                .iter()
+                .filter_map(|message| message.get("method").and_then(Value::as_str))
+                .collect::<Vec<_>>(),
+            ["initialize", "authenticate", "session/new"]
+        );
+        assert_eq!(messages[1]["id"], json!(2));
+        assert_eq!(messages[1]["params"]["methodId"], json!("cached_token"));
+        assert_eq!(messages[2]["id"], json!(3));
+        assert_eq!(messages[0]["params"]["clientCapabilities"], json!({}));
+        assert!(messages[0]["params"]["clientCapabilities"]
+            .get("auth")
+            .is_none());
+    }
+
+    #[test]
+    fn the_handshake_authenticates_with_an_api_key_when_that_is_what_was_offered() {
+        let mut sent = Vec::new();
+        let replies = concat!(
+            r#"{"jsonrpc":"2.0","id":1,"result":{"authMethods":[{"id":"xai.api_key"}]}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"result":{}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":3,"result":{"sessionId":"sess_key"}}"#,
+            "\n",
+        );
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        let session = handshake_with(&mut sent, &mut reader, std::path::Path::new("/tmp"), false)
+            .expect("xai.api_key is an authenticate method GrokSpace can finish");
+
+        assert_eq!(session, "sess_key");
+        let written = String::from_utf8(sent).unwrap();
+        assert!(written.contains(r#""method":"authenticate""#));
+        assert!(written.contains(r#""methodId":"xai.api_key""#));
+        assert!(written.contains(r#""method":"session/new""#));
+    }
+
+    #[test]
+    fn the_handshake_prefers_the_api_key_when_that_env_is_set() {
+        let mut sent = Vec::new();
+        let replies = concat!(
+            r#"{"jsonrpc":"2.0","id":1,"result":{"authMethods":[{"id":"cached_token"},{"id":"xai.api_key"}]}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"result":{}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":3,"result":{"sessionId":"sess_pref"}}"#,
+            "\n",
+        );
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        handshake_with(&mut sent, &mut reader, std::path::Path::new("/tmp"), true)
+            .expect("either offered method is finishable");
+
+        let authenticate =
+            serde_json::from_str::<Value>(String::from_utf8(sent).unwrap().lines().nth(1).unwrap())
+                .unwrap();
+        assert_eq!(authenticate["params"]["methodId"], json!("xai.api_key"));
+    }
+
+    #[test]
+    fn a_refused_authenticate_does_not_finish_the_handshake() {
+        let mut sent = Vec::new();
+        let replies = concat!(
+            r#"{"jsonrpc":"2.0","id":1,"result":{"authMethods":[{"id":"cached_token"}]}}"#,
+            "\n",
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"token expired"}}"#,
+            "\n",
+        );
+        let mut reader = BufReader::new(replies.as_bytes());
+
+        let error = handshake(&mut sent, &mut reader, std::path::Path::new("/tmp")).unwrap_err();
+
+        assert!(error.to_string().contains("token expired"));
+        let written = String::from_utf8(sent).unwrap();
+        assert!(
+            !written.contains(r#""method":"session/new""#),
+            "session/new must not be sent after authenticate failed"
+        );
+    }
+
+    #[test]
+    fn choose_auth_method_for_the_handshake_prefers_cached_token_without_an_api_key() {
+        assert_eq!(
+            choose_auth_method(&["cached_token", "xai.api_key"], false).unwrap(),
+            Some(AUTH_CACHED_TOKEN)
+        );
+        assert_eq!(
+            choose_auth_method(&["cached_token", "xai.api_key"], true).unwrap(),
+            Some(AUTH_API_KEY)
+        );
+        assert_eq!(
+            choose_auth_method(&["device-code", "cached_token"], false).unwrap(),
+            Some(AUTH_CACHED_TOKEN)
+        );
+        let error = choose_auth_method(&["device-code"], false).unwrap_err();
+        assert!(error.to_string().contains("Run grok login first"));
     }
 
     #[test]
