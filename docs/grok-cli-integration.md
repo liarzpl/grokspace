@@ -288,7 +288,7 @@ and one was refused:
   not start is a worse failure than an agent that shares the project tree.
 - **`git worktree add`**, from GrokSpace, with cwd pointed at the new tree. The
   process still starts if git is missing or the folder is not a repository; it
-  just does not isolate.
+  just does not isolate, and the UI says the agent is on the project tree.
 
 The tree is a clean `HEAD`. An agent does not see the human's uncommitted files.
 Graphs, steps, and memory stay under the project via absolute environment

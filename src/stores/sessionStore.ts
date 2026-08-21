@@ -59,6 +59,41 @@ interface StartInput {
 /** A session started for a role has not been measured, so it starts classic. */
 const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
+/**
+ * An ACP agent that never got a worktree is on the project tree. The sentence is
+ * what the banner says when the live skip reason has not arrived, or after a
+ * reload that only has `kind` and a null path.
+ */
+export const UNISOLATED_REASON =
+  "Isolation did not happen, so this agent is on the project tree.";
+
+export function isUnisolatedAgent(session: Session): boolean {
+  return session.kind === "agent" && session.worktreePath === null;
+}
+
+/** The banner line for one unisolated agent. `reason` is the skip, when we have it. */
+export function isolationNotice(session: Session, reason?: string): string {
+  const title = session.title?.trim() || "Agent";
+  const why = reason !== undefined && reason !== "" && reason !== UNISOLATED_REASON ? reason : null;
+  if (why === null) {
+    return `${title} is not isolated. ${UNISOLATED_REASON}`;
+  }
+  return `${title} is not isolated. Isolation did not happen (${why}), so this agent is on the project tree.`;
+}
+
+function isolationFrom(
+  sessions: Session[],
+  previous: Record<string, string>,
+): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const session of sessions) {
+    if (isUnisolatedAgent(session)) {
+      next[session.id] = previous[session.id] ?? UNISOLATED_REASON;
+    }
+  }
+  return next;
+}
+
 /** A pane shows its terminal, the graph the session is reporting, or its steps. */
 export type PaneView = "terminal" | "graph" | "tasks";
 
@@ -79,6 +114,11 @@ interface SessionState {
    * back does not blank a conversation that is still running.
    */
   transcript: Record<string, AgentUpdate[]>;
+  /**
+   * Why isolation failed, keyed by session. Live events fill the skip reason;
+   * reload derives the generic sentence from `kind === "agent"` and a null path.
+   */
+  isolationReasons: Record<string, string>;
   isLoading: boolean;
   error: string | null;
 
@@ -110,6 +150,8 @@ interface SessionState {
   /** From the backend's permission event. */
   askPermission: (id: string, request: PermissionRequest) => void;
   answerPermission: (id: string, requestId: number, allow: boolean) => Promise<void>;
+  /** From the backend's `session-isolation` event. */
+  noteIsolation: (id: string, reason: string) => void;
   /** From the backend's `session-update` event. */
   appendUpdate: (id: string, update: AgentUpdate) => void;
   /** Sends a follow-up to an idle agent. */
@@ -128,6 +170,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   maximizedPane: null,
   permissions: {},
   transcript: {},
+  isolationReasons: {},
   isLoading: false,
   error: null,
 
@@ -175,6 +218,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions,
         permissions: permissionsFrom(sessions),
         isLoading: false,
+        isolationReasons: isolationFrom(sessions, state.isolationReasons),
         transcript: switching ? state.transcript : keepOnly(state.transcript, arriving),
       }));
     } catch (error) {
@@ -201,13 +245,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({ ...busy(true), error: null, permissions: state.permissions }));
     try {
       const session = await api.createSession(input);
-      set((state) => ({
-        sessions: replaceInPane(state.sessions, session),
-        // A pane left showing the previous session's graph should greet a new
-        // session with its terminal, which is the thing that needs watching.
-        paneViews:
-          paneId === null ? state.paneViews : { ...state.paneViews, [paneId]: "terminal" },
-      }));
+      set((state) => {
+        const sessions = replaceInPane(state.sessions, session);
+        return {
+          sessions,
+          isolationReasons: isolationFrom(sessions, state.isolationReasons),
+          // A pane left showing the previous session's graph should greet a new
+          // session with its terminal, which is the thing that needs watching.
+          paneViews:
+            paneId === null ? state.paneViews : { ...state.paneViews, [paneId]: "terminal" },
+        };
+      });
       return session;
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -267,13 +315,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // to attach to and the graph of the run it replaced is not its own.
       disposeTerminal(id);
       forgetSessionFiles(id);
-      set((state) => ({
-        sessions: replaceInPane(
+      set((state) => {
+        const sessions = replaceInPane(
           state.sessions.filter((existing) => existing.id !== id),
           session,
-        ),
-        transcript: without(state.transcript, id),
-      }));
+        );
+        return {
+          sessions,
+          isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
+          transcript: without(state.transcript, id),
+        };
+      });
       return session;
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -303,6 +355,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
         transcript: without(state.transcript, id),
+        isolationReasons: without(state.isolationReasons, id),
       }));
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -312,12 +365,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   discardWorktree: async (id) => {
     try {
       const session = await api.discardSessionWorktree(id);
-      set((state) => ({
-        sessions: state.sessions.map((existing) =>
+      set((state) => {
+        const sessions = state.sessions.map((existing) =>
           existing.id === id ? session : existing,
-        ),
-        error: null,
-      }));
+        );
+        return {
+          sessions,
+          isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
+          error: null,
+        };
+      });
     } catch (error) {
       set({ error: errorMessage(error) });
     }
@@ -326,24 +383,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   mergeWorktree: async (id) => {
     try {
       const session = await api.mergeSessionWorktree(id);
-      set((state) => ({
-        sessions: state.sessions.map((existing) =>
+      set((state) => {
+        const sessions = state.sessions.map((existing) =>
           existing.id === id ? session : existing,
-        ),
-        error: null,
-      }));
+        );
+        return {
+          sessions,
+          isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
+          error: null,
+        };
+      });
     } catch (error) {
       const message = errorMessage(error);
       // The branch is already on the project; only teardown failed. The backend
       // cleared worktree_path, so the chip must go too or Merge offers a retry
       // that says "nothing to merge".
       if (message.includes("the branch landed")) {
-        set((state) => ({
-          sessions: state.sessions.map((existing) =>
+        set((state) => {
+          const sessions = state.sessions.map((existing) =>
             existing.id === id ? { ...existing, worktreePath: null } : existing,
-          ),
-          error: message,
-        }));
+          );
+          return {
+            sessions,
+            isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
+            error: message,
+          };
+        });
         return;
       }
       set({ error: message });
@@ -402,6 +467,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // waiting either way.
       set({ error: errorMessage(error) });
     }
+  },
+
+  noteIsolation: (id, reason) => {
+    const trimmed = reason.trim();
+    if (trimmed === "") return;
+    set((state) => ({
+      isolationReasons: { ...state.isolationReasons, [id]: trimmed },
+    }));
   },
 
   appendUpdate: (id, update) =>
