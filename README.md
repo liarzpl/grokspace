@@ -10,14 +10,13 @@ tools: they plan, code, and review while you stay in the loop.
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`.
 
-> **Status: Phase 5 in progress.** Projects, a multi-pane terminal grid, a live graph
+> **Status: Phase 5 done.** Projects, a multi-pane terminal grid, a live graph
 > per session, a task board that hands work to an agent, agents driven over ACP that
 > report what they are doing (including a transcript of what they say), a project
 > memory every session reads, role presets that can be launched as a swarm, a
-> command palette, settings, a diff panel, and per-agent git worktrees so that
-> panel can show one session's changes. What remains of Phase 4 is the signed
-> release; what remains of Phase 5 is merging a worktree back into the project —
-> see [Roadmap](#roadmap).
+> command palette, settings, a diff panel, and per-agent git worktrees that merge
+> back into the project. What remains of Phase 4 is the signed, notarized
+> release — see [Roadmap](#roadmap).
 
 ## What works today
 
@@ -49,6 +48,7 @@ telemetry; workspace state lives in `~/.grokspace`.
   moved with the arrows on the card, and each card can be handed to an agent:
   one already running, a fresh terminal in a free pane, or a new ACP agent, which
   needs no pane at all. Dispatching records which session took the task.
+  Double-click a description to edit it.
 - **Session steps** — each Grok or agent session can propose a short working list
   beside the board. Approve locks the titles; completing steps does not move the
   Kanban card.
@@ -75,14 +75,14 @@ telemetry; workspace state lives in `~/.grokspace`.
   project's tree. An ACP agent that isolated into a worktree appears as a chip, and
   picking it reads that checkout. Modified, new, deleted and renamed files, with each
   file's diff against `HEAD`; a file git has never seen is shown as all additions
-  rather than skipped. Read-only except Discard, which throws away a stopped agent's
-  worktree so Close can proceed.
+  rather than skipped. Discard throws away a stopped agent's worktree so Close can
+  proceed; Merge, on a stopped agent, lands that branch on the project.
 - **Per-agent worktrees** — an ACP agent starts in a clean checkout of `HEAD` at
   `<project>/.grokspace/worktrees/<session-id>/`, on a branch named
   `grokspace/<short-id>`. Grok panes and shells stay on the project folder. Graphs,
   steps, and memory still live under the project, via absolute environment variables.
-  Close refuses while that tree is dirty; Discard force-removes it. Merge into the
-  project branch is not this half.
+  Close refuses while that tree is dirty; Discard force-removes it. Merge, on a
+  stopped agent, commits leftover files and lands the branch on the project.
 - **Local persistence** — projects, sessions, tasks, memory, and settings live in
   SQLite at `~/.grokspace/grokspace.db`.
 
@@ -354,27 +354,27 @@ the reservation was for.
 - **Phase 1 — Terminal core.** Pty-backed sessions, xterm.js panes, the grid
   layout, the session lifecycle, and a live graph per session. Done.
 - **Phase 2 — Kanban and dispatch.** The board, dispatch, and ACP-driven agents
-  whose status is richer than running/stopped. Done, with one caveat worth knowing:
-  the ACP path has never run against a real `grok`, since the binary needs a
-  subscription and an interactive sign-in.
-  [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records what that
-  leaves unproven.
+  whose status is richer than running/stopped. Done. Leftover real-`grok` ACP
+  checks (permission option ids, a swarm) stay on
+  [issue #8](https://github.com/liarzpl/grokspace/issues/8).
+  [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
+  documented surface.
 - **Phase 3 — Memory and roles.** Shared project memory, role presets, and swarm
-  launches. Done, with the same caveat Phase 2 carries: a swarm is made of ACP
-  sessions, and that path has never run against a real `grok`.
+  launches. Done. A swarm is made of ACP sessions, so it inherits the same leftovers.
 - **Phase 4 — Polish and distribution.** A command palette, a diff panel, settings,
   and a notarized `.dmg`. The first three are done. The release pipeline is written but
-  cannot be proven from here: signing and notarizing need Apple Developer credentials
-  and a macOS runner, so the first tagged build is what verifies it. Tracked on
-  [issue #8](https://github.com/liarzpl/grokspace/issues/8) with the other things that
-  need a Mac and a licensed `grok`.
+  unproven: there are no `v*` tags, signing and notarizing need Apple Developer
+  credentials and a macOS runner, and repository Actions secrets may still be empty.
+  Also on [issue #8](https://github.com/liarzpl/grokspace/issues/8): HTML5 drag in
+  macOS WKWebView, and optional column reorder. Inline description edit shipped in
+  [#23](https://github.com/liarzpl/grokspace/pull/23).
 - **Phase 5 — Isolation and review.** ACP agents start in their own git
   worktree, the diff panel can read that tree, Close refuses to eat dirty work,
   Discard throws it away, Merge commits leftover files and lands the branch on
   the project. An assigned card moves to `review` when the agent goes idle,
   except while the step list is still `proposed` (the Approve gate). A selected
   hunk can be sent back as a prompt, and a graph node's file path opens in the
-  Diff panel. Done, with the same Mac/`grok` caveat Phase 2 carries.
+  Diff panel. Done. The same Mac/`grok` leftovers as Phase 2 still apply.
 
 [`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
 merged with a hand-written one, every conflict, and which side won.
