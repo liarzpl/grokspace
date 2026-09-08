@@ -17,6 +17,11 @@ telemetry; workspace state lives in `~/.grokspace`.
 > command palette, settings, a diff panel, and per-agent git worktrees that merge
 > back into the project. What remains of Phase 4 is the signed, notarized
 > release — see [Roadmap](#roadmap).
+>
+> This is an **early public, v0.1-track** macOS app: build it from source. There is
+> no signed or notarized download yet, and it is not an App Store build. A few
+> checks still need a Mac with a licensed `grok` — see
+> [issue #8](https://github.com/liarzpl/grokspace/issues/8).
 
 ## What works today
 
@@ -113,7 +118,9 @@ npm run tauri:dev
 
 The first run compiles the Rust backend, which takes a few minutes; later runs
 are incremental. `npm run tauri:build` produces a release build, and a `.dmg`
-on macOS.
+on macOS. That local `.dmg` is unsigned; macOS will ask you to right-click and
+Open it. `"private": true` in `package.json` only means the package is not
+published to npm — it says nothing about the repository.
 
 ## Development
 
