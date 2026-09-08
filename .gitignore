@@ -16,3 +16,8 @@ src-tauri/gen/
 
 *.log
 npm-debug.log*
+
+# Local env files. Keep .env.example as the documented template.
+.env
+.env.*
+!.env.example
