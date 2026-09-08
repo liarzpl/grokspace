@@ -91,6 +91,91 @@ under Sign-In and Security; it requires two-factor authentication on the account
 
 `security find-identity -v -p codesigning` prints the exact identity string to use.
 
+## Pre-flight checklist
+
+Where things stand as of 2026-09-08: **no `v*` tag has ever been pushed, and the
+repository has 0 Actions secrets.** With 0 secrets a dry run still succeeds — it builds
+an *explicitly labelled* unsigned DMG — but it proves nothing about Developer ID
+signing, stapling, or Gatekeeper. Only a run with all six secrets set tests those.
+
+Work through this in order. Nothing here creates a tag until the last step.
+
+### 1. Secrets
+
+Repository → Settings → Secrets and variables → Actions. All six, spelled exactly:
+
+- [ ] `APPLE_CERTIFICATE` — the Developer ID Application `.p12`, base64 (`openssl base64 -A -in cert.p12`)
+- [ ] `APPLE_CERTIFICATE_PASSWORD` — the `.p12` export password
+- [ ] `APPLE_SIGNING_IDENTITY` — `Developer ID Application: Your Name (TEAMID1234)`
+- [ ] `APPLE_ID` — the Apple account email
+- [ ] `APPLE_PASSWORD` — an **app-specific** password, not the account password
+- [ ] `APPLE_TEAM_ID` — the ten-character team ID
+
+The workflow's "signed or not" decision keys on `APPLE_SIGNING_IDENTITY`,
+`APPLE_CERTIFICATE` and `APPLE_ID` being present. The other three are what
+notarization needs. A run with the first three but not `APPLE_PASSWORD` /
+`APPLE_TEAM_ID` therefore reports itself as signed and ships un-notarized, which the
+inspection step shows as `source=Unnotarized Developer ID`. Set all six or none.
+
+Confirm the count without printing any values:
+
+```bash
+gh secret list --repo liarzpl/grokspace
+```
+
+### 2. Version sync
+
+Three files carry the version; the `version` job refuses the build if they disagree.
+They are currently all `0.1.0`.
+
+```bash
+./scripts/release-version.sh          # prints the agreed version, or the disagreement
+./scripts/release-version.sh v0.1.0   # also checks the tag you intend to push
+```
+
+- [ ] `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` agree
+- [ ] the tag you intend to push is `v` + that value
+
+### 3. Dry run first
+
+Actions → **Release** → Run workflow → leave **Build and sign, but publish nothing**
+ticked. Or:
+
+```bash
+gh workflow run release.yml --repo liarzpl/grokspace -f dry-run=true
+gh run watch --repo liarzpl/grokspace
+```
+
+Nothing is tagged or released. The DMG lands as the `grokspace-macos-universal`
+workflow artifact.
+
+- [ ] the **Work out what this build is** step says `Signing and notarizing`, not the
+  `No Apple secrets` warning
+- [ ] **Inspect what was actually produced** shows `Authority=Developer ID Application`,
+  `flags=0x10000(runtime)`, `source=Notarized Developer ID`, `The validate action
+  worked!`, and `x86_64 arm64` — see [What to check](#what-to-check-the-first-time-this-runs-for-real)
+- [ ] the artifact DMG, downloaded through a browser on a Mac that has never seen the
+  certificate, opens by double-clicking
+
+**Unsigned** means the warning fired: at least one of the three gating secrets was
+empty, and the release notes will say *This build is unsigned*. **Signed** means all
+of the inspection lines above read as expected. Anything in between (signed authority
+but `Unnotarized`) is a secrets problem, not a code problem.
+
+### 4. Then tag
+
+Only after 1–3 are ticked and the dry run has been read:
+
+```bash
+git checkout main && git pull
+./scripts/release-version.sh v0.1.0
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The run publishes a **draft** release. Read its inspection step once more before
+publishing it.
+
 ## Releasing
 
 Three files carry the version and none is derived from the others, so all three move
@@ -118,7 +203,9 @@ nothing** left ticked. It builds, signs and notarizes, and attaches the DMG as a
 workflow artifact instead of creating a release.
 
 Do this before the first real tag. Notarization is the step most likely to fail on a
-fresh setup, and finding out during a dry run costs nothing.
+fresh setup, and finding out during a dry run costs nothing. With no secrets set the
+dry run still passes — as an unsigned build — so a green run alone is not evidence;
+read the plan step and the inspection output, per the [checklist](#pre-flight-checklist).
 
 ## What to check the first time this runs for real
 

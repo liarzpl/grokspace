@@ -194,17 +194,18 @@ still being asked.
 
 ## What is not verified
 
-The ACP path has never run against a real `grok`. It was written against the
-published ACP schema and Grok's own documented client example, and its logic is
-covered by tests that drive the handshake and the reader over in-memory buffers —
-but no machine in this project's CI has the binary, which needs a subscription and
-an interactive sign-in.
+The handshake **is** verified, once, against `grok` 1.0.5 on a Mac (J7 on
+[issue #8](https://github.com/liarzpl/grokspace/issues/8), landed as #22 and #28):
+`initialize` answers integer `protocolVersion: 1`, `authMethods` includes
+`cached_token`, and `session/new` returns `result.sessionId` as a string. The rest
+of the ACP path has not run against the real binary, which needs a subscription and
+an interactive sign-in that CI does not have. Still open, tracked on #8: a real
+`session/prompt`, the permission request and its option ids (that machine had
+`permission_mode = "always-approve"` in its own config, so none were observed), a
+swarm, and HTML5 drag in WKWebView.
 
-What that means in practice, for whoever runs it first:
+What that means in practice, for whoever runs it next:
 
-- The handshake assumes `session/new` answers with `result.sessionId`. If Grok nests
-  it differently, `start` fails with "opened a session without giving it an id",
-  which is the error to look for.
 - The permission reply is the ACP v1 nested result, with `optionId` taken from
   the request (`allow-once` / `reject-once` when those kinds are offered):
 
