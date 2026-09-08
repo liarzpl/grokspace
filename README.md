@@ -395,3 +395,7 @@ the permission the Overlay chrome cannot be dragged.
 It also builds and runs on Linux, which is useful for CI. Those two options are
 macOS-only, so on Linux you get the ordinary window decorations in addition to
 the in-app title bar, and the space reserved for the traffic lights is empty.
+
+## License
+
+Released under the [MIT License](LICENSE).

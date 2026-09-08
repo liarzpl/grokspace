@@ -34,6 +34,8 @@
   "bundle": {
     "active": true,
     "targets": ["dmg", "app"],
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 liarzpl",
     "category": "DeveloperTool",
     "shortDescription": "Local-first multi-agent coding workspace",
     "longDescription": "GrokSpace is a local-first command center for running and coordinating multiple Grok Build sessions across your projects.",
