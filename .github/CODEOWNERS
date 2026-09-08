@@ -1,0 +1,6 @@
+# Default owner. Review requests for these paths go to @liarzpl.
+* @liarzpl
+.github/ @liarzpl
+src/ @liarzpl
+src-tauri/ @liarzpl
+docs/ @liarzpl
