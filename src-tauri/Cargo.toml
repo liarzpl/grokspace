@@ -3,6 +3,7 @@ name = "grokspace"
 version = "0.1.0"
 description = "Local-first macOS multi-agent coding workspace powered by Grok Build"
 authors = ["GrokSpace"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.85"
 

@@ -191,10 +191,9 @@ first.
   change this is the app launching and immediately dying with a code-signing error in
   Console; the fix would be an entitlements plist wired to
   `bundle.macOS.entitlements`.
-- **No licence.** The repository declares no licence anywhere — no `LICENSE` file, and
-  nothing in `package.json` or `Cargo.toml`. `bundle.license` and `bundle.copyright`
-  are worth setting before a public release, but neither can be chosen on the
-  repository owner's behalf, so both are left unset rather than invented.
+- **Licence is MIT.** Declared in `LICENSE`, `package.json`, `Cargo.toml`, and
+  `bundle.license` / `bundle.copyright` in `src-tauri/tauri.conf.json`. Changing
+  the holder or SPDX identifier needs those four places plus the README line.
 - **No updater.** Tauri can sign and serve updates, which needs its own key pair and a
   place to host `latest.json`. A tagged draft release is the whole distribution story
   for now.
