@@ -14,7 +14,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
@@ -725,7 +725,12 @@ impl StepWatchers {
         Self::default()
     }
 
-    fn watch(&self, app: AppHandle, project_id: &str, project_path: &Path) -> Result<Vec<String>> {
+    fn watch<R: Runtime>(
+        &self,
+        app: AppHandle<R>,
+        project_id: &str,
+        project_path: &Path,
+    ) -> Result<Vec<String>> {
         let existing: Vec<PathBuf> = watched_dirs(project_path)
             .into_iter()
             .filter(|dir| dir.is_dir())
@@ -835,8 +840,8 @@ pub fn reopen_session_steps(
 }
 
 #[tauri::command]
-pub fn watch_project_steps(
-    app: AppHandle,
+pub fn watch_project_steps<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     project_id: String,
 ) -> Result<Vec<String>> {
