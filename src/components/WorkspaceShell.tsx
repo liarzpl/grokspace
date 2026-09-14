@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, type KeyboardEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -7,15 +7,11 @@ import {
 } from "../lib/checkpoint";
 import { doomLoopNotice } from "../lib/doomLoop";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
-import {
-  inboxItems,
-  INBOX_SPLITS,
-  type InboxItem,
-  type SessionInboxReadiness,
-} from "../lib/inboxItems";
+import { inboxItems, INBOX_SPLITS, type SessionInboxReadiness } from "../lib/inboxItems";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions";
+import { openInboxItem } from "../lib/commands";
 import { sessionChipA11yLabel, sessionStatusPhrase } from "../lib/statusText";
 import { moveSegmented } from "../lib/segmented";
 import {
@@ -24,7 +20,6 @@ import {
   sessionIdsFromKey,
   sidecarLoadPlan,
 } from "../lib/sessionSidecars";
-import { useDiffStore } from "../stores/diffStore";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -339,41 +334,13 @@ function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
   );
 }
 
-function openInboxItem(
-  item: InboxItem,
-  projectId: string,
-  selectGraph: (sessionId: string) => void,
-): void {
-  if (item.jump === "card") {
-    useUiStore.getState().setTab("tasks");
-    if (item.taskId !== null) {
-      const taskId = item.taskId;
-      window.setTimeout(() => {
-        document
-          .querySelector(`[data-testid="task-card-${taskId}"]`)
-          ?.scrollIntoView({ block: "nearest" });
-      }, 0);
-    }
-    return;
-  }
-  if (item.jump === "diff") {
-    useUiStore.getState().setTab("diff");
-    void useDiffStore.getState().loadDiff(projectId, item.id);
-    return;
-  }
-  selectGraph(item.id);
-  useUiStore.getState().setTab("graph");
-}
-
 /** Processing rail for agent waits. Visible on every tab; not a WorkspaceTab. */
 function AttentionInbox({
   projectId,
   sessions,
-  onSelectGraph,
 }: {
   projectId: string;
   sessions: Session[];
-  onSelectGraph: (sessionId: string) => void;
 }) {
   const tasks = useTasksForProject(projectId);
   const permissions = useSessionStore((state) => state.permissions);
@@ -416,6 +383,7 @@ function AttentionInbox({
       role="region"
       aria-label="Attention"
       data-testid="attention-inbox"
+      data-inbox-keys=""
       className="flex shrink-0 items-center gap-4 overflow-x-auto border-b border-line px-4 py-1.5"
     >
       {items.length === 0 ? (
@@ -438,8 +406,9 @@ function AttentionInbox({
                   key={item.id}
                   type="button"
                   data-testid={`inbox-item-${item.id}`}
+                  data-session-id={item.id}
                   aria-label={`${item.title}, ${split.label}`}
-                  onClick={() => openInboxItem(item, projectId, onSelectGraph)}
+                  onClick={() => openInboxItem(item, projectId)}
                   className="max-w-36 truncate rounded-sm px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:bg-elevated hover:text-ink"
                 >
                   {item.title}
@@ -566,7 +535,8 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   // two components cannot share a useState.
   const tab = useUiStore((state) => state.tab);
   const setTab = useUiStore((state) => state.setTab);
-  const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
+  const graphSessionId = useUiStore((state) => state.graphSessionId);
+  const selectGraph = useUiStore((state) => state.selectGraph);
 
   const onWorkspaceTabsKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     moveSegmented(
@@ -610,7 +580,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       sessionIds,
       paneSessionIds: sessionIdsFromKey(paneKey),
       tab,
-      selectedGraphId,
+      selectedGraphId: graphSessionId,
     });
     for (const id of plan.immediate) void loadGraph(id);
     void syncSteps(sessionIds, plan.immediate);
@@ -618,7 +588,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       for (const id of plan.deferred) void loadGraph(id);
     });
     return cancel;
-  }, [sessionKey, paneKey, tab, selectedGraphId, loadGraph, syncSteps]);
+  }, [sessionKey, paneKey, tab, graphSessionId, loadGraph, syncSteps]);
 
   useEffect(() => {
     // Watching is what makes the graphs live. The backend keeps one watch per
@@ -633,7 +603,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   // Derived rather than stored, so closing the selected session hands the graph
   // view to another one instead of leaving an empty canvas behind.
   const graphSession =
-    sessions.find((session) => session.id === selectedGraphId) ?? sessions[0] ?? undefined;
+    sessions.find((session) => session.id === graphSessionId) ?? sessions[0] ?? undefined;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -674,11 +644,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       <IsolationBanner projectId={project.id} />
       <DoomLoopBanner projectId={project.id} />
       <OrphanedPermissionBanner projectId={project.id} />
-      <AttentionInbox
-        projectId={project.id}
-        sessions={sessions}
-        onSelectGraph={setSelectedGraphId}
-      />
+      <AttentionInbox projectId={project.id} sessions={sessions} />
 
       {/*
         Switching tabs unmounts the grid, which is safe: lib/terminals.ts holds
@@ -703,7 +669,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
           aria-labelledby="workspace-tab-graph"
           className="flex min-h-0 flex-1 flex-col"
         >
-          <GraphTab sessions={sessions} selected={graphSession} onSelect={setSelectedGraphId} />
+          <GraphTab sessions={sessions} selected={graphSession} onSelect={selectGraph} />
         </div>
       )}
       {tab === "tasks" && (

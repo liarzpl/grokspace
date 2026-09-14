@@ -12,16 +12,20 @@
  * waiting for someone to add a condition.
  */
 
+import { useDiffStore } from "../stores/diffStore";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
 import { SKILL_IDS, skillCommandLabel, skillOf, useSkillStore } from "../stores/skillStore";
 import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
+import { tasksForProject, useTaskStore } from "../stores/taskStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
 import { errorMessage } from "./api";
+import { inboxItems, type InboxItem } from "./inboxItems";
 import { FALLBACK_PTY_SIZE } from "./limits";
+import { ALLOW_ONCE, REJECT_ONCE, permissionChips } from "./permissions";
 import { BATON_ROLES, ROLES } from "./roles";
-import type { ShortcutId } from "./shortcuts";
+import type { GlobalShortcutId } from "./shortcuts";
 import { canApproveSteps, sendApproval } from "./steps";
 
 export interface Command {
@@ -30,7 +34,7 @@ export interface Command {
   /** Shown beside the label, so a long list reads as sections without headings. */
   group: string;
   /** Named when a command also has a key of its own, so the palette can say so. */
-  shortcut?: ShortcutId;
+  shortcut?: GlobalShortcutId;
   run: () => void;
 }
 
@@ -46,6 +50,71 @@ function firstFreePane(project: Project): string | undefined {
   );
   const sessions = sessionsForProject(useSessionStore.getState().sessions, project.id);
   return panes.find((paneId) => sessionForPane(sessions, paneId) === undefined);
+}
+
+function inboxFor(project: Pick<Project, "id">): InboxItem[] {
+  const sessions = sessionsForProject(useSessionStore.getState().sessions, project.id);
+  const tasks = tasksForProject(useTaskStore.getState().tasks, project.id);
+  return inboxItems(sessions, tasks, useSessionStore.getState().permissions, {});
+}
+
+function firstNeedsYou(project: Pick<Project, "id">): InboxItem | undefined {
+  return inboxFor(project).find((item) => item.split === "needs_you");
+}
+
+function allowOnceReady(sessionId: string): boolean {
+  const request = useSessionStore.getState().permissions[sessionId]?.[0];
+  if (request === undefined) return false;
+  const chip = permissionChips(request).find((candidate) => candidate.key === ALLOW_ONCE);
+  return chip !== undefined && !chip.disabled;
+}
+
+/** Allow once or Deny for the session's first pending permission. Never Always. */
+export function answerInboxPermission(sessionId: string, allow: boolean): void {
+  const request = useSessionStore.getState().permissions[sessionId]?.[0];
+  if (request === undefined) return;
+  const key = allow ? ALLOW_ONCE : REJECT_ONCE;
+  const chip = permissionChips(request).find((candidate) => candidate.key === key);
+  if (chip === undefined || chip.disabled) return;
+  void useSessionStore
+    .getState()
+    .answerPermission(sessionId, request.requestId, chip.allow, chip.optionId);
+}
+
+export function showInboxGraph(sessionId: string): void {
+  useUiStore.getState().selectGraph(sessionId);
+  useUiStore.getState().setTab("graph");
+}
+
+/** Same jump as clicking the rail: card, Diff, or graph. */
+export function openInboxItem(item: InboxItem, projectId: string): void {
+  if (item.jump === "card") {
+    useUiStore.getState().setTab("tasks");
+    if (item.taskId !== null && typeof document !== "undefined") {
+      const taskId = item.taskId;
+      window.setTimeout(() => {
+        document
+          .querySelector(`[data-testid="task-card-${taskId}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }, 0);
+    }
+    return;
+  }
+  if (item.jump === "diff") {
+    useUiStore.getState().setTab("diff");
+    void useDiffStore.getState().loadDiff(projectId, item.id);
+    return;
+  }
+  showInboxGraph(item.id);
+}
+
+export function openInboxSession(projectId: string, sessionId: string): void {
+  const item = inboxFor({ id: projectId }).find((row) => row.id === sessionId);
+  if (item === undefined) {
+    showInboxGraph(sessionId);
+    return;
+  }
+  openInboxItem(item, projectId);
 }
 
 function startInFreePane(project: Project, kind: SessionKind) {
@@ -206,6 +275,34 @@ export function commands(project: Project | null): Command[] {
       })();
     },
   });
+
+  const waiting = firstNeedsYou(project);
+  if (waiting !== undefined) {
+    list.push({
+      id: "jump-first-needs-you",
+      label: "Jump to first Needs you",
+      group: "Inbox",
+      run: () => {
+        useUiStore.getState().closePalette();
+        const item = firstNeedsYou(project);
+        if (item === undefined) return;
+        openInboxItem(item, project.id);
+      },
+    });
+    if (allowOnceReady(waiting.id)) {
+      list.push({
+        id: "allow-first-wait",
+        label: "Allow first wait",
+        group: "Inbox",
+        run: () => {
+          useUiStore.getState().closePalette();
+          const item = firstNeedsYou(project);
+          if (item === undefined) return;
+          answerInboxPermission(item.id, true);
+        },
+      });
+    }
+  }
 
   // Agents have no pane, so Stop/Close are not on a terminal header. Terminals
   // already have those controls there; repeating them here would be a second Stop
