@@ -1,5 +1,6 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
 
+import type { PlaybookRecord } from "./playbook";
 import type {
   DiffState,
   EdgesSnapshot,
@@ -287,6 +288,18 @@ export const api = {
       projectId,
       limit: limit ?? null,
     }),
+
+  /** Writes `~/.grokspace/playbooks/<name>/` (graph, steps, roles, memory excerpt). */
+  savePlaybook: (input: {
+    name: string;
+    roles: string[];
+    graph: string;
+    steps: string;
+    memory: string;
+  }): Promise<PlaybookRecord> => invoke<PlaybookRecord>("save_playbook", input),
+
+  readPlaybook: (name: string, projectId: string | null): Promise<PlaybookRecord> =>
+    invoke<PlaybookRecord>("read_playbook", { name, projectId }),
 
   listMemory: (projectId: string): Promise<MemoryEntry[]> =>
     invoke<MemoryEntry[]>("list_memory", { projectId }),

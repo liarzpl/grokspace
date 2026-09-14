@@ -30,8 +30,8 @@ export default function CommandPalette() {
   // forgotten. Skill slots are in the deps so installed vs missing updates after
   // a refresh without closing.
   const all = useMemo(
-    () => (isOpen ? commands(project) : []),
-    [isOpen, project, skillById],
+    () => (isOpen ? commands(project, query) : []),
+    [isOpen, project, skillById, query],
   );
   const shown = useMemo(() => matching(all, query), [all, query]);
 

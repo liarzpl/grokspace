@@ -331,7 +331,11 @@ interface SessionState {
    * Starts one agent per role and tells each what it is for. Returns the roles that
    * would not start, so the caller can say which rather than only that some did.
    */
-  launchSwarm: (projectId: string, roles: readonly Role[]) => Promise<string[]>;
+  launchSwarm: (
+    projectId: string,
+    roles: readonly Role[],
+    options?: { promptFor?: (role: Role) => string },
+  ) => Promise<string[]>;
   /**
    * Hands the source's locked plan to Coder or Reviewer. Cancels an in-flight
    * prompt on the source (idle, not Close). Prompts an idle peer, or starts one.
@@ -585,7 +589,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   startSession: (input, options) => get().createSession(input, options),
 
-  launchSwarm: async (projectId, roles) => {
+  launchSwarm: async (projectId, roles, options) => {
     const failed: string[] = [];
     const reasons: string[] = [];
     // One confirm for this launch. A later New agent still asks.
@@ -623,7 +627,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
 
       try {
-        await api.promptSession(session.id, briefPrompt(role));
+        await api.promptSession(session.id, options?.promptFor?.(role) ?? briefPrompt(role));
       } catch (error) {
         // Started but never briefed, which is worse than not started: it would sit
         // there looking ready while knowing nothing about its job. Close it so a

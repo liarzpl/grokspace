@@ -120,6 +120,13 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | --- | --- |
 | `export_session_pack` | Native folder picker; writes `graph.json`, `steps.json`, `memory.md`, capped `transcript.md`, `changes.patch`, and `ledger-tail.jsonl` when that file exists. Cancel is `null`. `.env` and `worktreeinclude` stay out of the pack. Import is not this command |
 
+### Playbooks — `playbook.rs`
+
+| Command | What it does |
+| --- | --- |
+| `save_playbook` | Writes `playbook.json` (roles), `graph.json`, `steps.json`, `memory.md` under `~/.grokspace/playbooks/<name>/`. No transcript file |
+| `read_playbook` | Loads one folder; project `.grokspace/playbooks/` first, then `~/.grokspace/playbooks/`. No remote catalog |
+
 ### Graphs — `graph.rs`
 
 | Command | What it does |

@@ -26,6 +26,8 @@ const answerSessionPermission = vi.fn();
 const installSkill = vi.fn();
 const skillStatus = vi.fn();
 const exportSessionPack = vi.fn();
+const savePlaybook = vi.fn();
+const readPlaybook = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -52,11 +54,16 @@ vi.mock("../lib/api", async () => {
       installSkill,
       skillStatus,
       exportSessionPack,
+      savePlaybook,
+      readPlaybook,
     },
   };
 });
 
 const { commands, matching } = await import("./commands");
+const { playbookNameFromQuery, sanitizePlaybookName } = await import("./playbook");
+const { useGraphStore } = await import("../stores/graphStore");
+const { useMemoryStore } = await import("../stores/memoryStore");
 const { useProjectStore } = await import("../stores/projectStore");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useSkillStore } = await import("../stores/skillStore");
@@ -130,6 +137,8 @@ const initialProjects = useProjectStore.getState();
 const initialSessions = useSessionStore.getState();
 const initialSteps = useStepStore.getState();
 const initialSkills = useSkillStore.getState();
+const initialGraphs = useGraphStore.getState();
+const initialMemory = useMemoryStore.getState();
 const initialTasks = useTaskStore.getState();
 
 const ISOLATION_ERR =
@@ -143,6 +152,8 @@ beforeEach(() => {
   useSessionStore.setState(initialSessions, true);
   useStepStore.setState(initialSteps, true);
   useSkillStore.setState(initialSkills, true);
+  useGraphStore.setState(initialGraphs, true);
+  useMemoryStore.setState(initialMemory, true);
   useTaskStore.setState(initialTasks, true);
 });
 
@@ -770,6 +781,86 @@ describe("running a command", () => {
     expect(installSkill).not.toHaveBeenCalled();
     expect(useUiStore.getState().isPaletteOpen).toBe(true);
     expect(labels(project())).toContain("Refresh the graph skill (installed)");
+  });
+});
+
+describe("playbooks", () => {
+  const SID = "550e8400-e29b-41d4-a716-446655440000";
+
+  function seedRun() {
+    useSessionStore.setState({
+      sessions: [session({ paneId: null, kind: "agent", title: "Planner", role: "Planner", status: "idle" })],
+    });
+    useUiStore.setState({
+      transcript: { s1: [{ kind: "message", text: "secret token from the log" }] },
+    });
+    useGraphStore.setState({
+      bySession: {
+        s1: {
+          path: `/tmp/acme/.grokspace/graphs/${SID}.json`,
+          graph: {
+            id: SID,
+            name: "The run",
+            status: "completed",
+            nodes: [
+              {
+                id: "orch",
+                type: "orchestrator",
+                label: "Plan it",
+                status: "completed",
+                position: { x: 0, y: 0 },
+                data: { artifactPath: `/tmp/acme/.grokspace/graphs/${SID}.json` },
+              },
+            ],
+            edges: [],
+          },
+          warnings: [],
+          error: null,
+          updatedAt: 1,
+          bytes: 12,
+          isLoading: false,
+        },
+      },
+    });
+  }
+
+  it("saves without the transcript and dispatches each listed role", async () => {
+    seedRun();
+    savePlaybook.mockResolvedValue({ name: "review-pr", scope: "user", path: "", roles: [], graph: "", steps: "", memory: "" });
+    expect(sanitizePlaybookName("../etc")).toBeNull();
+    expect(playbookNameFromQuery("!review-pr")).toBe("review-pr");
+    expect(commands(project(), "!review-pr").map((command) => command.label)).toEqual(
+      expect.arrayContaining([
+        "Save successful run as playbook !review-pr",
+        "Dispatch playbook !review-pr",
+      ]),
+    );
+    commands(project(), "!review-pr").find((command) => command.id === "save-playbook-review-pr")?.run();
+    await vi.waitFor(() => expect(savePlaybook).toHaveBeenCalled());
+    const body = JSON.stringify(savePlaybook.mock.calls[0]?.[0]);
+    expect(body).not.toContain("transcript");
+    expect(body).not.toContain("secret token from the log");
+    expect(body).not.toContain(SID);
+    expect(body).toContain("$GROKSPACE_GRAPH_FILE");
+
+    readPlaybook.mockResolvedValue({
+      name: "review-pr",
+      scope: "user",
+      path: "",
+      roles: ["Planner", "Coder", "Reviewer"],
+      graph: "{}",
+      steps: "{}",
+      memory: "",
+    });
+    createSession.mockImplementation((input: { role?: string }) =>
+      Promise.resolve(session({ id: `s-${input.role ?? "?"}`, paneId: null, kind: "agent", role: input.role ?? null })),
+    );
+    promptSession.mockResolvedValue(undefined);
+    commands(project(), "!review-pr").find((command) => command.id === "dispatch-playbook-review-pr")?.run();
+    await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(3));
+    expect(createSession.mock.calls.map((call) => call[0].role)).toEqual(["Planner", "Coder", "Reviewer"]);
+    expect(promptSession.mock.calls[0]?.[1]).toContain("$GROKSPACE_GRAPH_FILE");
+    expect(promptSession.mock.calls[0]?.[1]).not.toContain("transcript");
   });
 });
 
