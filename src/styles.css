@@ -1,6 +1,4 @@
 @import "tailwindcss";
-@import "@xyflow/react/dist/style.css" layer(components);
-@import "@xterm/xterm/css/xterm.css" layer(components);
 
 /* Dark-only palette for now.
    

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 
@@ -8,7 +8,6 @@ import SettingsPanel from "./components/SettingsPanel";
 import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
 import TitleBar from "./components/TitleBar";
-import WorkspaceShell from "./components/WorkspaceShell";
 import { useGraphStore } from "./stores/graphStore";
 import { useActiveProject, useProjectStore } from "./stores/projectStore";
 import { useMemoryStore } from "./stores/memoryStore";
@@ -22,6 +21,8 @@ import { useUiStore } from "./stores/uiStore";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
 import { listenBackendEvents } from "./lib/events";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
+
+const WorkspaceShell = lazy(() => import("./components/WorkspaceShell"));
 
 const dockAttention = createDockTracker();
 
@@ -167,7 +168,13 @@ export default function App() {
         <ProjectSidebar />
         <main className="flex min-w-0 flex-1 flex-col">
           <ErrorBoundary>
-            {activeProject ? <WorkspaceShell project={activeProject} /> : <EmptyState />}
+            {activeProject ? (
+              <Suspense fallback={<div className="min-h-0 flex-1" />}>
+                <WorkspaceShell project={activeProject} />
+              </Suspense>
+            ) : (
+              <EmptyState />
+            )}
           </ErrorBoundary>
         </main>
       </div>

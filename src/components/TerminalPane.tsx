@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { isKeyboardClick } from "../lib/keyboardClick";
@@ -18,8 +18,9 @@ import { stepsFor, useStepStore } from "../stores/stepStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Session, SessionKind } from "../types";
-import GraphVisualizer from "./GraphVisualizer";
 import SessionSteps from "./SessionSteps";
+
+const GraphVisualizer = lazy(() => import("./GraphVisualizer"));
 import { QuietButton, StatusDot } from "./ui";
 
 /** Long enough to swallow the burst a window drag produces, short enough to feel live. */
@@ -300,7 +301,9 @@ function TerminalPane({
 
       {session ? (
         view === "graph" ? (
-          <GraphVisualizer session={session} compact />
+          <Suspense fallback={<div className="min-h-0 flex-1" />}>
+            <GraphVisualizer session={session} compact />
+          </Suspense>
         ) : view === "steps" ? (
           <SessionSteps session={session} compact />
         ) : (

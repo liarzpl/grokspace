@@ -213,6 +213,7 @@ describe("loadSessions", () => {
     await useSessionStore.getState().loadSessions("p1");
 
     expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s1"]);
+    await Promise.resolve();
     expect(disposeTerminal).not.toHaveBeenCalled();
     expect(detachTerminal).not.toHaveBeenCalled();
   });
@@ -236,7 +237,7 @@ describe("loadSessions", () => {
 
     expect(useSessionStore.getState().sessions).toEqual([]);
     expect(useSessionStore.getState().permissions).toEqual({});
-    expect(disposeTerminal).toHaveBeenCalledWith("s1");
+    await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("s1"));
     expect(detachTerminal).not.toHaveBeenCalled();
     expect(useGraphStore.getState().bySession).toEqual({});
     // The conversation is still running; coming back should not start from blank.
@@ -262,6 +263,7 @@ describe("loadSessions", () => {
     const pending = useSessionStore.getState().loadSessions("p1");
 
     expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1"]);
+    await Promise.resolve();
     expect(disposeTerminal).not.toHaveBeenCalled();
     expect(detachTerminal).not.toHaveBeenCalled();
 
@@ -284,6 +286,7 @@ describe("loadSessions", () => {
     expect(useSessionStore.getState().transcript).toEqual({
       s1: [{ kind: "message", text: "keep" }],
     });
+    await Promise.resolve();
     expect(disposeTerminal).not.toHaveBeenCalled();
     expect(detachTerminal).not.toHaveBeenCalled();
   });
@@ -298,7 +301,7 @@ describe("loadSessions", () => {
     await useSessionStore.getState().loadSessions("p2");
 
     expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
-    expect(disposeTerminal).toHaveBeenCalledWith("s1");
+    await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("s1"));
   });
 
   it("drops the step lists of the project being left", async () => {
@@ -716,7 +719,7 @@ describe("restartSession", () => {
 
     expect(restartSession).toHaveBeenCalledWith("old", 100, 30);
     // Restarting mints a new id, so the old xterm instance has to go.
-    expect(disposeTerminal).toHaveBeenCalledWith("old");
+    await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("old"));
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["fresh"]);
     expect(useSessionStore.getState().transcript["old"]).toBeUndefined();
   });
@@ -752,7 +755,7 @@ describe("closeSession", () => {
 
     await useSessionStore.getState().closeSession("s1");
 
-    expect(disposeTerminal).toHaveBeenCalledWith("s1");
+    await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("s1"));
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["s2"]);
     expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
     expect(useSessionStore.getState().transcript["s2"]?.[0]?.text).toBe("Read");
@@ -787,6 +790,7 @@ describe("closeSession", () => {
     await useSessionStore.getState().closeSession("s1");
 
     expect(useSessionStore.getState().sessions).toHaveLength(1);
+    await Promise.resolve();
     expect(disposeTerminal).not.toHaveBeenCalled();
   });
 });

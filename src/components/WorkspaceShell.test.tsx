@@ -96,17 +96,17 @@ describe("WorkspaceShell", () => {
 
     await user.click(screen.getByTestId("workspace-tab-graph"));
     expect(useUiStore.getState().tab).toBe("graph");
-    expect(screen.getByTestId("graph-visualizer")).toBeInTheDocument();
+    expect(await screen.findByTestId("graph-visualizer")).toBeInTheDocument();
     expect(screen.queryByTestId("pane-grid")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("workspace-tab-tasks"));
-    expect(screen.getByTestId("task-board")).toBeInTheDocument();
+    expect(await screen.findByTestId("task-board")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("workspace-tab-memory"));
     expect(screen.getByTestId("memory-panel")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("workspace-tab-diff"));
-    expect(screen.getByTestId("diff-panel")).toBeInTheDocument();
+    expect(await screen.findByTestId("diff-panel")).toBeInTheDocument();
   });
 
   it("starts graph and step watches for the open project", async () => {

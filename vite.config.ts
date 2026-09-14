@@ -24,6 +24,16 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: !process.env.TAURI_ENV_DEBUG,
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG),
+    // COMPILE-001: split xyflow/xterm out of the first paint. Do not raise
+    // chunkSizeWarningLimit — that only hides the 848 kB main-chunk warning.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules/@xyflow")) return "xyflow";
+          if (id.includes("node_modules/@xterm")) return "xterm";
+        },
+      },
+    },
   },
   test: {
     // One command still runs everything. Component files need a DOM (TEST-001);
