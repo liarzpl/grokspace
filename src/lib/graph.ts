@@ -62,7 +62,8 @@ export interface GraphEdge {
   animated: boolean;
 }
 
-export interface GraphState {
+/** Runtime notes on the document itself — not the Zustand store. */
+export interface GraphDocState {
   currentLayer?: string;
   notes?: string;
   partial?: boolean;
@@ -78,7 +79,7 @@ export interface GraphDocument {
   topology?: string;
   nodes: GraphNode[];
   edges: GraphEdge[];
-  state?: GraphState;
+  state?: GraphDocState;
 }
 
 export type ParseResult =
