@@ -26,6 +26,8 @@
     "allow-discard-session-worktree",
     "allow-merge-session-worktree",
     "allow-session-merge-readiness",
+    "allow-preview-worktree-gc",
+    "allow-gc-orphan-worktrees",
     "allow-prompt-session",
     "allow-cancel-session",
     "allow-answer-session-permission",

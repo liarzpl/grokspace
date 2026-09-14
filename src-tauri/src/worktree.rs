@@ -28,7 +28,12 @@
 //! skip, not a silent half-prepared tree. The command is part of the reason.
 //! Restart does not run it again.
 //!
+//! Settings can list leftover trees under `.grokspace/worktrees/` that have no
+//! session row, with sizes. Removal is confirm-only and skips dirty or
+//! unmerged trees — the same refusal as Close, never `--force`.
+//!
 //! No Tauri, no database: tests drive real git against temporary repositories.
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
@@ -731,6 +736,181 @@ pub fn remove(project_path: &Path, worktree_path: &Path, force: bool) -> Result<
     Ok(())
 }
 
+/// Session ids and worktree paths that still have a row. Those trees are not
+/// orphans, even when the row is stopped — Discard and Merge own those.
+#[derive(Debug, Default, Clone)]
+pub struct LiveWorktrees {
+    ids: HashSet<String>,
+    paths: HashSet<PathBuf>,
+}
+
+impl LiveWorktrees {
+    pub fn from_sessions<'a, I>(sessions: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a str, Option<&'a Path>)>,
+    {
+        let mut live = Self::default();
+        for (id, path) in sessions {
+            live.ids.insert(id.to_string());
+            if let Some(path) = path {
+                live.remember(path);
+            }
+        }
+        live
+    }
+
+    fn remember(&mut self, path: &Path) {
+        self.paths.insert(path.to_path_buf());
+        if let Ok(canonical) = path.canonicalize() {
+            self.paths.insert(canonical);
+        }
+    }
+
+    fn holds(&self, session_id: &str, path: &Path) -> bool {
+        self.ids.contains(session_id)
+            || self.paths.contains(path)
+            || path
+                .canonicalize()
+                .is_ok_and(|canonical| self.paths.contains(&canonical))
+    }
+}
+
+/// A directory under `.grokspace/worktrees/` with no session row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrphanWorktree {
+    pub path: PathBuf,
+    pub session_id: String,
+    pub size_bytes: u64,
+    pub dirty: bool,
+    pub skip_reason: Option<String>,
+}
+
+impl OrphanWorktree {
+    pub fn removable(&self) -> bool {
+        self.skip_reason.is_none()
+    }
+}
+
+fn worktrees_root(project_path: &Path) -> PathBuf {
+    project_path.join(".grokspace").join("worktrees")
+}
+
+/// Leftover trees only. A live session path is omitted, even when stopped.
+pub fn list_orphans(project_path: &Path, live: &LiveWorktrees) -> Vec<OrphanWorktree> {
+    let Ok(entries) = fs::read_dir(worktrees_root(project_path)) else {
+        return Vec::new();
+    };
+    let mut orphans = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            continue;
+        }
+        let Some(session_id) = entry.file_name().to_str().map(str::to_string) else {
+            continue;
+        };
+        if session_id.starts_with('.') || live.holds(&session_id, &path) {
+            continue;
+        }
+        orphans.push(inspect_orphan(project_path, session_id, path));
+    }
+    orphans.sort_by(|left, right| left.session_id.cmp(&right.session_id));
+    orphans
+}
+
+fn inspect_orphan(project_path: &Path, session_id: String, path: PathBuf) -> OrphanWorktree {
+    let size_bytes = dir_size(&path);
+    if !is_checkout(&path) {
+        return OrphanWorktree {
+            path,
+            session_id,
+            size_bytes,
+            dirty: false,
+            skip_reason: None,
+        };
+    }
+    let dirty = is_dirty(&path).unwrap_or(true);
+    let skip_reason = match close_refusal(project_path, &path) {
+        Ok(reason) => reason,
+        Err(error) => Some(error.to_string()),
+    };
+    OrphanWorktree {
+        path,
+        session_id,
+        size_bytes,
+        dirty,
+        skip_reason,
+    }
+}
+
+/// Removes clean orphans only. Dirty and unmerged trees stay.
+pub fn gc_orphans(project_path: &Path, live: &LiveWorktrees) -> Result<Vec<OrphanWorktree>> {
+    let mut removed = Vec::new();
+    for orphan in list_orphans(project_path, live) {
+        if !orphan.removable() {
+            continue;
+        }
+        remove_orphan(project_path, &orphan)?;
+        removed.push(orphan);
+    }
+    Ok(removed)
+}
+
+fn remove_orphan(project_path: &Path, orphan: &OrphanWorktree) -> Result<()> {
+    let root = worktrees_root(project_path)
+        .canonicalize()
+        .map_err(|error| {
+            Error::Invalid(format!(
+                "could not resolve the worktrees directory: {error}"
+            ))
+        })?;
+    let path = orphan
+        .path
+        .canonicalize()
+        .map_err(|error| Error::Invalid(format!("could not resolve the worktree path: {error}")))?;
+    if path.parent() != Some(root.as_path()) {
+        return Err(Error::Invalid(
+            "that path is not a GrokSpace worktree".into(),
+        ));
+    }
+    if is_checkout(&path) {
+        return remove(project_path, &path, false);
+    }
+    if path.is_dir() {
+        fs::remove_dir_all(&path).map_err(|error| {
+            Error::Invalid(format!(
+                "could not remove a leftover worktree directory: {error}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
+fn dir_size(path: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(path) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() {
+            continue;
+        }
+        if meta.is_dir() {
+            total += dir_size(&path);
+        } else {
+            total += meta.len();
+        }
+    }
+    total
+}
+
 fn rev_parse(git_path: &str, cwd: &Path, rev: &str) -> Result<String> {
     let output = git(git_path, cwd, &["rev-parse", rev])?;
     if !output.status.success() {
@@ -1250,6 +1430,47 @@ mod tests {
     #[test]
     fn a_missing_worktree_is_not_dirty() {
         assert!(!is_dirty(Path::new("/tmp/grokspace-no-such-worktree")).unwrap());
+    }
+
+    #[test]
+    fn gc_lists_orphans_skips_live_and_does_not_remove_dirty() {
+        let dir = repo();
+        let live_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let clean_id = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+        let dirty_id = "cccccccc-dddd-eeee-ffff-000000000000";
+        let live = checkout(&dir, live_id);
+        let clean = checkout(&dir, clean_id);
+        let dirty = checkout(&dir, dirty_id);
+        fs::write(dirty.join("agent.rs"), "fn main() {}\n").unwrap();
+
+        let live_set = LiveWorktrees::from_sessions([(live_id, Some(live.as_path()))]);
+        let listed = list_orphans(dir.path(), &live_set);
+        let ids: Vec<_> = listed
+            .iter()
+            .map(|orphan| orphan.session_id.as_str())
+            .collect();
+        assert_eq!(ids, vec![clean_id, dirty_id]);
+        assert!(listed.iter().all(|orphan| orphan.size_bytes > 0));
+        assert!(!listed.iter().any(|orphan| orphan.path == live));
+        assert!(listed
+            .iter()
+            .any(|orphan| orphan.session_id == dirty_id && orphan.dirty && !orphan.removable()));
+        assert!(listed
+            .iter()
+            .any(|orphan| orphan.session_id == clean_id && orphan.removable()));
+
+        let leftover = path_for(dir.path(), "deadbeef-dead-beef-dead-beefdeadbeef");
+        fs::create_dir_all(&leftover).unwrap();
+        fs::write(leftover.join("stale.txt"), "leftover\n").unwrap();
+        assert!(list_orphans(dir.path(), &live_set)
+            .iter()
+            .any(|orphan| orphan.session_id.starts_with("deadbeef") && orphan.removable()));
+
+        gc_orphans(dir.path(), &live_set).unwrap();
+        assert!(live.exists(), "a live session path must stay");
+        assert!(!clean.exists(), "a clean orphan is what confirm removes");
+        assert!(dirty.exists(), "gc must never force-remove dirty");
+        assert!(!leftover.exists(), "a leftover folder is removable");
     }
 
     #[test]

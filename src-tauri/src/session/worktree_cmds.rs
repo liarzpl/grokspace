@@ -1,8 +1,8 @@
-//! Close, discard, merge, and merge-readiness for a session worktree.
+//! Close, discard, merge, merge-readiness, and orphan worktree GC.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use super::db::{delete, get, set_worktree_path, Session, SessionStatus};
+use super::db::{delete, get, list, set_worktree_path, Session, SessionStatus};
 use crate::error::{Error, Result};
 use crate::{graph, project, steps, worktree, AppState};
 use serde::{Deserialize, Serialize};
@@ -205,4 +205,69 @@ pub(crate) fn close_with(
     }
 
     Ok(())
+}
+
+/// A leftover `.grokspace/worktrees/<id>` with no session row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeGcEntry {
+    pub path: String,
+    pub session_id: String,
+    pub size_bytes: u64,
+    pub dirty: bool,
+    pub removable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_reason: Option<String>,
+}
+
+fn live_worktrees(sessions: &[Session]) -> worktree::LiveWorktrees {
+    worktree::LiveWorktrees::from_sessions(sessions.iter().map(|session| {
+        (
+            session.id.as_str(),
+            session.worktree_path.as_deref().map(Path::new),
+        )
+    }))
+}
+
+fn to_gc_entry(orphan: worktree::OrphanWorktree) -> WorktreeGcEntry {
+    WorktreeGcEntry {
+        path: orphan.path.to_string_lossy().into_owned(),
+        session_id: orphan.session_id,
+        size_bytes: orphan.size_bytes,
+        dirty: orphan.dirty,
+        removable: orphan.skip_reason.is_none(),
+        skip_reason: orphan.skip_reason,
+    }
+}
+
+fn project_orphans(
+    state: &AppState,
+    project_id: &str,
+) -> Result<(PathBuf, worktree::LiveWorktrees)> {
+    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+    let project = project::get(&conn, project_id)?;
+    let sessions = list(&conn, project_id)?;
+    Ok((PathBuf::from(project.path), live_worktrees(&sessions)))
+}
+
+/// Dry-run: orphan trees with sizes. Dirty ones are listed, not removable.
+pub(crate) fn preview_gc(state: &AppState, project_id: &str) -> Result<Vec<WorktreeGcEntry>> {
+    let (project_path, live) = project_orphans(state, project_id)?;
+    Ok(worktree::list_orphans(&project_path, &live)
+        .into_iter()
+        .map(to_gc_entry)
+        .collect())
+}
+
+/// Removes clean orphans only. Re-lists afterwards so dirty leftovers remain.
+pub(crate) fn remove_clean_orphans(
+    state: &AppState,
+    project_id: &str,
+) -> Result<Vec<WorktreeGcEntry>> {
+    let (project_path, live) = project_orphans(state, project_id)?;
+    worktree::gc_orphans(&project_path, &live)?;
+    Ok(worktree::list_orphans(&project_path, &live)
+        .into_iter()
+        .map(to_gc_entry)
+        .collect())
 }

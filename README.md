@@ -249,7 +249,7 @@ src-tauri/
     session/      Session model, start path, and worktree commands
       db.rs       Session row, permissions, status, reconcile
       start.rs    Resolve program, isolate, spawn pty or ACP
-      worktree_cmds.rs  Close, discard, merge, merge-readiness
+      worktree_cmds.rs  Close, discard, merge, merge-readiness, orphan GC
     program.rs    Finding `grok` and `git` when PATH is not enough
     acp/          Agent Client Protocol: status from JSON-RPC, no Tauri, no database
       protocol.rs Classify lines, visible updates, permission replies
@@ -477,7 +477,9 @@ the project block the merge; `.grokspace/` does not, because that folder is
 GrokSpace's own. Conflicts abort. Restart mints a new session id but
 reuses the directory, so uncommitted files survive. Forgetting a project
 force-removes every leftover tree so git is not left with registered worktrees
-for a folder the sidebar no longer knows.
+for a folder the sidebar no longer knows. Settings can dry-run leftover trees
+under `.grokspace/worktrees/` that have no session row, with sizes. Removing
+them keeps dirty and unmerged trees and never runs on its own.
 
 An assigned card moves from `in_progress` to `review` when the agent goes idle,
 except while its step list is still `proposed` — that idle is the Approve gate,

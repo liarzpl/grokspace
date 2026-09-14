@@ -66,6 +66,8 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `discard_session_worktree` | Force-remove a **stopped** session's tree so Close can proceed |
 | `merge_session_worktree` | Commit leftovers and land the branch on the project |
 | `session_merge_readiness` | Why Merge would refuse, without writing. `null` = may run |
+| `preview_worktree_gc` | Orphan trees (no session row) with sizes. Dirty listed, not removable |
+| `gc_orphan_worktrees` | Remove clean orphans after Settings confirm. Never force-removes dirty |
 | `prompt_session` | ACP `session/prompt`. Returns when the agent is idle again |
 | `cancel_session` | Interrupt the current ACP turn; do not end the session |
 | `answer_session_permission` | Allow or deny a blocked permission (`optionId` optional) |
