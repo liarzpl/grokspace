@@ -85,7 +85,7 @@ impl StatusTracker {
         self.options.get(&id).cloned().unwrap_or_default()
     }
 
-    fn rpc_id_for(&self, id: u64) -> Value {
+    pub(crate) fn rpc_id_for(&self, id: u64) -> Value {
         self.rpc_ids.get(&id).cloned().unwrap_or_else(|| json!(id))
     }
 

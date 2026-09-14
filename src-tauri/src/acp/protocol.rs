@@ -83,11 +83,33 @@ pub enum Incoming {
 
 /// JSON-RPC ids are a number or a string. ACP permission requests from Grok are
 /// numbers; numeric strings are accepted so a reply can still be correlated.
+/// Opaque strings are not parsed here: those belong to [`permission_id`], so a
+/// UUID reply cannot steal one of the small prompt ids we mint.
 pub(crate) fn json_rpc_id(value: &Value) -> Option<u64> {
     value
         .as_u64()
         .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
         .or_else(|| value.as_str()?.parse().ok())
+}
+
+/// FNV-1a, with the high bit set so the key cannot collide with the small
+/// integers this process mints for prompts and the handshake.
+pub(crate) fn opaque_rpc_id(text: &str) -> u64 {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let hash = text.bytes().fold(OFFSET, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(PRIME)
+    });
+    hash | (1u64 << 63)
+}
+
+/// Permission requests may use any JSON-RPC id. The original value stays on
+/// `rpc_id` so the reply can echo it; this is only the tracker / UI key.
+pub(crate) fn permission_id(value: &Value) -> Option<u64> {
+    json_rpc_id(value).or_else(|| {
+        let text = value.as_str()?.trim();
+        (!text.is_empty()).then(|| opaque_rpc_id(text))
+    })
 }
 
 /// Reads one line of JSON-RPC and says what it is.
@@ -101,25 +123,32 @@ pub fn classify(line: &str) -> Incoming {
     };
 
     let rpc_id = message.get("id").cloned();
-    let id = rpc_id.as_ref().and_then(json_rpc_id);
     let method = message.get("method").and_then(Value::as_str);
 
-    match (method, id, rpc_id) {
+    match method {
         // A request from the agent: it has both a method and an id, and it is
-        // waiting for an answer.
-        (Some("session/request_permission"), Some(id), Some(rpc_id)) => {
-            Incoming::Permission(PermissionRequest {
-                id,
-                rpc_id,
-                summary: permission_summary(&message),
-                options: permission_options(&message),
-            })
+        // waiting for an answer. The id may be a UUID; dropping those left the
+        // agent in `needs_input` with no Allow/Deny (BUG-011).
+        Some("session/request_permission") => {
+            match (rpc_id.as_ref().and_then(permission_id), rpc_id) {
+                (Some(id), Some(rpc_id)) => Incoming::Permission(PermissionRequest {
+                    id,
+                    rpc_id,
+                    summary: permission_summary(&message),
+                    options: permission_options(&message),
+                }),
+                _ => Incoming::Ignored,
+            }
         }
-        (Some("session/update"), _, _) => parse_session_update(&message)
+        Some("session/update") => parse_session_update(&message)
             .map(Incoming::Update)
             .unwrap_or(Incoming::Ignored),
-        // A reply to us: an id and no method.
-        (None, Some(id), _) => Incoming::Response { id },
+        // A reply to us: an id and no method. Only numeric ids, because we only
+        // mint numeric ones.
+        None => match rpc_id.as_ref().and_then(json_rpc_id) {
+            Some(id) => Incoming::Response { id },
+            None => Incoming::Ignored,
+        },
         _ => Incoming::Ignored,
     }
 }

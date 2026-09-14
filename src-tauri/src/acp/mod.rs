@@ -21,7 +21,9 @@ mod tests {
         choose_auth_method, handshake, handshake_with, lock, read_loop, Agent, AUTH_API_KEY,
         AUTH_CACHED_TOKEN, HANDSHAKE_IDS,
     };
-    use super::protocol::{coalesce_update, permission_choice, permission_reply, UPDATE_TEXT_CAP};
+    use super::protocol::{
+        coalesce_update, opaque_rpc_id, permission_choice, permission_reply, UPDATE_TEXT_CAP,
+    };
     use super::*;
     use crate::error::Result;
     use serde_json::{json, Value};
@@ -132,6 +134,57 @@ mod tests {
         };
         assert_eq!(request.id, 9);
         assert_eq!(request.rpc_id, json!("9"));
+    }
+
+    #[test]
+    fn an_opaque_string_permission_id_is_not_dropped() {
+        // Issue #8 / BUG-011: a UUID id used to classify as Ignored, so the agent
+        // waited in needs_input with no card to answer.
+        let incoming = classify(
+            r#"{"jsonrpc":"2.0","id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","method":"session/request_permission","params":{"toolCall":{"title":"Write a file"}}}"#,
+        );
+        let Incoming::Permission(request) = incoming else {
+            panic!("a UUID id should still classify as a permission");
+        };
+        assert_eq!(
+            request.rpc_id,
+            json!("7c9e6679-7425-40de-944b-e07fc1f90ae7")
+        );
+        assert_eq!(request.summary, "Write a file");
+        assert_eq!(
+            request.id,
+            opaque_rpc_id("7c9e6679-7425-40de-944b-e07fc1f90ae7")
+        );
+        assert!(
+            request.id & (1u64 << 63) != 0,
+            "opaque keys must not collide with the small ids we mint"
+        );
+
+        let mut tracker = StatusTracker::new();
+        assert_eq!(
+            tracker.observe(&Incoming::Permission(request.clone())),
+            Some(AgentStatus::NeedsInput)
+        );
+        assert_eq!(tracker.rpc_id_for(request.id), request.rpc_id);
+        tracker.permission_answered(request.id);
+        assert_eq!(tracker.status(), AgentStatus::Idle);
+    }
+
+    #[test]
+    fn an_opaque_string_reply_is_not_treated_as_one_of_our_prompts() {
+        assert_eq!(
+            classify(
+                r#"{"jsonrpc":"2.0","id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","result":{}}"#
+            ),
+            Incoming::Ignored
+        );
+    }
+
+    #[test]
+    fn a_permission_reply_echoes_an_opaque_rpc_id() {
+        let rpc_id = json!("7c9e6679-7425-40de-944b-e07fc1f90ae7");
+        let reply = permission_reply(&rpc_id, true, &v1_options(), None).unwrap();
+        assert_eq!(reply["id"], rpc_id);
     }
 
     #[test]
