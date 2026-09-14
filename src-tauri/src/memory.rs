@@ -58,14 +58,13 @@ impl MemoryEntryType {
         }
     }
 
-    /// Anything unrecognised reads as a note, which is the type that claims the
-    /// least. The schema constrains the column, so a surprise here means someone
-    /// edited the database by hand.
-    fn parse(value: &str) -> Self {
+    /// The schema constrains the column, so a surprise here means someone edited
+    /// the database by hand. Remapping it to a note would hide the typo.
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::Note)
+            .ok_or_else(|| Error::Invalid(format!("unknown memory type `{value}`")))
     }
 
     /// The order the projection reads in: what the project is, then what was
@@ -102,7 +101,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<MemoryEntry> {
         project_id: row.get("project_id")?,
         key: row.get("key")?,
         content: row.get("content")?,
-        entry_type: MemoryEntryType::parse(&entry_type),
+        entry_type: MemoryEntryType::parse(&entry_type).map_err(Error::into_sql)?,
         updated_at: row.get("updated_at")?,
     })
 }

@@ -36,6 +36,14 @@ pub enum Error {
     Invalid(String),
 }
 
+impl Error {
+    /// Carry an `Invalid` through a `rusqlite` row mapper so `query_map` can
+    /// still be the reader, and `list` / `get` still return this crate's `Error`.
+    pub(crate) fn into_sql(self) -> rusqlite::Error {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(self))
+    }
+}
+
 /// The frontend receives errors as plain strings, so `invoke` rejections read as
 /// the same message the Rust side logs.
 impl Serialize for Error {

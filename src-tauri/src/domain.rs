@@ -89,6 +89,7 @@ fn generated_ts_path() -> std::path::PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::Error;
 
     #[test]
     fn generated_typescript_is_current() {
@@ -101,5 +102,37 @@ mod tests {
             "{} is stale; rewrite it from domain::typescript_bindings()",
             path.display()
         );
+    }
+
+    #[test]
+    fn unknown_enum_values_are_errors() {
+        assert!(matches!(
+            SessionStatus::parse("exploded"),
+            Err(Error::Invalid(message)) if message.contains("exploded")
+        ));
+        assert!(matches!(
+            SessionKind::parse("wizard"),
+            Err(Error::Invalid(message)) if message.contains("wizard")
+        ));
+        assert!(matches!(
+            TaskStatus::parse("later"),
+            Err(Error::Invalid(message)) if message.contains("later")
+        ));
+        assert!(matches!(
+            StepsPhase::parse("maybe"),
+            Err(Error::Invalid(message)) if message.contains("maybe")
+        ));
+        assert!(matches!(
+            StepStatus::parse("blocked"),
+            Err(Error::Invalid(message)) if message.contains("blocked")
+        ));
+        assert!(matches!(
+            StepOrigin::parse("system"),
+            Err(Error::Invalid(message)) if message.contains("system")
+        ));
+        assert!(matches!(
+            MemoryEntryType::parse("secret"),
+            Err(Error::Invalid(message)) if message.contains("secret")
+        ));
     }
 }

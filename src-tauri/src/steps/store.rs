@@ -38,11 +38,11 @@ impl StepsPhase {
         }
     }
 
-    pub(crate) fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::None)
+            .ok_or_else(|| Error::Invalid(format!("unknown steps phase `{value}`")))
     }
 }
 
@@ -67,11 +67,11 @@ impl StepStatus {
         }
     }
 
-    pub(crate) fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::Pending)
+            .ok_or_else(|| Error::Invalid(format!("unknown step status `{value}`")))
     }
 }
 
@@ -92,11 +92,11 @@ impl StepOrigin {
         }
     }
 
-    pub(crate) fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::Agent)
+            .ok_or_else(|| Error::Invalid(format!("unknown step origin `{value}`")))
     }
 }
 
@@ -169,8 +169,8 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<SessionStep> {
         session_id: row.get("session_id")?,
         sort_index: row.get("sort_index")?,
         title: row.get("title")?,
-        status: StepStatus::parse(&status),
-        origin: StepOrigin::parse(&origin),
+        status: StepStatus::parse(&status).map_err(Error::into_sql)?,
+        origin: StepOrigin::parse(&origin).map_err(Error::into_sql)?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -185,7 +185,7 @@ pub(crate) fn phase_of(conn: &Connection, session_id: &str) -> Result<StepsPhase
         )
         .optional()?
         .ok_or_else(|| Error::SessionNotFound(session_id.to_string()))?;
-    Ok(StepsPhase::parse(&value))
+    StepsPhase::parse(&value)
 }
 
 pub(crate) fn set_phase(conn: &Connection, session_id: &str, phase: StepsPhase) -> Result<()> {
