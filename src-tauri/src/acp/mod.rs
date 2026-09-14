@@ -982,12 +982,19 @@ mod tests {
 
     #[test]
     fn a_failed_prompt_does_not_leave_the_session_running() {
+        // A just-reaped `true` is not a reliable broken pipe: a small write
+        // can still succeed before the kernel drops the read end
+        // (CI 34826752097, `unwrap_err` on `Ok(())`). Close the peer first
+        // so `write_message` is EPIPE on the first byte.
+        let (reader, writer) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        drop(reader);
+        let stdin = ChildStdin::from(std::os::fd::OwnedFd::from(writer));
+
         let mut child = Command::new("true")
-            .stdin(Stdio::piped())
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
             .expect("true should start");
-        let stdin = child.stdin.take().expect("true has stdin");
         let _ = child.wait();
 
         let manager = AcpManager::new();
