@@ -217,6 +217,22 @@ export const api = {
       sessionId: sessionId ?? null,
     }),
 
+  /**
+   * Reveal a file in the OS file manager (Finder on macOS). The path is
+   * confined to the project or the session's worktree — this is not the
+   * Tauri shell-open plugin.
+   */
+  revealArtifact: (
+    projectId: string,
+    path: string,
+    sessionId?: string | null,
+  ): Promise<void> =>
+    invoke<void>("reveal_artifact", {
+      projectId,
+      path,
+      sessionId: sessionId ?? null,
+    }),
+
   readSettings: (): Promise<Settings> => invoke<Settings>("read_settings"),
 
   /** Writes one preference and returns them all, since the backend fills defaults. */

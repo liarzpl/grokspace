@@ -39,6 +39,7 @@ const APP_COMMANDS: &[&str] = &[
     "remove_task",
     "project_diff",
     "file_diff",
+    "reveal_artifact",
     "read_settings",
     "write_setting",
     "read_session_graph",

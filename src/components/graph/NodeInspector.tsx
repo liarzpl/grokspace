@@ -1,4 +1,5 @@
-import { isFileArtifact } from "../../lib/graphArtifact";
+import ArtifactPathList from "./ArtifactPathList";
+import { isFileArtifact, uniqueFileArtifacts } from "../../lib/graphArtifact";
 import type { GraphNode } from "../../lib/graph";
 import { STATUS_META } from "./GraphNode";
 
@@ -21,19 +22,26 @@ export default function NodeInspector({
   node,
   onClose,
   onOpenArtifact,
+  onRevealArtifact,
+  claimedPaths = [],
   compact = false,
 }: {
   node: GraphNode;
   onClose: () => void;
   /** Opens a file artifact in the Diff panel. Directories are left as labels. */
   onOpenArtifact?: (path: string) => void;
+  /** Reveals a file in the OS file manager. */
+  onRevealArtifact?: (path: string) => void;
+  /** Other file paths this graph has claimed, listed with this node's. */
+  claimedPaths?: string[];
   /** Fills a floating container instead of claiming a column of its own. */
   compact?: boolean;
 }) {
   const status = STATUS_META[node.status] ?? STATUS_META.pending;
   const artifactPath = node.data.artifactPath;
-  const artifactOpens =
-    onOpenArtifact !== undefined && isFileArtifact(artifactPath);
+  const files = uniqueFileArtifacts(artifactPath, ...claimedPaths);
+  const directoryLabel =
+    artifactPath !== undefined && !isFileArtifact(artifactPath) ? artifactPath : undefined;
 
   return (
     <aside
@@ -72,25 +80,16 @@ export default function NodeInspector({
         {node.data.worktree !== undefined && (
           <Field label="Worktree" value={node.data.worktree ? "yes" : "no"} />
         )}
-        {artifactPath !== undefined &&
-          (artifactOpens ? (
-            <div>
-              <dt className="text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
-                Artifact
-              </dt>
-              <dd className="mt-0.5">
-                <button
-                  type="button"
-                  onClick={() => onOpenArtifact?.(artifactPath)}
-                  className="font-mono text-[11px] text-accent break-words text-left hover:underline"
-                >
-                  {artifactPath}
-                </button>
-              </dd>
-            </div>
-          ) : (
-            <Field label="Artifact" value={artifactPath} mono />
-          ))}
+        {directoryLabel !== undefined && <Field label="Artifact" value={directoryLabel} mono />}
+        {files.length > 0 && (
+          <dd>
+            <ArtifactPathList
+              paths={files}
+              onOpenDiff={onOpenArtifact}
+              onReveal={onRevealArtifact}
+            />
+          </dd>
+        )}
         <Field label="Node id" value={node.id} mono />
       </dl>
     </aside>

@@ -443,7 +443,9 @@ except while its step list is still `proposed` — that idle is the Approve gate
 not the end of the work. Comments on a scoped diff (path, hunk, and a note)
 stay in the panel until they are sent as one follow-up to an idle agent. A
 graph node's file `artifactPath` opens that path in the Diff panel, scoped to
-the session.
+the session. The node inspector and Memory Artifacts column list claimed file
+paths with Open in Finder or Diff. Markdown previews as text and images as
+images; agent HTML is never rendered.
 
 ### Database
 
@@ -506,9 +508,10 @@ isolates. Filling a nullable column that already exists needed no new migration.
   worktree, the diff panel can read that tree, Close refuses to eat dirty work,
   Discard reverts that checkpoint, Merge commits leftover files and lands the branch on
   the project. An assigned card moves to `review` when the agent goes idle,
-  except while the step list is still `proposed` (the Approve gate). Comments on
+  except while the step list is still `proposed` (the Approve gate).   Comments on
   hunks can be bundled and sent back as one prompt, and a graph node's file path
-  opens in the Diff panel. Done. The same Mac/`grok` leftovers as Phase 2 still
+  opens in the Diff panel. The node inspector and Memory Artifacts column list
+  claimed paths with Finder or Diff. Done. The same Mac/`grok` leftovers as Phase 2 still
   apply.
 
 [`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
