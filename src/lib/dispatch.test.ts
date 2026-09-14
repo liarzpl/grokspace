@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PaneLayout, Project, Session } from "../types";
 
@@ -13,7 +13,6 @@ vi.mock("../lib/api", async () => {
 
 const { dispatchTargets, paneOf, sessionCanTakeWork, targetKey, targetLabel } =
   await import("./dispatch");
-const { useSettingsStore } = await import("../stores/settingsStore");
 
 function project(layout: PaneLayout = "2x2"): Project {
   return {
@@ -43,12 +42,6 @@ function session(overrides: Partial<Session> = {}): Session {
     ...overrides,
   };
 }
-
-const initialSettings = useSettingsStore.getState();
-
-beforeEach(() => {
-  useSettingsStore.setState(initialSettings, true);
-});
 
 const kinds = (targets: ReturnType<typeof dispatchTargets>) =>
   targets.map((target) => targetKey(target));
@@ -102,11 +95,7 @@ describe("dispatchTargets", () => {
   it("puts the new agent first when that is what dispatch reaches for", () => {
     // The whole point of the preference: for somebody who always dispatches to an
     // agent, the chip they want is otherwise behind four panes.
-    useSettingsStore.setState({
-      settings: { ...initialSettings.settings, defaultDispatch: "agent" },
-    });
-
-    const targets = kinds(dispatchTargets(project("2x2"), []));
+    const targets = kinds(dispatchTargets(project("2x2"), [], "agent"));
 
     expect(targets[0]).toBe("new-agent");
     expect(targets).toHaveLength(5);
@@ -115,12 +104,8 @@ describe("dispatchTargets", () => {
   it("reorders rather than removing, so nothing is chosen for anyone", () => {
     // A setting that picked the target would quietly send work somewhere nobody looked.
     const sessions = [session({ id: "s7", paneId: "0" })];
-    const withPane = kinds(dispatchTargets(project("2x1"), sessions));
-
-    useSettingsStore.setState({
-      settings: { ...initialSettings.settings, defaultDispatch: "agent" },
-    });
-    const withAgent = kinds(dispatchTargets(project("2x1"), sessions));
+    const withPane = kinds(dispatchTargets(project("2x1"), sessions, "pane"));
+    const withAgent = kinds(dispatchTargets(project("2x1"), sessions, "agent"));
 
     expect([...withAgent].sort()).toEqual([...withPane].sort());
   });

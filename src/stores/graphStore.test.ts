@@ -4,12 +4,13 @@ import { SAMPLE_GRAPH } from "../lib/graphFixture";
 import type { GraphSnapshot } from "../types";
 
 const readSessionGraph = vi.fn();
+const watchProjectGraphs = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { readSessionGraph },
+    api: { readSessionGraph, watchProjectGraphs },
   };
 });
 
@@ -260,5 +261,16 @@ describe("forget", () => {
     await inFlight;
 
     expect(useGraphStore.getState().bySession).toEqual({});
+  });
+});
+
+describe("watch", () => {
+  it("records a failure on the store instead of throwing past the shell", async () => {
+    watchProjectGraphs.mockRejectedValue("could not watch");
+
+    await useGraphStore.getState().watch("p1");
+
+    expect(watchProjectGraphs).toHaveBeenCalledWith("p1");
+    expect(useGraphStore.getState().error).toBe("could not watch");
   });
 });
