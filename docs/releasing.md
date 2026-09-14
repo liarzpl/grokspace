@@ -93,7 +93,7 @@ under Sign-In and Security; it requires two-factor authentication on the account
 
 ## Pre-flight checklist
 
-Where things stand as of 2026-09-08: **no `v*` tag has ever been pushed, and the
+Where things stand as of 2026-09-14: **no `v*` tag has ever been pushed, and the
 repository has 0 Actions secrets.** With 0 secrets a dry run still succeeds — it builds
 an *explicitly labelled* unsigned DMG — but it proves nothing about Developer ID
 signing, stapling, or Gatekeeper. Only a run with all six secrets set tests those.
@@ -284,6 +284,8 @@ first.
 - **No updater.** Tauri can sign and serve updates, which needs its own key pair and a
   place to host `latest.json`. A tagged draft release is the whole distribution story
   for now.
-- **macOS only.** The Linux and Windows bundles are not built. The app compiles and its
-  tests run on Linux — that is what CI does — but the pty and window behaviour have
-  only been exercised on the two platforms this project actually targets.
+- **Distribution is macOS only.** Linux and Windows bundles are not built.
+  Linux compiles and its tests run in CI; that is not a signed-off desktop
+  target. The universal Mac binary is `x86_64` + `arm64`. Pty and window
+  behaviour have been exercised on macOS (the product target). Linux is
+  compile-and-CI only. Windows is neither.

@@ -4,6 +4,8 @@ GrokSpace is a Tauri 2 + React + Rust app. Frontend lives in `src/`, backend in 
 
 ## Run it
 
+Follow [README Getting started](README.md#getting-started) for install details.
+
 **Requirements**
 
 - Node.js 20+ and npm
@@ -21,7 +23,24 @@ caret versions and rewrite `package-lock.json`.
 
 `npm run tauri:build` produces a release build, and a `.dmg` on macOS.
 
-The checks [CI](.github/workflows/ci.yml) runs on every pull request:
+On Ubuntu, install the same WebKitGTK packages [CI](.github/workflows/ci.yml) installs. Tauri will not compile without them — even `cargo test` needs this block:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential \
+  libayatana-appindicator3-dev \
+  libgtk-3-dev \
+  librsvg2-dev \
+  libssl-dev \
+  libwebkit2gtk-4.1-dev \
+  libxdo-dev \
+  patchelf
+```
+
+Linux compiles and is what CI runs on. The Overlay title bar and traffic-light drag are macOS-only; on Linux you get ordinary window decorations plus the in-app title bar, and the space reserved for the traffic lights is empty. See [README Platform notes](README.md#platform-notes).
+
+The checks CI runs on every pull request:
 
 ```bash
 npm run build          # type-check the frontend and build it
@@ -48,4 +67,6 @@ cargo fmt --check
 ## Further reading
 
 - [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) — CLI flags, ACP, and what must not be passed
+- [`docs/graph-engineering.md`](docs/graph-engineering.md) — graph file contract, watcher filters, hand test
+- [`docs/skill-merge.md`](docs/skill-merge.md) — how the bundled graph skill was merged with the hand-written one
 - [`docs/releasing.md`](docs/releasing.md) — signed, notarized `.dmg` (unproven until the first tagged run)
