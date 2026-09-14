@@ -32,12 +32,21 @@ vi.mock("../lib/api", async () => {
       promptSession,
       createSession,
       listSessions: vi.fn(),
+      reopenSessionSteps: vi.fn(),
     },
   };
 });
 
-const { dispatchPrompt, inboxZeroBlockReason, tasksForProject, tasksInColumn, useTaskStore } =
-  await import("./taskStore");
+const {
+  coderishRole,
+  dispatchPrompt,
+  inboxZeroBlockReason,
+  scoutTripwireOffer,
+  tasksForProject,
+  tasksInColumn,
+  useTaskStore,
+} = await import("./taskStore");
+const { useDiffStore } = await import("./diffStore");
 const { useSessionStore } = await import("./sessionStore");
 const { useSettingsStore } = await import("./settingsStore");
 const { useStepStore } = await import("./stepStore");
@@ -81,6 +90,24 @@ const initialSessionState = useSessionStore.getState();
 const initialSettingsState = useSettingsStore.getState();
 const initialStepState = useStepStore.getState();
 const initialUiState = useUiStore.getState();
+const initialDiffState = useDiffStore.getState();
+
+function overlapDiff() {
+  useDiffStore.setState({
+    diff: {
+      state: "changed",
+      branch: "main",
+      files: [{ path: "src/a.ts", change: "modified" }],
+      overlaps: [
+        {
+          path: "src/a.ts",
+          hotspot: false,
+          peers: [{ sessionId: "peer", title: "Coder" }],
+        },
+      ],
+    },
+  });
+}
 
 const ISOLATION_ERR =
   "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
@@ -88,11 +115,13 @@ const ISOLATION_ERR =
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionStore.getState().cancelUnisolatedStart();
+  useTaskStore.getState().cancelScoutTripwire();
   useTaskStore.setState(initialState, true);
   useSessionStore.setState(initialSessionState, true);
   useSettingsStore.setState(initialSettingsState, true);
   useStepStore.setState(initialStepState, true);
   useUiStore.setState(initialUiState, true);
+  useDiffStore.setState(initialDiffState, true);
 });
 
 describe("loadTasks", () => {
@@ -451,6 +480,23 @@ describe("inboxZeroBlockReason", () => {
   });
 });
 
+describe("scoutTripwireOffer", () => {
+  it("offers when a Coder-ish target would overlap a live tree", () => {
+    expect(coderishRole(null)).toBe(true);
+    expect(coderishRole("Coder")).toBe(true);
+    expect(coderishRole("Scout")).toBe(false);
+    expect(scoutTripwireOffer("Coder", true)).toBe(true);
+    expect(scoutTripwireOffer(null, true)).toBe(true);
+  });
+
+  it("does not offer on a clean tree or a look-first role", () => {
+    expect(scoutTripwireOffer("Coder", false)).toBe(false);
+    expect(scoutTripwireOffer("Scout", true)).toBe(false);
+    expect(scoutTripwireOffer("Planner", true)).toBe(false);
+    expect(scoutTripwireOffer("Reviewer", true)).toBe(false);
+  });
+});
+
 describe("dispatch", () => {
   it("records the assignment, then types the task into the agent", async () => {
     const order: string[] = [];
@@ -768,6 +814,71 @@ describe("dispatchToNewSession", () => {
     );
   });
 
+});
+
+describe("dispatch tripwire", () => {
+  function coder() {
+    overlapDiff();
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null, status: "idle", role: "Coder" })],
+    });
+    promptSession.mockResolvedValue(undefined);
+  }
+
+  it("offers when overlap exists and does not on a clean tree", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({ sessions: [session()] });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    writeSession.mockResolvedValue(undefined);
+    expect(await useTaskStore.getState().dispatch("t1", "s1")).toBe(true);
+    expect(useTaskStore.getState().scoutTripwire).toBeNull();
+
+    dispatchTask.mockClear();
+    coder();
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    const pending = useTaskStore.getState().dispatch("t1", "s1");
+    await vi.waitFor(() => expect(useTaskStore.getState().scoutTripwire).not.toBeNull());
+    expect(dispatchTask).not.toHaveBeenCalled();
+    useTaskStore.getState().resolveScoutTripwire("anyway");
+    expect(await pending).toBe(true);
+    expect(dispatchTask).toHaveBeenCalledWith("t1", "s1");
+  });
+
+  it("starts a Scout or puts Spec on the original target", async () => {
+    coder();
+    createSession.mockResolvedValue(
+      session({ id: "scout-1", kind: "agent", paneId: null, status: "idle", role: "Scout" }),
+    );
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "scout-1" }));
+    const scout = useTaskStore.getState().dispatch("t1", "s1");
+    await vi.waitFor(() => expect(useTaskStore.getState().scoutTripwire).not.toBeNull());
+    useTaskStore.getState().resolveScoutTripwire("scout");
+    expect(await scout).toBe(true);
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ role: "Scout" }));
+    expect(dispatchTask).toHaveBeenCalledWith("t1", "scout-1");
+
+    coder();
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    const spec = useTaskStore.getState().dispatch("t1", "s1");
+    await vi.waitFor(() => expect(useTaskStore.getState().scoutTripwire).not.toBeNull());
+    useTaskStore.getState().resolveScoutTripwire("spec");
+    expect(await spec).toBe(true);
+    expect(useSessionStore.getState().permissionModes["s1"]).toBe("plan");
+  });
+
+  it("asks before starting a new Coder-ish agent", async () => {
+    overlapDiff();
+    useTaskStore.setState({ tasks: [task()] });
+    const pending = useTaskStore.getState().dispatchToNewSession("t1", "p1", null);
+    await vi.waitFor(() => expect(useTaskStore.getState().scoutTripwire).not.toBeNull());
+    expect(createSession).not.toHaveBeenCalled();
+    useTaskStore.getState().cancelScoutTripwire();
+    expect(await pending).toBe(false);
+  });
+});
+
+describe("dispatchToNewSession inbox-zero", () => {
   it("does not start an agent when the inbox-zero gate refuses", async () => {
     useSettingsStore.setState({
       settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },

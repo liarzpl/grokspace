@@ -78,7 +78,9 @@ replays the last 20). Nothing is uploaded.
   moved with the arrows on the card, and each card can be handed to an agent:
   one already running, a fresh terminal in a free pane, or a new ACP agent, which
   needs no pane at all. Dispatching records which session took the task.
-  Double-click a description to edit it.
+  A Coder-ish dispatch (Coder, or no role) while the Diff isolation map lists
+  overlapping paths offers **Scout**, **Spec**, or **Dispatch anyway**; a clean
+  tree does not. Double-click a description to edit it.
 - **Session steps** — each Grok or agent session can propose a short working list
   beside the board. Build (Approve) locks the step titles and the graph node
   titles the panel is showing; completing steps does not move the Kanban card.
