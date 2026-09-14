@@ -7,9 +7,3 @@ export function homeRelative(path: string): string {
   if (!match) return path;
   return `~${match[2] ?? ""}`;
 }
-
-/** The folder name, used as the default project name. */
-export function baseName(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  return trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
-}

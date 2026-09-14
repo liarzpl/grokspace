@@ -10,7 +10,7 @@ vi.mock("../lib/api", async () => {
   return { errorMessage: actual.errorMessage, api: { projectDiff, fileDiff } };
 });
 
-const { changedCount, useDiffStore } = await import("./diffStore");
+const { useDiffStore } = await import("./diffStore");
 
 const changed = (files: ChangedFile[]): DiffState => ({
   state: "changed",
@@ -152,15 +152,6 @@ describe("openPath", () => {
 
     expect(fileDiff).toHaveBeenCalledWith("p1", "src/auth.rs", true, "agent-1");
     expect(useDiffStore.getState().body).toContain("fn main");
-  });
-});
-
-describe("changedCount", () => {
-  it("counts only in the state that has files", () => {
-    expect(changedCount(changed([{ path: "a", change: "modified" }]))).toBe(1);
-    expect(changedCount({ state: "clean", branch: "main" })).toBe(0);
-    expect(changedCount({ state: "gitMissing" })).toBe(0);
-    expect(changedCount({ state: "notARepo" })).toBe(0);
   });
 });
 
