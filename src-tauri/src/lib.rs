@@ -19,9 +19,9 @@ mod session;
 mod settings;
 mod skill;
 mod snooze;
-mod user_skill;
 mod steps;
 mod task;
+mod user_skill;
 mod watch;
 mod worktree;
 
