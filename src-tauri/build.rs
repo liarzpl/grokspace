@@ -35,6 +35,7 @@ const APP_COMMANDS: &[&str] = &[
     "memory_file_path",
     "skill_status",
     "install_skill",
+    "save_user_skill",
     "list_tasks",
     "create_task",
     "update_task",

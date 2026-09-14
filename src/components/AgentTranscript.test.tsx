@@ -105,6 +105,13 @@ describe("AgentTranscript memory chip", () => {
     expect(source).toContain("createEntry");
     expect(source).not.toMatch(/writeTextFile|writeFile|put_memory|memory\.md/);
   });
+
+  it("shows a display-only skill: grokspace-graph chip when a line names it", () => {
+    show([{ kind: "tool", text: "Read grokspace-graph SKILL.md" }]);
+
+    expect(screen.getByText("skill: grokspace-graph")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /skill:/ })).not.toBeInTheDocument();
+  });
 });
 
 describe("AgentTranscript window", () => {

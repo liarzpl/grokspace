@@ -28,6 +28,7 @@ const skillStatus = vi.fn();
 const exportSessionPack = vi.fn();
 const savePlaybook = vi.fn();
 const readPlaybook = vi.fn();
+const saveUserSkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -56,6 +57,7 @@ vi.mock("../lib/api", async () => {
       exportSessionPack,
       savePlaybook,
       readPlaybook,
+      saveUserSkill,
     },
   };
 });
@@ -915,6 +917,59 @@ describe("playbooks", () => {
     expect(createSession.mock.calls.map((call) => call[0].role)).toEqual(["Planner", "Coder", "Reviewer"]);
     expect(promptSession.mock.calls[0]?.[1]).toContain("$GROKSPACE_GRAPH_FILE");
     expect(promptSession.mock.calls[0]?.[1]).not.toContain("transcript");
+  });
+});
+
+describe("planner graph recipes", () => {
+  const SID = "550e8400-e29b-41d4-a716-446655440000";
+
+  function seedPlanner() {
+    useSessionStore.setState({
+      sessions: [session({ paneId: null, kind: "agent", title: "Planner", role: "Planner", status: "idle" })],
+    });
+    useGraphStore.setState({
+      bySession: {
+        s1: {
+          path: `/tmp/acme/.grokspace/graphs/${SID}.json`,
+          graph: {
+            id: SID,
+            name: "The run",
+            status: "completed",
+            nodes: [{
+              id: "orch",
+              type: "orchestrator",
+              label: "Plan it",
+              status: "completed",
+              position: { x: 0, y: 0 },
+              data: {},
+            }],
+            edges: [],
+          },
+          warnings: [],
+          error: null,
+          updatedAt: 1,
+          bytes: 12,
+          isLoading: false,
+        },
+      },
+    });
+  }
+
+  it("saves a named Planner recipe without a session UUID or grok install", async () => {
+    seedPlanner();
+    saveUserSkill.mockResolvedValue({ name: "review-flow", path: "/home/dev/.grokspace/skills/review-flow" });
+    expect(labels(project())).toContain("Save last Planner graph recipe");
+    commands(project()).find((command) => command.id === "save-planner-graph-recipe")?.run();
+    expect(useSessionStore.getState().error).toBe("Type !name in the palette to name the skill.");
+
+    commands(project(), "!review-flow").find((command) => command.id === "save-planner-graph-recipe-review-flow")?.run();
+    await vi.waitFor(() => expect(saveUserSkill).toHaveBeenCalled());
+    const body = saveUserSkill.mock.calls[0]?.[0];
+    expect(body.name).toBe("review-flow");
+    expect(body.markdown).toContain("$GROKSPACE_GRAPH_FILE");
+    expect(body.markdown).not.toContain(SID);
+    expect(body.markdown).not.toContain(".grok/skills");
+    expect(installSkill).not.toHaveBeenCalled();
   });
 });
 

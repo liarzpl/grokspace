@@ -134,6 +134,12 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `save_playbook` | Writes `playbook.json` (roles), `graph.json`, `steps.json`, `memory.md` under `~/.grokspace/playbooks/<name>/`. No transcript file |
 | `read_playbook` | Loads one folder; project `.grokspace/playbooks/` first, then `~/.grokspace/playbooks/`. No remote catalog |
 
+### User skills — `user_skill.rs`
+
+| Command | What it does |
+| --- | --- |
+| `save_user_skill` | Writes `SKILL.md` under `~/.grokspace/skills/<name>/`. Does not copy into `~/.grok/skills/` |
+
 ### Graphs — `graph.rs`
 
 | Command | What it does |

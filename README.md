@@ -102,11 +102,15 @@ replays the last 20). Nothing is uploaded.
   launches, Hand to Coder/Reviewer, Continue this job for a stopped agent, Export pack for a session, project switches, skill installs, Merge for a stopped isolated
   agent, Allow first wait, and Jump to first Needs you from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
-  and can refresh that list; there is no remote catalog. Palette **Save successful
+  and can refresh that list; there is no remote catalog. Palette **Save last
+  Planner graph recipe** (`!name`) writes `$GROKSPACE_*` prose to
+  `~/.grokspace/skills/` (see [How user skills work](#how-user-skills-work)).
+  Palette **Save successful
   run as playbook** (`!name`) and **Dispatch playbook !name** snapshot and replay a
   session shape (see [How playbooks work](#how-playbooks-work)). "Install or refresh
   GrokSpace skills" writes graph, memory, and steps in that order; the Graph
-  empty-state button still installs graph alone.
+  empty-state button still installs graph alone. Mid-session install is invisible
+  until the next grok start.
   Search matches a subsequence, so `sgr` finds "Start Grok in the first free pane".
 - **Settings** — a default pane layout for projects that have never chosen one, which
   panel the workspace opens on, which new session a dispatch reaches for first, an
@@ -274,6 +278,7 @@ src-tauri/
     task.rs       Task model, the board's queries, and dispatch
     memory.rs     Shared project memory, and the file agents read it from
     skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
+    user_skill.rs User SKILL.md library in ~/.grokspace/skills; not ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
     edges.rs      Project `.grokspace/edges.json`; Graph tab overlay, not a merge
     steps/        Session steps: watch, ingest, approve
@@ -415,6 +420,14 @@ run (graph stub, steps stub, role list, memory excerpt) to
 project's `.grokspace/playbooks/`. Dispatch starts those roles and briefs them
 with `$GROKSPACE_GRAPH_FILE` / `$GROKSPACE_STEPS_FILE` / `$GROKSPACE_MEMORY_FILE`.
 The snapshot does not include the transcript. There is no remote catalog.
+
+### How user skills work
+
+A user skill is **prose + pointers**, not a playbook session shape. Palette
+**Save last Planner graph recipe** (`!name`) writes `~/.grokspace/skills/<name>/SKILL.md`
+from the newest Planner graph using `$GROKSPACE_*`, never a session UUID. Grok
+does not load that folder; copy into `~/.grok/skills/` yourself. The transcript
+shows a display-only `skill: grokspace-graph` chip when a line names that skill.
 
 ### How memory works
 

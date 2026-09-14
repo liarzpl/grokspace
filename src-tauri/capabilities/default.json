@@ -39,6 +39,7 @@
     "allow-memory-file-path",
     "allow-skill-status",
     "allow-install-skill",
+    "allow-save-user-skill",
     "allow-list-tasks",
     "allow-create-task",
     "allow-update-task",

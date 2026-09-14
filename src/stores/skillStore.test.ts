@@ -4,12 +4,13 @@ import type { SkillStatus } from "../types";
 
 const skillStatus = vi.fn();
 const installSkill = vi.fn();
+const saveUserSkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { skillStatus, installSkill },
+    api: { skillStatus, installSkill, saveUserSkill },
   };
 });
 
@@ -140,6 +141,17 @@ describe("install", () => {
     expect(slot.status).toEqual(before);
     expect(slot.isInstalling).toBe(false);
     expect(slot.error).toBe("permission denied");
+  });
+});
+
+describe("saveUserSkill", () => {
+  it("writes ~/.grokspace/skills and does not install into grok", async () => {
+    saveUserSkill.mockResolvedValue({ name: "review-flow", path: "/home/dev/.grokspace/skills/review-flow" });
+    const saved = await useSkillStore.getState().saveUserSkill("review-flow", "# recipe\n");
+    expect(saveUserSkill).toHaveBeenCalledWith({ name: "review-flow", markdown: "# recipe\n" });
+    expect(saved.path).toContain(".grokspace/skills/");
+    expect(saved.path).not.toContain(".grok/skills");
+    expect(installSkill).not.toHaveBeenCalled();
   });
 });
 

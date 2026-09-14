@@ -19,6 +19,7 @@ mod session;
 mod settings;
 mod skill;
 mod snooze;
+mod user_skill;
 mod steps;
 mod task;
 mod watch;
@@ -129,6 +130,7 @@ pub fn run() {
             memory::memory_file_path,
             skill::skill_status,
             skill::install_skill,
+            user_skill::save_user_skill,
             task::list_tasks,
             task::create_task,
             task::update_task,

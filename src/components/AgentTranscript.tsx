@@ -10,6 +10,7 @@ import {
   type MemoryProposeType,
 } from "../lib/memoryPropose";
 import { moveSegmented } from "../lib/segmented";
+import { namedSkillsInText } from "../lib/skillProvenance";
 import {
   growTranscriptWindow,
   transcriptRowKey,
@@ -189,6 +190,14 @@ function TranscriptLine({
         </span>
         <span className="selectable">{entry.text}</span>
       </p>
+      {namedSkillsInText(entry.text).map((name) => (
+        <span
+          key={name}
+          className="w-fit rounded-sm border border-line px-1.5 py-0.5 font-mono text-[10px] text-ink-faint"
+        >
+          skill: {name}
+        </span>
+      ))}
       {offerMemory && <MemoryProposeChip projectId={projectId} text={entry.text} />}
     </div>
   );
