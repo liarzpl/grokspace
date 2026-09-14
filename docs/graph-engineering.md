@@ -165,3 +165,13 @@ npm run graph:demo -- "$GROKSPACE_GRAPH_FILE"
 It writes a small graph and advances a node every second until the run finishes,
 which is enough to see the status colours, the animated edges, and the header
 tally all keep up.
+
+The same path is the TEST-002 smoke, without a window:
+
+```bash
+npm run test:e2e
+```
+
+That opens a fixture folder, starts a shell pane, runs `graph:demo` inside it,
+and asserts the Graph snapshot. CI skips a WebView/Playwright drive when there
+is no display.

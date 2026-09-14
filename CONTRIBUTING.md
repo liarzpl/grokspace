@@ -45,6 +45,8 @@ The checks CI runs on every pull request:
 ```bash
 npm run build          # type-check the frontend and build it
 npm test              # frontend tests (Vitest)
+npm run test:e2e       # TEST-002: fixture folder, shell pane, graph:demo → Graph
+                       # Skips a WebView/Playwright pass if this machine has no display.
 
 cd src-tauri
 cargo test
