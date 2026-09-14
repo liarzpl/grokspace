@@ -9,12 +9,19 @@ const readPermissionPolicy = vi.fn();
 const writePermissionPolicy = vi.fn();
 const previewWorktreeGc = vi.fn();
 const gcOrphanWorktrees = vi.fn();
+const listPermissionLedger = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { readPermissionPolicy, writePermissionPolicy, previewWorktreeGc, gcOrphanWorktrees },
+    api: {
+      readPermissionPolicy,
+      writePermissionPolicy,
+      previewWorktreeGc,
+      gcOrphanWorktrees,
+      listPermissionLedger,
+    },
   };
 });
 
@@ -43,6 +50,7 @@ beforeEach(() => {
   }));
   previewWorktreeGc.mockResolvedValue([]);
   gcOrphanWorktrees.mockResolvedValue([]);
+  listPermissionLedger.mockResolvedValue([]);
 });
 
 describe("SettingsPanel permission policy", () => {
@@ -125,5 +133,44 @@ describe("SettingsPanel worktree GC", () => {
     expect(screen.getByText("stale")).toBeInTheDocument();
     expect(screen.queryByText("orphan")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove 0 clean" })).toBeDisabled();
+  });
+});
+
+describe("SettingsPanel permission ledger", () => {
+  it("replays last answers and stays quiet with no project", async () => {
+    useProjectStore.setState({
+      projects: [project()],
+      activeProjectId: "p1",
+    });
+    listPermissionLedger.mockResolvedValue([
+      {
+        time: 1,
+        sessionId: "s",
+        requestId: 9,
+        summary: "Edit a.ts",
+        chip: "allow_once",
+        optionId: null,
+      },
+      {
+        time: 2,
+        sessionId: "s",
+        requestId: 10,
+        summary: "Bash rm",
+        chip: "deny",
+        optionId: null,
+      },
+    ]);
+    const { unmount } = render(<SettingsPanel />);
+    const list = await screen.findByRole("list", { name: "Permission ledger" });
+    expect(list).toHaveTextContent("Bash rm");
+    expect(listPermissionLedger).toHaveBeenCalledWith("p1", 20);
+    unmount();
+    useProjectStore.setState({ activeProjectId: null });
+    listPermissionLedger.mockClear();
+    render(<SettingsPanel />);
+    expect(
+      await screen.findByText("Open a project to replay its permission ledger."),
+    ).toBeInTheDocument();
+    expect(listPermissionLedger).not.toHaveBeenCalled();
   });
 });

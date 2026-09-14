@@ -307,6 +307,18 @@ fn acp_callbacks<R: Runtime>(
                     .answer_permission(&permission_id, request.id, allow, None)
                     .is_ok()
                 {
+                    if let Ok(conn) = state.db.lock() {
+                        if let Ok(session) = get(&conn, &permission_id) {
+                            crate::ledger::record_answer(
+                                &session.project_id,
+                                &permission_id,
+                                request.id,
+                                &request.summary,
+                                allow,
+                                None,
+                            );
+                        }
+                    }
                     return;
                 }
             }

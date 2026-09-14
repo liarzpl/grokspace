@@ -9,7 +9,9 @@ tools: they plan, code, and review while you stay in the loop.
 
 Everything runs on your machine. There is no mandatory cloud dependency and no
 telemetry; workspace state lives in `~/.grokspace`. Host and renderer errors are
-appended to `~/.grokspace/logs/grokspace.log` on this machine only.
+appended to `~/.grokspace/logs/grokspace.log` on this machine only. Permission
+answers are appended to `~/.grokspace/ledgers/<project-id>.jsonl` (Settings
+replays the last 20). Nothing is uploaded.
 
 > **Status: Phase 5 done.** Projects, a multi-pane terminal grid, a live graph
 > per session, a task board that hands work to an agent, agents driven over ACP that
@@ -266,6 +268,7 @@ src-tauri/
     diff.rs       What changed, read out of git, optionally in one session's tree
     settings.rs   App preferences: key-value in SQLite, typed on the way out
     policy.rs     Named permission-policy globs; deny wins; never Always
+    ledger.rs     Append-only permission answers; ~/.grokspace/ledgers/; no upload
     domain.rs     Shared enum lists; emits src/generated/domain.ts
     error.rs      Error type; serializes to a plain string for the frontend
     e2e_smoke.rs  TEST-002 host smoke (compiled only for tests)
@@ -498,6 +501,7 @@ directory, so it is easy to inspect and back up:
 ```bash
 sqlite3 ~/.grokspace/grokspace.db '.tables'
 tail -n 50 ~/.grokspace/logs/grokspace.log
+tail -n 20 ~/.grokspace/ledgers/<project-id>.jsonl
 ```
 
 Command failures, ErrorBoundary crashes, store banners, and failed pane

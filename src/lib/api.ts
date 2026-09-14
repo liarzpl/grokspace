@@ -6,6 +6,7 @@ import type {
   MemoryEntry,
   MemoryEntryType,
   MergeOutcome,
+  PermissionLedgerEntry,
   PermissionPolicy,
   PermissionPolicyRule,
   Project,
@@ -264,6 +265,19 @@ export const api = {
 
   writePermissionPolicy: (rules: PermissionPolicyRule[]): Promise<PermissionPolicy> =>
     invoke<PermissionPolicy>("write_permission_policy", { rules }),
+
+  /**
+   * Last N permission answers for this project (`~/.grokspace/ledgers/<id>.jsonl`).
+   * Local file only; the host does not send this anywhere.
+   */
+  listPermissionLedger: (
+    projectId: string,
+    limit?: number,
+  ): Promise<PermissionLedgerEntry[]> =>
+    invoke<PermissionLedgerEntry[]>("list_permission_ledger", {
+      projectId,
+      limit: limit ?? null,
+    }),
 
   listMemory: (projectId: string): Promise<MemoryEntry[]> =>
     invoke<MemoryEntry[]>("list_memory", { projectId }),

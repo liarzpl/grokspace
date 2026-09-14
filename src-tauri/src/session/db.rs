@@ -358,6 +358,15 @@ pub fn clear_permission(conn: &Connection, session_id: &str, request_id: u64) ->
     Ok(())
 }
 
+pub(crate) fn permission_summary(conn: &Connection, session_id: &str, request_id: u64) -> String {
+    conn.query_row(
+        "SELECT summary FROM session_permissions WHERE session_id = ?1 AND request_id = ?2",
+        rusqlite::params![session_id, request_id as i64],
+        |row| row.get(0),
+    )
+    .unwrap_or_default()
+}
+
 pub(crate) fn set_process_id(conn: &Connection, id: &str, process_id: Option<u32>) -> Result<()> {
     conn.execute(
         "UPDATE sessions SET process_id = ?2 WHERE id = ?1",

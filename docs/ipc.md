@@ -110,6 +110,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `write_setting` | One key. Unknown values are refused rather than stored |
 | `read_permission_policy` | User `~/.grokspace/permission-policy.json` (missing file is empty rules) |
 | `write_permission_policy` | Replace that file. Empty patterns, unusable globs, and `*` allow-once-similar are refused |
+| `list_permission_ledger` | Last N answered chips for a project (`~/.grokspace/ledgers/<id>.jsonl`). Missing file is `[]`. No upload |
 
 ### Handoff — `handoff.rs`
 
