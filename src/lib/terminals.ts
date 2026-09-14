@@ -25,6 +25,9 @@ interface PaneTerminal {
   readonly fit: FitAddon;
   opened: boolean;
   attached: boolean;
+  alive: boolean;
+  pendingWrites: Uint8Array[];
+  writeScheduled: boolean;
 }
 
 const terminals = new Map<string, PaneTerminal>();
@@ -39,6 +42,49 @@ function toBytes(chunk: ArrayBuffer | ArrayBufferView | number[]): Uint8Array {
     return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
   }
   return Uint8Array.from(chunk);
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  if (chunks.length === 1) {
+    const only = chunks[0];
+    if (only !== undefined) return only;
+  }
+  let total = 0;
+  for (const chunk of chunks) total += chunk.byteLength;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function flushWrites(entry: PaneTerminal): void {
+  if (!entry.alive || entry.pendingWrites.length === 0) return;
+  const merged = concatBytes(entry.pendingWrites);
+  entry.pendingWrites = [];
+  entry.term.write(merged);
+}
+
+/**
+ * One xterm write per animation frame (or microtask when there is no rAF), so a
+ * burst of Channel payloads does not paint the pane once per chunk.
+ */
+function enqueueWrite(entry: PaneTerminal, chunk: Uint8Array): void {
+  if (!entry.alive) return;
+  entry.pendingWrites.push(chunk);
+  if (entry.writeScheduled) return;
+  entry.writeScheduled = true;
+  const flush = () => {
+    entry.writeScheduled = false;
+    flushWrites(entry);
+  };
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(flush);
+  } else {
+    queueMicrotask(flush);
+  }
 }
 
 /**
@@ -91,7 +137,16 @@ export function acquireTerminal(sessionId: string): PaneTerminal {
     });
   });
 
-  const entry: PaneTerminal = { container, term, fit, opened: false, attached: false };
+  const entry: PaneTerminal = {
+    container,
+    term,
+    fit,
+    opened: false,
+    attached: false,
+    alive: true,
+    pendingWrites: [],
+    writeScheduled: false,
+  };
   terminals.set(sessionId, entry);
   return entry;
 }
@@ -129,7 +184,9 @@ export async function attachTerminal(sessionId: string): Promise<void> {
   entry.attached = true;
 
   const channel = new Channel<ArrayBuffer>();
-  channel.onmessage = (chunk) => entry.term.write(toBytes(chunk));
+  // Burst payloads share one write: Channel is the PTY hot path, same as the
+  // Graph transcript window on ACP.
+  channel.onmessage = (chunk) => enqueueWrite(entry, toBytes(chunk));
 
   try {
     await api.attachSession(sessionId, channel);
@@ -179,6 +236,9 @@ export function disposeTerminal(sessionId: string): void {
   const entry = terminals.get(sessionId);
   if (!entry) return;
   terminals.delete(sessionId);
+  flushWrites(entry);
+  entry.alive = false;
+  entry.pendingWrites = [];
   entry.term.dispose();
   entry.container.remove();
 }

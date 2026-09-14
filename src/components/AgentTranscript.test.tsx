@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_MEMORY_CHARS } from "../lib/limits";
+import { TRANSCRIPT_WINDOW } from "../lib/transcript";
 import { session } from "../test/fixtures";
 import type { AgentUpdate, MemoryEntry } from "../types";
 
@@ -100,5 +101,41 @@ describe("AgentTranscript memory chip", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "AgentTranscript.tsx"), "utf8");
     expect(source).toContain("createEntry");
     expect(source).not.toMatch(/writeTextFile|writeFile|put_memory|memory\.md/);
+  });
+});
+
+describe("AgentTranscript window", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useMemoryStore.setState(initialMemory, true);
+    useSessionStore.setState(initialSessions, true);
+  });
+
+  it("mounts only the newest window of a long transcript", () => {
+    const lines: AgentUpdate[] = Array.from({ length: TRANSCRIPT_WINDOW + 20 }, (_, index) => ({
+      kind: "tool",
+      text: `call ${index}`,
+    }));
+    show(lines);
+
+    expect(screen.queryByText("call 0")).not.toBeInTheDocument();
+    expect(screen.getByText(`call ${TRANSCRIPT_WINDOW + 19}`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /earlier/ })).toHaveTextContent("20 hidden");
+  });
+
+  it("mounts older rows when asked, and keeps the last-line memory chip", async () => {
+    const user = userEvent.setup();
+    const lines: AgentUpdate[] = Array.from({ length: TRANSCRIPT_WINDOW + 5 }, (_, index) => ({
+      kind: "message",
+      text: index === TRANSCRIPT_WINDOW + 4 ? "worth keeping" : `earlier ${index}`,
+    }));
+    show(lines);
+
+    expect(screen.queryByText("earlier 0")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Add to Memory" })).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: /earlier/ }));
+    expect(screen.getByText("earlier 0")).toBeInTheDocument();
+    expect(screen.getByText("worth keeping")).toBeInTheDocument();
   });
 });
