@@ -1,9 +1,9 @@
 mod acp;
 mod db;
 mod diff;
-mod edges;
 #[cfg(test)]
 mod domain;
+mod edges;
 mod error;
 mod graph;
 mod log;

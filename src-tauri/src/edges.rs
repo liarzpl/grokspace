@@ -55,7 +55,9 @@ pub fn snapshot(project_path: &Path) -> EdgesSnapshot {
         json,
         too_large,
         updated_at: metadata.modified().ok().and_then(|time| {
-            time.duration_since(UNIX_EPOCH).ok().map(|since| since.as_millis() as i64)
+            time.duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|since| since.as_millis() as i64)
         }),
     }
 }
@@ -87,6 +89,9 @@ mod tests {
 
         let path = project_edges_file(project.path());
         std::fs::write(&path, r#"{"edges":[]}"#).unwrap();
-        assert_eq!(snapshot(project.path()).json.as_deref(), Some(r#"{"edges":[]}"#));
+        assert_eq!(
+            snapshot(project.path()).json.as_deref(),
+            Some(r#"{"edges":[]}"#)
+        );
     }
 }
