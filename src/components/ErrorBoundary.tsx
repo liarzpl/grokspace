@@ -1,11 +1,14 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { paint } from "../lib/theme";
+
 /**
  * Production React has no overlay: a render throw unmounts the tree and leaves
  * the window's background colour. That is exactly "components flash, then a
  * blank canvas". Catching here keeps the chrome on screen and names the error.
  *
  * Colours are inline so this still paints if the stylesheet never applied.
+ * The hexes live in `FALLBACK_TOKENS` so they cannot drift from `@theme`.
  */
 
 interface Props {
@@ -43,7 +46,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           flexDirection: "column",
           justifyContent: "center",
           padding: 24,
-          color: "#e8ebf2",
+          color: paint("--color-ink"),
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
           fontSize: 13,
@@ -55,7 +58,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             margin: "8px 0 0",
             maxWidth: 36 * 13,
             lineHeight: 1.5,
-            color: "#8c95a6",
+            color: paint("--color-ink-muted"),
             whiteSpace: "pre-wrap",
           }}
         >
@@ -70,8 +73,8 @@ export default class ErrorBoundary extends Component<Props, State> {
               overflow: "auto",
               padding: 12,
               borderRadius: 6,
-              background: "#101319",
-              color: "#5b6474",
+              background: paint("--color-panel"),
+              color: paint("--color-ink-faint"),
               fontFamily: '"SF Mono", ui-monospace, Menlo, monospace',
               fontSize: 11,
               lineHeight: 1.45,
@@ -90,8 +93,8 @@ export default class ErrorBoundary extends Component<Props, State> {
             padding: "6px 12px",
             border: 0,
             borderRadius: 6,
-            background: "#6d8cff",
-            color: "#0b0d12",
+            background: paint("--color-accent"),
+            color: paint("--color-canvas"),
             fontSize: 13,
             fontWeight: 500,
           }}

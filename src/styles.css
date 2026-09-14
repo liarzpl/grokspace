@@ -18,10 +18,15 @@
 
   --color-ink: #e8ebf2;
   --color-ink-muted: #8c95a6;
-  --color-ink-faint: #5b6474;
+  /* Helper text. Must stay ≥4.5:1 on canvas, panel, and elevated (A11Y-004).
+     Same hue as muted, one step dimmer — not a third grey family. */
+  --color-ink-faint: #7d8697;
 
   --color-accent: #6d8cff;
   --color-accent-soft: #6d8cff26;
+  /* Running-node glow: the accent at ~24% alpha, so the pulse can use a token
+     instead of a second hex sitting next to var(--color-accent). */
+  --color-accent-pulse: #6d8cff3d;
   --color-danger: #ff6b6b;
   --color-success: #5ad4a0;
   --color-warning: #e3b16b;
@@ -129,10 +134,10 @@
 @keyframes node-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px #6d8cff00;
+    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px transparent;
   }
   50% {
-    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px #6d8cff3d;
+    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px var(--color-accent-pulse);
   }
 }
 

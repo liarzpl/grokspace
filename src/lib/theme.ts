@@ -11,10 +11,29 @@
  * `getComputedStyle` can see a variable, and a module body runs too early for that.
  */
 
+/**
+ * Hex copies of `@theme` for the one surface that must paint without the
+ * stylesheet: ErrorBoundary. A test reads the CSS block and fails if these drift.
+ * Everywhere else should keep calling `token()` / Tailwind classes.
+ */
+export const FALLBACK_TOKENS = {
+  "--color-canvas": "#0b0d12",
+  "--color-panel": "#101319",
+  "--color-ink": "#e8ebf2",
+  "--color-ink-muted": "#8c95a6",
+  "--color-ink-faint": "#7d8697",
+  "--color-accent": "#6d8cff",
+} as const;
+
 /** One token's value, or an empty string if the stylesheet has not been applied yet. */
 export function token(name: string): string {
   if (typeof document === "undefined") return "";
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** Stylesheet value when it has applied, otherwise the locked fallback hex. */
+export function paint(name: keyof typeof FALLBACK_TOKENS): string {
+  return token(name) || FALLBACK_TOKENS[name];
 }
 
 /** The chrome colours the graph canvas draws with. */
