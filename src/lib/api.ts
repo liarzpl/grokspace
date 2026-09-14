@@ -5,6 +5,7 @@ import type {
   GraphSnapshot,
   MemoryEntry,
   MemoryEntryType,
+  MergeOutcome,
   Project,
   ProjectSettings,
   Session,
@@ -95,8 +96,8 @@ export const api = {
    * Commits leftover files on a stopped session's branch and merges that branch
    * into the project. The worktree is then removed; Discard is the other button.
    */
-  mergeSessionWorktree: (id: string): Promise<Session> =>
-    invoke<Session>("merge_session_worktree", { id }),
+  mergeSessionWorktree: (id: string): Promise<MergeOutcome> =>
+    invoke<MergeOutcome>("merge_session_worktree", { id }),
 
   /**
    * Why Merge would refuse this session, without writing. `null` means leftover

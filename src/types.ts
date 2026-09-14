@@ -83,6 +83,15 @@ export interface Session {
 }
 
 /**
+ * `merge_session_worktree` after the branch has landed. `teardownError` is set
+ * when only worktree removal failed — the session already has a null path.
+ */
+export interface MergeOutcome {
+  session: Session;
+  teardownError?: string | null;
+}
+
+/**
  * One visible thing an ACP agent said. `prompt` is GrokSpace's own, recorded
  * when a follow-up is sent; the rest arrive as `session-update` events.
  */
