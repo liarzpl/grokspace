@@ -4,33 +4,7 @@ import { MAX_MEMORY_CHARS } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { entriesOfType, MEMORY_TYPES, memorySize, useMemoryStore } from "../stores/memoryStore";
 import type { MemoryEntry, MemoryEntryType, Project } from "../types";
-
-function PanelButton({
-  label,
-  onClick,
-  primary,
-  disabled,
-}: {
-  label: string;
-  onClick: () => void;
-  primary?: boolean;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={
-        primary === true
-          ? "rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
-          : "rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-40"
-      }
-    >
-      {label}
-    </button>
-  );
-}
+import { QuietButton, TextButton } from "./ui";
 
 /**
  * One entry, editable in place.
@@ -60,13 +34,13 @@ function EntryRow({ entry, projectId }: { entry: MemoryEntry; projectId: string 
         <div className="flex-1" />
         {draft === null ? (
           <>
-            <PanelButton label="Edit" onClick={() => setDraft(entry.content)} />
-            <PanelButton label="Forget" onClick={() => void forgetEntry(projectId, entry.key)} />
+            <QuietButton label="Edit" onClick={() => setDraft(entry.content)} />
+            <QuietButton label="Forget" onClick={() => void forgetEntry(projectId, entry.key)} />
           </>
         ) : (
           <>
-            <PanelButton label="Save" onClick={() => void save()} />
-            <PanelButton label="Cancel" onClick={() => setDraft(null)} />
+            <QuietButton label="Save" onClick={() => void save()} />
+            <QuietButton label="Cancel" onClick={() => setDraft(null)} />
           </>
         )}
       </div>
@@ -193,7 +167,7 @@ function MemoryFooter() {
       )}
       <div className="flex-1" />
       {skill !== null && !skill.current && (
-        <PanelButton
+        <TextButton
           primary
           label={
             isInstalling
@@ -261,3 +235,5 @@ export default function MemoryPanel({ project }: { project: Project }) {
     </div>
   );
 }
+
+export { MemoryPanel };

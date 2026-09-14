@@ -79,3 +79,5 @@ export default function PaneGrid({ project }: { project: Project }) {
     </div>
   );
 }
+
+export { PaneGrid };

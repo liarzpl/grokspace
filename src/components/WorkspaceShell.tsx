@@ -25,6 +25,7 @@ import PaneGrid, { LayoutPicker } from "./PaneGrid";
 import { PermissionActions } from "./PermissionActions";
 import SessionSteps from "./SessionSteps";
 import TaskBoard from "./TaskBoard";
+import { QuietButton } from "./ui";
 
 const GRAPH_STATUS_TONE: Record<GraphStatus, string> = {
   pending: "text-ink-faint",
@@ -148,13 +149,13 @@ function SessionChip({
       {session.kind === "agent" && (
         <>
           {session.status === "running" && (
-            <ChipButton label="Cancel" onClick={() => void cancelSession(session.id)} />
+            <QuietButton label="Cancel" onClick={() => void cancelSession(session.id)} />
           )}
           {session.status !== "stopped" && (
-            <ChipButton label="Stop" onClick={() => void stopSession(session.id)} />
+            <QuietButton label="Stop" onClick={() => void stopSession(session.id)} />
           )}
           {session.status === "stopped" && (
-            <ChipButton
+            <QuietButton
               label="Restart"
               onClick={() =>
                 void restartSession(
@@ -166,24 +167,12 @@ function SessionChip({
             />
           )}
           {session.status === "stopped" && session.worktreePath !== null && (
-            <ChipButton label="Discard" onClick={() => void discardWorktree(session.id)} />
+            <QuietButton label="Discard" onClick={() => void discardWorktree(session.id)} />
           )}
-          <ChipButton label="Close" onClick={() => void closeSession(session.id)} />
+          <QuietButton label="Close" onClick={() => void closeSession(session.id)} />
         </>
       )}
     </div>
-  );
-}
-
-function ChipButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-sm px-1 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
-    >
-      {label}
-    </button>
   );
 }
 
@@ -458,3 +447,5 @@ export default function WorkspaceShell({ project }: { project: Project }) {
     </div>
   );
 }
+
+export { WorkspaceShell };

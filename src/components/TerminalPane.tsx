@@ -17,40 +17,10 @@ import { useSessionStore } from "../stores/sessionStore";
 import type { Session, SessionKind } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
 import SessionSteps from "./SessionSteps";
+import { QuietButton, StatusDot } from "./ui";
 
 /** Long enough to swallow the burst a window drag produces, short enough to feel live. */
 const RESIZE_DEBOUNCE_MS = 80;
-
-function StatusDot({ session }: { session: Session }) {
-  const running = session.status === "running";
-  return (
-    <span
-      title={running ? "Running" : "Stopped"}
-      className={`size-1.5 shrink-0 rounded-full ${running ? "bg-green-400" : "bg-ink-faint"}`}
-    />
-  );
-}
-
-function PaneButton({
-  label,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded-sm px-1.5 py-0.5 text-[11px] text-ink-faint transition-colors hover:bg-line-strong hover:text-ink disabled:opacity-40"
-    >
-      {label}
-    </button>
-  );
-}
 
 /**
  * Flips a pane between its terminal and the graph its session is reporting, so a
@@ -238,7 +208,7 @@ export default function TerminalPane({
   return (
     <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-terminal">
       <header className="flex h-7 shrink-0 items-center gap-2 border-b border-line bg-panel px-2">
-        {session ? <StatusDot session={session} /> : null}
+        {session ? <StatusDot status={session.status} title={session.status} /> : null}
 
         {renaming && session ? (
           <input
@@ -278,17 +248,17 @@ export default function TerminalPane({
             {session ? (
               <>
                 {view === "terminal" && (
-                  <PaneButton label="Clear" onClick={() => clearTerminal(session.id)} />
+                  <QuietButton label="Clear" onClick={() => clearTerminal(session.id)} />
                 )}
                 {running ? (
-                  <PaneButton label="Stop" onClick={() => void stopSession(session.id)} />
+                  <QuietButton label="Stop" onClick={() => void stopSession(session.id)} />
                 ) : (
-                  <PaneButton label="Restart" onClick={restart} disabled={busy} />
+                  <QuietButton label="Restart" onClick={restart} disabled={busy} />
                 )}
-                <PaneButton label="Close" onClick={() => void closeSession(session.id)} />
+                <QuietButton label="Close" onClick={() => void closeSession(session.id)} />
               </>
             ) : null}
-            <PaneButton
+            <QuietButton
               label={isMaximized ? "Restore" : "Expand"}
               onClick={() => toggleMaximized(paneId)}
             />
@@ -310,3 +280,5 @@ export default function TerminalPane({
     </section>
   );
 }
+
+export { TerminalPane };

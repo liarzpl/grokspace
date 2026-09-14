@@ -4,6 +4,7 @@ import { subscribeEscape } from "../lib/shortcuts";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { PANE_LAYOUTS, type Settings } from "../types";
+import { Choice } from "./ui";
 
 /**
  * An overlay rather than a tab.
@@ -17,45 +18,6 @@ import { PANE_LAYOUTS, type Settings } from "../types";
  * that stylesheet (`theme.ts` reads them back for xterm and React Flow); a switch
  * belongs in the change that adds the second palette.
  */
-
-function Choice<T extends string>({
-  label,
-  hint,
-  options,
-  value,
-  onChoose,
-}: {
-  label: string;
-  hint: string;
-  options: readonly T[];
-  value: T;
-  onChoose: (option: T) => void;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-[12px] font-medium text-ink">{label}</h3>
-        <span className="text-[10px] text-ink-faint">{hint}</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-0.5 self-start rounded-md border border-line p-0.5">
-        {options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => onChoose(option)}
-            className={`rounded-sm px-2 py-0.5 text-[11px] transition-colors ${
-              option === value
-                ? "bg-accent-soft text-ink"
-                : "text-ink-faint hover:bg-elevated hover:text-ink-muted"
-            }`}
-          >
-            {option}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function SettingsPanel() {
   const isOpen = useUiStore((state) => state.isSettingsOpen);
@@ -130,3 +92,4 @@ export default function SettingsPanel() {
 
 /** Exported for the tests: the keys a panel control is allowed to write. */
 export type SettingKey = keyof Settings;
+export { SettingsPanel };
