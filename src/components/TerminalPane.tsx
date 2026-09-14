@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { isKeyboardClick } from "../lib/keyboardClick";
+import { moveSegmented } from "../lib/segmented";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import {
   attachTerminal,
@@ -46,11 +47,28 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
       : (["terminal", "graph", "steps"] as const);
 
   return (
-    <div className="flex shrink-0 items-center gap-0.5 rounded-sm border border-line px-0.5">
+    <div
+      role="radiogroup"
+      aria-label="Pane view"
+      onKeyDown={(event) =>
+        moveSegmented(
+          event,
+          options,
+          view,
+          (option) => setPaneView(paneId, option),
+          (option) => `pane-view-${paneId}-${option}`,
+        )
+      }
+      className="flex shrink-0 items-center gap-0.5 rounded-sm border border-line px-0.5"
+    >
       {options.map((option) => (
         <button
           key={option}
+          id={`pane-view-${paneId}-${option}`}
           type="button"
+          role="radio"
+          aria-checked={view === option}
+          tabIndex={view === option ? 0 : -1}
           onClick={() => setPaneView(paneId, option)}
           title={
             option === "graph" && !hasGraph

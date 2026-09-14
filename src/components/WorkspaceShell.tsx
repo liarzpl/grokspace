@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
 
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions";
+import { moveSegmented } from "../lib/segmented";
 import {
   scheduleIdle,
   sessionIdKey,
@@ -63,7 +64,7 @@ function TabButton({
   active,
   onClick,
 }: {
-  id: string;
+  id: (typeof TABS)[number]["id"];
   label: string;
   active: boolean;
   onClick: () => void;
@@ -71,7 +72,12 @@ function TabButton({
   return (
     <button
       type="button"
+      role="tab"
+      id={`workspace-tab-${id}`}
       data-testid={`workspace-tab-${id}`}
+      aria-selected={active}
+      aria-controls={`workspace-panel-${id}`}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
       className={`rounded-sm px-2 py-0.5 text-[11px] transition-colors ${
         active ? "bg-accent-soft text-ink" : "text-ink-faint hover:bg-elevated hover:text-ink-muted"
@@ -136,6 +142,7 @@ function SessionChip({
     >
       <button
         type="button"
+        aria-pressed={active}
         onClick={onClick}
         title={entry.graph?.name ?? "No graph yet"}
         className="flex items-center gap-1.5 px-1"
@@ -370,6 +377,16 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   const setTab = useUiStore((state) => state.setTab);
   const [selectedGraphId, setSelectedGraphId] = useState<string | null>(null);
 
+  const onWorkspaceTabsKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    moveSegmented(
+      event,
+      TABS.map((item) => item.id),
+      tab,
+      setTab,
+      (id) => `workspace-tab-${id}`,
+    );
+  };
+
   useLayoutEffect(() => {
     // Layout rather than paint: `loadSessions` drops the previous project's
     // sessions synchronously, so the first frame of the new project is empty
@@ -438,7 +455,12 @@ export default function WorkspaceShell({ project }: { project: Project }) {
           {homeRelative(project.path)}
         </span>
 
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-line p-0.5">
+        <div
+          role="tablist"
+          aria-label="Workspace"
+          onKeyDown={onWorkspaceTabsKeyDown}
+          className="flex shrink-0 items-center gap-0.5 rounded-md border border-line p-0.5"
+        >
           {TABS.map(({ id, label }) => (
             <TabButton
               key={id}
@@ -467,13 +489,56 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         keep running and the scrollback survives the remount. Switching projects
         is a different path — pane ids are reused, so the host has to detach.
       */}
-      {tab === "terminals" && <PaneGrid project={project} />}
-      {tab === "graph" && (
-        <GraphTab sessions={sessions} selected={graphSession} onSelect={setSelectedGraphId} />
+      {tab === "terminals" && (
+        <div
+          role="tabpanel"
+          id="workspace-panel-terminals"
+          aria-labelledby="workspace-tab-terminals"
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <PaneGrid project={project} />
+        </div>
       )}
-      {tab === "tasks" && <TaskBoard project={project} />}
-      {tab === "memory" && <MemoryPanel project={project} />}
-      {tab === "diff" && <DiffPanel project={project} />}
+      {tab === "graph" && (
+        <div
+          role="tabpanel"
+          id="workspace-panel-graph"
+          aria-labelledby="workspace-tab-graph"
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <GraphTab sessions={sessions} selected={graphSession} onSelect={setSelectedGraphId} />
+        </div>
+      )}
+      {tab === "tasks" && (
+        <div
+          role="tabpanel"
+          id="workspace-panel-tasks"
+          aria-labelledby="workspace-tab-tasks"
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <TaskBoard project={project} />
+        </div>
+      )}
+      {tab === "memory" && (
+        <div
+          role="tabpanel"
+          id="workspace-panel-memory"
+          aria-labelledby="workspace-tab-memory"
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <MemoryPanel project={project} />
+        </div>
+      )}
+      {tab === "diff" && (
+        <div
+          role="tabpanel"
+          id="workspace-panel-diff"
+          aria-labelledby="workspace-tab-diff"
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <DiffPanel project={project} />
+        </div>
+      )}
     </div>
   );
 }

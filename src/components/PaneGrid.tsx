@@ -1,3 +1,4 @@
+import { moveSegmented } from "../lib/segmented";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
 import { sessionForPane, useSessionsForProject } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
@@ -17,11 +18,28 @@ export function LayoutPicker({ project }: { project: Project }) {
   const setLayout = useProjectStore((state) => state.setLayout);
 
   return (
-    <div className="flex items-center gap-0.5 rounded-md border border-line p-0.5">
+    <div
+      role="radiogroup"
+      aria-label="Pane layout"
+      onKeyDown={(event) =>
+        moveSegmented(
+          event,
+          PANE_LAYOUTS,
+          active,
+          (layout) => void setLayout(project.id, layout),
+          (layout) => `layout-picker-${layout}`,
+        )
+      }
+      className="flex items-center gap-0.5 rounded-md border border-line p-0.5"
+    >
       {PANE_LAYOUTS.map((layout) => (
         <button
           key={layout}
+          id={`layout-picker-${layout}`}
           type="button"
+          role="radio"
+          aria-checked={layout === active}
+          tabIndex={layout === active ? 0 : -1}
           onClick={() => void setLayout(project.id, layout)}
           title={`${paneCount(layout)} panes`}
           className={`rounded-sm px-1.5 py-0.5 font-mono text-[10px] transition-colors ${

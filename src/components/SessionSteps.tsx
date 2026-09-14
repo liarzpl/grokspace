@@ -303,7 +303,11 @@ export function SessionStepsRail({
 
   return (
     <aside className="flex w-72 shrink-0 flex-col overflow-hidden border-r border-line">
-      <div className="flex shrink-0 flex-col gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
+      <div
+        role="radiogroup"
+        aria-label="Session steps"
+        className="flex shrink-0 flex-col gap-1 overflow-x-auto border-b border-line px-2 py-1.5"
+      >
         {capable.length === 0 ? (
           <p className="px-0.5 text-[10px] leading-snug text-ink-faint">
             Start a Grok agent to see its steps here.
@@ -313,6 +317,8 @@ export function SessionStepsRail({
             <button
               key={session.id}
               type="button"
+              role="radio"
+              aria-checked={session.id === selected?.id}
               onClick={() => onSelect(session.id)}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-left text-[11px] transition-colors ${
                 session.id === selected?.id
