@@ -136,6 +136,30 @@ describe("createTask", () => {
   });
 });
 
+describe("editTask", () => {
+  it("forwards an empty description so the backend can write NULL", async () => {
+    useTaskStore.setState({ tasks: [task({ description: "Why it matters" })] });
+    updateTask.mockResolvedValue(task({ description: null }));
+
+    await useTaskStore.getState().editTask("t1", { description: "" });
+
+    expect(updateTask).toHaveBeenCalledWith("t1", { description: "" });
+    expect(useTaskStore.getState().tasks[0]?.description).toBeNull();
+  });
+
+  it("replaces the card the backend returns", async () => {
+    useTaskStore.setState({ tasks: [task({ description: "Old" }), task({ id: "t2" })] });
+    updateTask.mockResolvedValue(task({ description: "New why" }));
+
+    await useTaskStore.getState().editTask("t1", { description: "New why" });
+
+    expect(useTaskStore.getState().tasks.map((card) => card.description)).toEqual([
+      "New why",
+      null,
+    ]);
+  });
+});
+
 describe("moveTask", () => {
   it("replaces only the task that moved", async () => {
     useTaskStore.setState({ tasks: [task(), task({ id: "t2" })] });

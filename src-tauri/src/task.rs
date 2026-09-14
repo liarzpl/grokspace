@@ -172,9 +172,10 @@ pub fn insert(
     Ok(task)
 }
 
-/// Whichever fields were supplied. `description` is deliberately not clearable
-/// here — `None` means "leave it alone", which is what every caller wants — and
-/// the session link has its own function so that unassigning is expressible.
+/// Whichever fields were supplied. `description` is three-state: `None` leaves
+/// the column, `Some("")` (or whitespace) writes NULL, and any other `Some`
+/// replaces it. The session link has its own function so unassigning stays
+/// expressible.
 pub fn update(
     conn: &Connection,
     id: &str,
@@ -184,18 +185,30 @@ pub fn update(
     priority: Option<i64>,
 ) -> Result<Task> {
     let title = title.map(clean_title).transpose()?;
+    // Presence, not the cleaned value: `clean_description("")` is `None`, and
+    // COALESCE would treat that the same as "leave it" — the bug the board hits
+    // when someone clears the placeholder.
+    let set_description = description.is_some();
     let description = clean_description(description);
     let status = status.map(TaskStatus::as_str);
 
     let affected = conn.execute(
         "UPDATE tasks
             SET title = COALESCE(?2, title),
-                description = COALESCE(?3, description),
+                description = CASE WHEN ?7 THEN ?3 ELSE description END,
                 status = COALESCE(?4, status),
                 priority = COALESCE(?5, priority),
                 updated_at = ?6
           WHERE id = ?1",
-        rusqlite::params![id, title, description, status, priority, now_ms()],
+        rusqlite::params![
+            id,
+            title,
+            description,
+            status,
+            priority,
+            now_ms(),
+            set_description,
+        ],
     )?;
     if affected == 0 {
         return Err(Error::TaskNotFound(id.to_string()));
@@ -485,6 +498,40 @@ mod tests {
         assert_eq!(moved.title, "Title");
         assert_eq!(moved.description.as_deref(), Some("Why it matters"));
         assert!(moved.updated_at >= task.updated_at);
+    }
+
+    #[test]
+    fn clearing_the_description_writes_null() {
+        // The board sends `Some("")` when the placeholder is restored. COALESCE
+        // would treat that cleaned-to-None the same as "leave it", so the old
+        // text would come back.
+        let (conn, project_id) = fixture();
+        let task = insert(&conn, &project_id, "Title", Some("Why it matters")).unwrap();
+
+        let cleared = update(&conn, &task.id, None, Some(""), None, None).unwrap();
+
+        assert_eq!(cleared.description, None);
+        assert_eq!(get(&conn, &task.id).unwrap().description, None);
+    }
+
+    #[test]
+    fn a_whitespace_description_patch_also_clears() {
+        let (conn, project_id) = fixture();
+        let task = insert(&conn, &project_id, "Title", Some("Why it matters")).unwrap();
+
+        let cleared = update(&conn, &task.id, None, Some("  \n "), None, None).unwrap();
+
+        assert_eq!(cleared.description, None);
+    }
+
+    #[test]
+    fn a_description_can_still_be_replaced() {
+        let (conn, project_id) = fixture();
+        let task = insert(&conn, &project_id, "Title", Some("Old")).unwrap();
+
+        let next = update(&conn, &task.id, None, Some("  New why  "), None, None).unwrap();
+
+        assert_eq!(next.description.as_deref(), Some("New why"));
     }
 
     #[test]

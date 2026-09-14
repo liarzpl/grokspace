@@ -22,6 +22,18 @@ import type {
  * Typed wrappers around the Tauri commands, so components never spell out raw
  * command names or argument shapes.
  */
+
+/**
+ * Three-state description for `update_task`.
+ *
+ * `undefined` becomes JSON `null` and leaves the column. `""` is the clear
+ * sentinel and must stay `""` — `||` would collapse it to `null` and the
+ * backend would keep the old value.
+ */
+export function taskDescriptionPatch(description: string | undefined): string | null {
+  return description === undefined ? null : description;
+}
+
 export const api = {
   listProjects: (): Promise<Project[]> => invoke<Project[]>("list_projects"),
 
@@ -147,10 +159,16 @@ export const api = {
       description: input.description ?? null,
     }),
 
+  /**
+   * Patch a task. `description` is three-state over IPC: omit it (this helper
+   * sends `null`) to leave the column; pass `""` as the clear sentinel to write
+   * SQL NULL; any other string replaces the stored value.
+   */
   updateTask: (
     id: string,
     changes: {
       title?: string;
+      /** Empty string clears the description. Omit the field to leave it. */
       description?: string;
       status?: TaskStatus;
       priority?: number;
@@ -159,7 +177,7 @@ export const api = {
     invoke<Task>("update_task", {
       id,
       title: changes.title ?? null,
-      description: changes.description ?? null,
+      description: taskDescriptionPatch(changes.description),
       status: changes.status ?? null,
       priority: changes.priority ?? null,
     }),
