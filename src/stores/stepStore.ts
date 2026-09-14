@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import type { SessionStep, SessionSteps, SkillStatus, StepsPhase } from "../types";
+import type { SessionStep, SessionSteps, StepsPhase } from "../types";
 
 /**
  * One step list per session, kept in step with SQLite (and the inbound file the
@@ -35,12 +35,6 @@ export interface StepEntry {
 
 interface StepState {
   bySession: Record<string, StepEntry>;
-  /**
-   * Whether `grok` has been taught to write these files. Shared rather than
-   * per-pane: six empty panes should not ask the backend six times.
-   */
-  skill: SkillStatus | null;
-  isInstallingSkill: boolean;
   error: string | null;
 
   /** Reads a session's list now; safe to call repeatedly. */
@@ -72,8 +66,6 @@ interface StepState {
   approve: (sessionId: string) => Promise<SessionSteps | null>;
   /** Undoes Approve when the prompt never landed, so the button comes back. */
   reopen: (sessionId: string) => Promise<void>;
-  loadSkill: () => Promise<void>;
-  installSkill: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -123,8 +115,6 @@ export const useStepStore = create<StepState>((set, get) => {
 
   return {
     bySession: {},
-    skill: null,
-    isInstallingSkill: false,
     error: null,
 
     clearError: () => set({ error: null }),
@@ -261,26 +251,6 @@ export const useStepStore = create<StepState>((set, get) => {
       }
     },
 
-    loadSkill: async () => {
-      if (get().skill !== null) return;
-      try {
-        set({ skill: await api.stepsSkillStatus() });
-      } catch {
-        // Only used to decide whether to offer the install; a failure here should
-        // not put an error banner over a working panel.
-      }
-    },
-
-    installSkill: async () => {
-      set({ isInstallingSkill: true, error: null });
-      try {
-        set({ skill: await api.installStepsSkill() });
-      } catch (error) {
-        set({ error: errorMessage(error) });
-      } finally {
-        set({ isInstallingSkill: false });
-      }
-    },
   };
 });
 

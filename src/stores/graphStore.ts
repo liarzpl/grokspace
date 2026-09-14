@@ -2,7 +2,6 @@ import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
 import { parseGraph, type GraphDocument, type ParseResult } from "../lib/graph";
-import type { SkillStatus } from "../types";
 
 /**
  * One graph per session, kept in step with the files on disk.
@@ -52,13 +51,7 @@ export interface GraphEntry {
 
 interface GraphStoreState {
   bySession: Record<string, GraphEntry>;
-  /**
-   * Whether `grok` has been taught to write these files. Shared rather than
-   * per-pane: six empty panes should not ask the backend six times.
-   */
-  skill: SkillStatus | null;
-  isInstallingSkill: boolean;
-  /** Skill install failures; per-session graph errors live on each entry. */
+  /** Watch / ask failures; per-session graph errors live on each entry. */
   error: string | null;
 
   /** Reads a session's graph now; safe to call repeatedly. */
@@ -71,8 +64,6 @@ interface GraphStoreState {
   refresh: (sessionId: string, isOpenSession: boolean) => void;
   /** Drops a session's graph, for a session that has been closed or replaced. */
   forget: (sessionId: string) => void;
-  loadSkill: () => Promise<void>;
-  installSkill: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -176,8 +167,6 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
 
   return {
     bySession: {},
-    skill: null,
-    isInstallingSkill: false,
     error: null,
 
     load: async (sessionId) => {
@@ -221,29 +210,6 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
         delete bySession[sessionId];
         return { bySession };
       });
-    },
-
-    loadSkill: async () => {
-      if (get().skill !== null) return;
-      try {
-        set({ skill: await api.graphSkillStatus() });
-      } catch {
-        // Only used to decide whether to offer the install; a failure here should
-        // not put an error banner over a working panel.
-      }
-    },
-
-    installSkill: async () => {
-      set({ isInstallingSkill: true, error: null });
-      try {
-        set({ skill: await api.installGraphSkill() });
-      } catch (error) {
-        // Left as it was, so the button stays available to try again — but said,
-        // because a silent failure looks exactly like a successful no-op.
-        set({ error: errorMessage(error) });
-      } finally {
-        set({ isInstallingSkill: false });
-      }
     },
 
     clearError: () => set({ error: null }),

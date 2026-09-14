@@ -12,9 +12,8 @@
  * waiting for someone to add a condition.
  */
 
-import { useMemoryStore } from "../stores/memoryStore";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
-import { useGraphStore } from "../stores/graphStore";
+import { SKILL_IDS, skillOf, useSkillStore } from "../stores/skillStore";
 import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -69,37 +68,12 @@ function startInFreePane(project: Project, kind: SessionKind) {
  * to lean on.
  */
 async function installGrokspaceSkills(): Promise<void> {
-  const skills: {
-    name: string;
-    install: () => Promise<void>;
-    readError: () => string | null;
-    writeError: (error: string) => void;
-  }[] = [
-    {
-      name: "graph",
-      install: () => useGraphStore.getState().installSkill(),
-      readError: () => useGraphStore.getState().error,
-      writeError: (error) => useGraphStore.setState({ error }),
-    },
-    {
-      name: "memory",
-      install: () => useMemoryStore.getState().installSkill(),
-      readError: () => useMemoryStore.getState().error,
-      writeError: (error) => useMemoryStore.setState({ error }),
-    },
-    {
-      name: "steps",
-      install: () => useStepStore.getState().installSkill(),
-      readError: () => useStepStore.getState().error,
-      writeError: (error) => useStepStore.setState({ error }),
-    },
-  ];
-
-  for (const skill of skills) {
-    await skill.install();
-    const error = skill.readError();
+  const skills = useSkillStore.getState();
+  for (const id of SKILL_IDS) {
+    await skills.install(id);
+    const error = skillOf(useSkillStore.getState().byId, id).error;
     if (error !== null) {
-      skill.writeError(`Could not install the ${skill.name} skill: ${error}`);
+      useSkillStore.getState().setError(id, `Could not install the ${id} skill: ${error}`);
     }
   }
 }
@@ -327,7 +301,7 @@ export function commands(project: Project | null): Command[] {
     group: "Skills",
     run: () => {
       useUiStore.getState().closePalette();
-      void useGraphStore.getState().installSkill();
+      void useSkillStore.getState().install("graph");
     },
   });
 
@@ -337,7 +311,7 @@ export function commands(project: Project | null): Command[] {
     group: "Skills",
     run: () => {
       useUiStore.getState().closePalette();
-      void useMemoryStore.getState().installSkill();
+      void useSkillStore.getState().install("memory");
     },
   });
 

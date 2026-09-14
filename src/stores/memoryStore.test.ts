@@ -6,8 +6,6 @@ const listMemory = vi.fn();
 const putMemory = vi.fn();
 const removeMemory = vi.fn();
 const memoryFilePath = vi.fn();
-const memorySkillStatus = vi.fn();
-const installMemorySkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -18,8 +16,6 @@ vi.mock("../lib/api", async () => {
       putMemory,
       removeMemory,
       memoryFilePath,
-      memorySkillStatus,
-      installMemorySkill,
     },
   };
 });
@@ -142,40 +138,6 @@ describe("forgetEntry", () => {
 
     expect(removeMemory).toHaveBeenCalledWith("p1", "database");
     expect(useMemoryStore.getState().entries.map((e) => e.key)).toEqual(["stack"]);
-  });
-});
-
-describe("the memory skill", () => {
-  it("is asked about once however many times the panel mounts", async () => {
-    memorySkillStatus.mockResolvedValue({ path: "/h/SKILL.md", installed: false, current: false });
-
-    await useMemoryStore.getState().loadSkill();
-    await useMemoryStore.getState().loadSkill();
-
-    expect(memorySkillStatus).toHaveBeenCalledTimes(1);
-  });
-
-  it("stays quiet when the backend cannot answer", async () => {
-    // It only decides whether to offer the install button, so a failure must not put
-    // an error over a panel that is otherwise working.
-    memorySkillStatus.mockRejectedValue("no home directory");
-
-    await useMemoryStore.getState().loadSkill();
-
-    expect(useMemoryStore.getState().skill).toBeNull();
-    expect(useMemoryStore.getState().error).toBeNull();
-  });
-
-  it("leaves the button usable when the install fails", async () => {
-    const before = { path: "/h/SKILL.md", installed: false, current: false };
-    useMemoryStore.setState({ skill: before });
-    installMemorySkill.mockRejectedValue("permission denied");
-
-    await useMemoryStore.getState().installSkill();
-
-    expect(useMemoryStore.getState().skill).toEqual(before);
-    expect(useMemoryStore.getState().isInstallingSkill).toBe(false);
-    expect(useMemoryStore.getState().error).toBe("permission denied");
   });
 });
 

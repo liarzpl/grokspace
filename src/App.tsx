@@ -16,6 +16,7 @@ import { useSessionStore } from "./stores/sessionStore";
 import { useStepStore } from "./stores/stepStore";
 import { useTaskStore } from "./stores/taskStore";
 import { useDiffStore } from "./stores/diffStore";
+import { firstSkillError, useSkillStore } from "./stores/skillStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { TABS, useUiStore } from "./stores/uiStore";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
@@ -84,6 +85,7 @@ export default function App() {
   const stepError = useStepStore((state) => state.error);
   const settingsError = useSettingsStore((state) => state.error);
   const diffError = useDiffStore((state) => state.error);
+  const skillError = useSkillStore((state) => firstSkillError(state.byId));
   const clearProjectError = useProjectStore((state) => state.clearError);
   const clearSessionError = useSessionStore((state) => state.clearError);
   const clearTaskError = useTaskStore((state) => state.clearError);
@@ -92,6 +94,7 @@ export default function App() {
   const clearStepError = useStepStore((state) => state.clearError);
   const clearSettingsError = useSettingsStore((state) => state.clearError);
   const clearDiffError = useDiffStore((state) => state.clearError);
+  const clearSkillError = useSkillStore((state) => state.clearError);
   const loadProjects = useProjectStore((state) => state.loadProjects);
   const pickAndOpenProject = useProjectStore((state) => state.pickAndOpenProject);
   const togglePalette = useUiStore((state) => state.togglePalette);
@@ -107,7 +110,8 @@ export default function App() {
     graphError ??
     stepError ??
     settingsError ??
-    diffError;
+    diffError ??
+    skillError;
 
   useEffect(() => {
     void loadProjects();
@@ -325,6 +329,7 @@ export default function App() {
               clearStepError();
               clearSettingsError();
               clearDiffError();
+              clearSkillError();
             }}
             className="rounded-sm px-2 py-0.5 text-[11px] text-ink-muted hover:text-ink"
           >

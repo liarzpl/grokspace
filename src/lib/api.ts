@@ -232,10 +232,10 @@ export const api = {
   memoryFilePath: (projectId: string): Promise<string> =>
     invoke<string>("memory_file_path", { projectId }),
 
-  memorySkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("memory_skill_status"),
+  skillStatus: (id: string): Promise<SkillStatus> => invoke<SkillStatus>("skill_status", { id }),
 
-  /** Installs, or refreshes, the skill that teaches `grok` to read the memory. */
-  installMemorySkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_memory_skill"),
+  /** Installs, or refreshes, a bundled skill so `grok` can see it. */
+  installSkill: (id: string): Promise<SkillStatus> => invoke<SkillStatus>("install_skill", { id }),
 
   /** Reads the graph file belonging to one session, whether or not it exists. */
   readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>
@@ -247,11 +247,6 @@ export const api = {
    */
   watchProjectGraphs: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_graphs", { projectId }),
-
-  graphSkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("graph_skill_status"),
-
-  /** Installs, or refreshes, the skill that teaches `grok` to write graphs. */
-  installGraphSkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_graph_skill"),
 
   listSessionSteps: (sessionId: string): Promise<SessionSteps> =>
     invoke<SessionSteps>("list_session_steps", { sessionId }),
@@ -289,10 +284,6 @@ export const api = {
   watchProjectSteps: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_steps", { projectId }),
 
-  stepsSkillStatus: (): Promise<SkillStatus> => invoke<SkillStatus>("steps_skill_status"),
-
-  /** Installs, or refreshes, the skill that teaches `grok` to write a step list. */
-  installStepsSkill: (): Promise<SkillStatus> => invoke<SkillStatus>("install_steps_skill"),
 };
 
 /** Rust returns errors as plain strings, so unwrap them for display. */
