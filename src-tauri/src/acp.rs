@@ -358,6 +358,13 @@ impl StatusTracker {
         self.prompts.insert(id);
     }
 
+    /// Drops in-flight prompts. Cancel asks the agent to stop the turn; if it
+    /// honors that without a prompt reply, status would otherwise stay Running.
+    /// Outstanding permissions stay: those still need an answer.
+    pub fn cancel_prompts(&mut self) {
+        self.prompts.clear();
+    }
+
     /// Records an answer to a permission request, which unblocks the agent.
     pub fn permission_answered(&mut self, id: u64) {
         self.permissions.remove(&id);
@@ -654,7 +661,22 @@ impl AcpManager {
                 "method": "session/cancel",
                 "params": { "sessionId": agent.acp_session },
             }),
-        )
+        )?;
+        drop(stdin);
+
+        // Recorded only once cancel is out, so a failed write cannot leave the
+        // session idle while the agent never saw the interrupt.
+        let changed = {
+            let mut tracker = lock(&agent.tracker);
+            let before = tracker.status();
+            tracker.cancel_prompts();
+            let after = tracker.status();
+            (after != before).then_some(after)
+        };
+        if let Some(status) = changed {
+            (agent.on_status)(status);
+        }
+        Ok(())
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {
@@ -1340,6 +1362,31 @@ mod tests {
     }
 
     #[test]
+    fn cancel_clears_in_flight_prompts() {
+        let mut tracker = StatusTracker::new();
+        tracker.prompt_sent(5);
+        tracker.cancel_prompts();
+        assert_eq!(
+            tracker.status(),
+            AgentStatus::Idle,
+            "cancel ends the turn even when grok never replies to the prompt"
+        );
+    }
+
+    #[test]
+    fn cancel_leaves_an_unanswered_permission() {
+        let mut tracker = StatusTracker::new();
+        tracker.prompt_sent(5);
+        tracker.observe(&Incoming::Permission(perm(9, "Write a file")));
+        tracker.cancel_prompts();
+        assert_eq!(
+            tracker.status(),
+            AgentStatus::NeedsInput,
+            "a blocked permission still has to be answered"
+        );
+    }
+
+    #[test]
     fn only_a_change_is_reported() {
         // The reader calls this per line; reporting every line would put a status
         // update on the event system for every chunk of an agent's output.
@@ -1723,6 +1770,30 @@ mod tests {
 
         assert_eq!(rx.recv().unwrap(), AgentStatus::Running);
         assert_eq!(lock(&tracker).status(), AgentStatus::Running);
+        manager.kill("a1").ok();
+        manager.remove("a1");
+    }
+
+    #[test]
+    fn cancel_reports_idle_when_a_prompt_is_in_flight() {
+        let (tx, rx) = mpsc::channel();
+        let manager = AcpManager::new();
+        let (child, stdin) = spawn_cat();
+        let tracker = install_test_agent(
+            &manager,
+            "a1",
+            stdin,
+            child,
+            Arc::new(move |status| {
+                let _ = tx.send(status);
+            }),
+        );
+
+        lock(&tracker).prompt_sent(5);
+        manager.cancel("a1").unwrap();
+
+        assert_eq!(rx.recv().unwrap(), AgentStatus::Idle);
+        assert_eq!(lock(&tracker).status(), AgentStatus::Idle);
         manager.kill("a1").ok();
         manager.remove("a1");
     }
