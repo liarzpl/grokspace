@@ -135,10 +135,11 @@ replays the last 20). Nothing is uploaded.
   succeeds. `**`, `..`, absolute paths, and anything outside the project are
   refused. Nothing is copied by default — not `.env`. Restart reuses the tree
   and does not copy again. If Settings → Worktree setup is **on** (off by
-  default), GrokSpace then runs `<project>/.grokspace/worktree-setup`, or
-  `setup` in `.grokspace/worktrees.json`, in that tree. `$GROKSPACE_WORKTREE`
-  is the dest. Output is logged. Fail or timeout is an isolation skip, not a
-  silent half-prepared tree. Restart does not run the script again.
+  default) **and** the folder is trusted, GrokSpace then runs
+  `<project>/.grokspace/worktree-setup`, or `setup` in `.grokspace/worktrees.json`,
+  in that tree. First open asks **Deny / Trust once / Trust this folder**.
+  Untrusted folders keep setup and project hooks off. Trust is stored by
+  canonical path in `~/.grokspace`; forgetting a project does not forget it.
 - **Attention inbox** — a strip above the workspace lists **Needs you** (an ACP
   agent on `needs_input` or a pending permission), **Review** (idle, with
   approved steps or an isolated worktree), and **Merge** (stopped, isolated, and
@@ -456,13 +457,15 @@ Restart reuses the checkout and does not copy again.
 
 To *install* (not just copy), add `<project>/.grokspace/worktree-setup` or a
 `setup` string in `.grokspace/worktrees.json`. GrokSpace runs it only
-when Settings → Worktree setup is **on**. That toggle is **off** by default:
-a setup script is a trust boundary, not something a clone should run. The
-command is logged (and named in the skip reason). `$GROKSPACE_WORKTREE` is
+when Settings → Worktree setup is **on** **and** the folder is trusted.
+That toggle is **off** by default. First open asks **Deny / Trust once /
+Trust this folder** (not Allow forever). Deny and Trust once last until quit;
+Trust this folder is stored by path in `~/.grokspace`. Forgetting a project
+does not drop trust. Untrusted folders keep setup and project hooks off.
+The command is logged (and named in the skip reason). `$GROKSPACE_WORKTREE` is
 the dest; a `worktree-setup` file also gets dest as `$1`. Timeout is two
 minutes. Fail or timeout skips isolation rather than leaving a silent tree.
-Restart reuses the checkout and does not run the script again. This is not
-folder trust (that is later); the off-by-default toggle is the stand-in.
+Restart reuses the checkout and does not run the script again.
 
 GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
 every extra flag is a way for a session to fail to start, which is the same
@@ -504,7 +507,9 @@ images; agent HTML is never rendered.
 ### Database
 
 State lives in `~/.grokspace/grokspace.db` rather than the platform app-data
-directory, so it is easy to inspect and back up:
+directory, so it is easy to inspect and back up. Folder trust is the
+`trusted_folders` table, keyed by canonical path — forgetting a project does
+not drop it.
 
 ```bash
 sqlite3 ~/.grokspace/grokspace.db '.tables'

@@ -1,7 +1,13 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
+import {
+  PANE_LAYOUTS,
+  type FolderTrust,
+  type FolderTrustDecision,
+  type PaneLayout,
+  type Project,
+} from "../types";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
 
@@ -24,6 +30,7 @@ interface ProjectState {
   isLoading: boolean;
   isOpening: boolean;
   error: string | null;
+  folderTrust: Record<string, FolderTrust>;
 
   loadProjects: () => Promise<void>;
   pickAndOpenProject: () => Promise<Project | null>;
@@ -33,6 +40,8 @@ interface ProjectState {
   removeProject: (id: string) => Promise<void>;
   /** @deprecated Use `removeProject`. Alias for one release. */
   forgetProject: (id: string) => Promise<void>;
+  loadFolderTrust: (id: string) => Promise<void>;
+  setFolderTrust: (id: string, decision: FolderTrustDecision) => Promise<void>;
   clearError: () => void;
 }
 
@@ -42,6 +51,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   isLoading: false,
   isOpening: false,
   error: null,
+  folderTrust: {},
 
   clearError: () => set({ error: null }),
 
@@ -135,8 +145,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         );
       set((state) => {
         const projects = state.projects.filter((project) => project.id !== id);
+        const folderTrust = { ...state.folderTrust };
+        delete folderTrust[id];
         return {
           projects,
+          folderTrust,
           activeProjectId:
             state.activeProjectId === id ? (projects[0]?.id ?? null) : state.activeProjectId,
         };
@@ -147,6 +160,27 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   forgetProject: (id) => get().removeProject(id),
+
+  loadFolderTrust: async (id) => {
+    try {
+      const decision = await api.projectTrust(id);
+      set((state) => ({ folderTrust: { ...state.folderTrust, [id]: decision } }));
+    } catch (error) {
+      set((state) => ({
+        error: errorMessage(error),
+        folderTrust: { ...state.folderTrust, [id]: "unknown" },
+      }));
+    }
+  },
+
+  setFolderTrust: async (id, decision) => {
+    try {
+      const next = await api.setProjectTrust(id, decision);
+      set((state) => ({ folderTrust: { ...state.folderTrust, [id]: next } }));
+    } catch (error) {
+      set({ error: errorMessage(error) });
+    }
+  },
 }));
 
 /**

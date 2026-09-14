@@ -8,6 +8,8 @@ const touchProject = vi.fn();
 const updateProject = vi.fn();
 const removeProject = vi.fn();
 const listSessions = vi.fn();
+const projectTrust = vi.fn();
+const setProjectTrust = vi.fn();
 
 vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: vi.fn() }));
 vi.mock("../lib/api", async () => {
@@ -21,6 +23,8 @@ vi.mock("../lib/api", async () => {
       updateProject,
       removeProject,
       listSessions,
+      projectTrust,
+      setProjectTrust,
     },
   };
 });
@@ -251,6 +255,28 @@ describe("forgetProject", () => {
     expect(useUiStore.getState().paneViews).toEqual({});
     expect(useUiStore.getState().maximizedPane).toBeNull();
     expect(removeProject).toHaveBeenCalledWith("a");
+    expect(setProjectTrust).not.toHaveBeenCalled();
+  });
+});
+
+describe("folder trust", () => {
+  it("loads and records trust without forgetting it on remove", async () => {
+    projectTrust.mockResolvedValue("unknown");
+    setProjectTrust.mockResolvedValue("folder");
+
+    await useProjectStore.getState().loadFolderTrust("p1");
+    await useProjectStore.getState().setFolderTrust("p1", "folder");
+    expect(projectTrust).toHaveBeenCalledWith("p1");
+    expect(setProjectTrust).toHaveBeenCalledWith("p1", "folder");
+    expect(useProjectStore.getState().folderTrust.p1).toBe("folder");
+
+    useProjectStore.setState({
+      projects: [project({ id: "p1" })],
+      activeProjectId: "p1",
+    });
+    removeProject.mockResolvedValue(undefined);
+    await useProjectStore.getState().forgetProject("p1");
+    expect(setProjectTrust).toHaveBeenCalledTimes(1);
   });
 });
 

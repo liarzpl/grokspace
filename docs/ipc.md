@@ -48,7 +48,9 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `open_project` | Register a folder, or refresh it if already known |
 | `update_project` | Rename and/or replace `settings` |
 | `touch_project` | Mark it opened now |
-| `remove_project` | Forget the row. Nothing on disk is deleted |
+| `remove_project` | Forget the row. Nothing on disk is deleted. Folder trust stays |
+| `project_trust` | Folder trust for setup / project hooks: `unknown` / `denied` / `once` / `folder` |
+| `set_project_trust` | Deny, Trust once, or Trust this folder. Only `folder` is persisted by path in `~/.grokspace` |
 
 ### Sessions — `session.rs`
 

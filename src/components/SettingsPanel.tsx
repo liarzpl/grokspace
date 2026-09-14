@@ -106,7 +106,7 @@ export default function SettingsPanel() {
 
           <Choice
             label="Worktree setup"
-            hint="Run .grokspace/worktree-setup after isolating an agent. Off unless you trust that file"
+            hint="Run .grokspace/worktree-setup after isolating an agent. Off by default; also needs Trust this folder"
             options={WORKTREE_SETUP}
             value={settings.runWorktreeSetup}
             onChoose={(value) => void setSetting("runWorktreeSetup", value)}
@@ -123,8 +123,9 @@ export default function SettingsPanel() {
             one. Changing what the workspace opens on takes effect next launch, not now —
             yanking you to another panel mid-thought would be the wrong kind of helpful.
             Dispatch only reorders what is offered; it never picks a target for you.
-            Worktree setup stays off until you turn it on — a clone must not run that
-            script for you. Permission globs: Deny wins; allow-once-similar is never Always.
+            Worktree setup stays off until you turn it on and trust the folder —
+            a clone must not run that script for you. Permission globs: Deny wins;
+            allow-once-similar is never Always.
             Orphan worktrees are a dry-run; dirty trees stay.
           </p>
         </div>

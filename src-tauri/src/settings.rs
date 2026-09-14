@@ -122,7 +122,7 @@ impl DispatchTarget {
 /// Whether to run `<project>/.grokspace/worktree-setup` after isolating an agent.
 ///
 /// Off unless the user turns it on. A setup script is a trust boundary; default-on
-/// would be RCE on clone. FEAT-027 folder trust is the later product.
+/// would be RCE on clone. Folder trust is a second gate: untrusted folders stay off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorktreeSetup {
@@ -163,7 +163,7 @@ pub struct Settings {
     /// on the user's behalf — but it decides which chip is nearest the pointer.
     pub default_dispatch: DispatchTarget,
     /// Run the project's worktree setup script after a fresh `git worktree add`.
-    /// Default off. Until folder trust exists, this toggle is the stand-in.
+    /// Default off. Also requires folder trust (Deny / Trust once / Trust this folder).
     pub run_worktree_setup: WorktreeSetup,
 }
 

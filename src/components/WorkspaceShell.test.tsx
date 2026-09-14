@@ -44,6 +44,8 @@ vi.mock("./PermissionActions", () => ({
 const watchProjectGraphs = vi.fn();
 const watchProjectSteps = vi.fn();
 const readProjectEdges = vi.fn();
+const projectTrust = vi.fn();
+const setProjectTrust = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -53,6 +55,8 @@ vi.mock("../lib/api", async () => {
       watchProjectGraphs,
       watchProjectSteps,
       readProjectEdges,
+      projectTrust,
+      setProjectTrust,
     },
   };
 });
@@ -61,6 +65,7 @@ const { default: WorkspaceShell } = await import("./WorkspaceShell");
 const { useDiffStore } = await import("../stores/diffStore");
 const { useGraphStore } = await import("../stores/graphStore");
 const { useMemoryStore } = await import("../stores/memoryStore");
+const { useProjectStore } = await import("../stores/projectStore");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useStepStore } = await import("../stores/stepStore");
 const { useTaskStore } = await import("../stores/taskStore");
@@ -73,6 +78,7 @@ const initialMemory = useMemoryStore.getState();
 const initialGraph = useGraphStore.getState();
 const initialSteps = useStepStore.getState();
 const initialDiff = useDiffStore.getState();
+const initialProjects = useProjectStore.getState();
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
@@ -84,6 +90,7 @@ describe("WorkspaceShell", () => {
     useGraphStore.setState(initialGraph, true);
     useStepStore.setState(initialSteps, true);
     useDiffStore.setState(initialDiff, true);
+    useProjectStore.setState(initialProjects, true);
     watchProjectGraphs.mockResolvedValue([]);
     watchProjectSteps.mockResolvedValue([]);
     readProjectEdges.mockResolvedValue({
@@ -93,6 +100,8 @@ describe("WorkspaceShell", () => {
       tooLarge: false,
       updatedAt: null,
     });
+    projectTrust.mockResolvedValue("unknown");
+    setProjectTrust.mockResolvedValue("denied");
     vi.spyOn(useSessionStore.getState(), "loadSessions").mockResolvedValue();
     vi.spyOn(useSessionStore.getState(), "inspectMerge").mockResolvedValue();
     vi.spyOn(useTaskStore.getState(), "loadTasks").mockResolvedValue();
@@ -268,6 +277,22 @@ describe("WorkspaceShell", () => {
     expect(useUiStore.getState().tab).toBe("diff");
     expect(await screen.findByTestId("diff-panel")).toBeInTheDocument();
     expect(useDiffStore.getState().loadDiff).toHaveBeenCalledWith("p1", "mer");
+  });
+
+  it("asks Deny / Trust once / Trust this folder, not Allow forever", async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceShell project={project()} />);
+
+    expect(
+      await screen.findByText("Trust this folder for setup scripts and project hooks"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trust once" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Trust this folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /allow forever/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Deny" }));
+    expect(setProjectTrust).toHaveBeenCalledWith("p1", "denied");
   });
 
   it("surfaces a watch failure on the store the shell already reads", async () => {

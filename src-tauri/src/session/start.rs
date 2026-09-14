@@ -447,9 +447,14 @@ pub(crate) fn start<R: Runtime>(
             .clone()
             .or_else(|| request.role.clone())
             .unwrap_or_else(|| request.kind.default_title().to_string());
-        let run_setup = settings::get(&conn)
+        let settings_on = settings::get(&conn)
             .ok()
             .is_some_and(|prefs| prefs.run_worktree_setup == settings::WorktreeSetup::On);
+        let folder_trust = state
+            .folder_trust
+            .lock()
+            .map_err(|_| Error::StatePoisoned)?;
+        let run_setup = settings_on && project::setup_may_run(&conn, &folder_trust, &project.path);
         (
             insert(
                 &conn,
