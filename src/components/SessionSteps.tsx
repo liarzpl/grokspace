@@ -9,6 +9,7 @@ import {
   sessionsWithSteps,
   stepProgress,
 } from "../lib/steps";
+import { sessionStatusPhrase } from "../lib/statusText";
 import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
@@ -73,6 +74,7 @@ function StepRow({
       <button
         type="button"
         title={`${mark.title} · click to cycle`}
+        aria-label={`${mark.title}. Click to cycle`}
         onClick={() => void update(step.id, { status: nextStatus(step.status) })}
         className={`mt-0.5 w-4 shrink-0 text-center font-mono text-[11px] ${mark.tone}`}
       >
@@ -320,6 +322,7 @@ export function SessionStepsRail({
               role="radio"
               aria-checked={session.id === selected?.id}
               onClick={() => onSelect(session.id)}
+              aria-label={`${sessionLabel(session)}, ${sessionStatusPhrase(session.status)}`}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-left text-[11px] transition-colors ${
                 session.id === selected?.id
                   ? "border-accent bg-accent-soft text-ink"
@@ -328,11 +331,9 @@ export function SessionStepsRail({
             >
               <StatusDot status={session.status} />
               <span className="min-w-0 flex-1 truncate">{sessionLabel(session)}</span>
-              {session.kind === "agent" && (
-                <span className="shrink-0 font-mono text-[10px] text-ink-faint">
-                  {session.status}
-                </span>
-              )}
+              <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+                {sessionStatusPhrase(session.status)}
+              </span>
               <StepTally sessionId={session.id} />
             </button>
           ))

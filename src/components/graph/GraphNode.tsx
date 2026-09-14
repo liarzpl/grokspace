@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 
 import type { FlowDirection, GraphNode, GraphNodeType, NodeStatus } from "../../lib/graph";
+import { NODE_STATUS_LABELS } from "../../lib/statusText";
 
 /**
  * A type alias rather than an interface: React Flow requires node data to be
@@ -44,12 +45,12 @@ const TYPE_META: Record<GraphNodeType, { badge: string; accent: string }> = {
 };
 
 export const STATUS_META: Record<NodeStatus, { label: string; border: string; dot: string }> = {
-  pending: { label: "Pending", border: "border-line-strong", dot: "bg-ink-faint" },
-  running: { label: "Running", border: "border-accent animate-node-pulse", dot: "bg-accent" },
-  completed: { label: "Completed", border: "border-success/60", dot: "bg-success" },
-  failed: { label: "Failed", border: "border-danger/70", dot: "bg-danger" },
+  pending: { label: NODE_STATUS_LABELS.pending, border: "border-line-strong", dot: "bg-ink-faint" },
+  running: { label: NODE_STATUS_LABELS.running, border: "border-accent animate-node-pulse", dot: "bg-accent" },
+  completed: { label: NODE_STATUS_LABELS.completed, border: "border-success/60", dot: "bg-success" },
+  failed: { label: NODE_STATUS_LABELS.failed, border: "border-danger/70", dot: "bg-danger" },
   // Quieter border/dot, not a faded card: fading the label failed AA.
-  skipped: { label: "Skipped", border: "border-line", dot: "bg-ink-faint" },
+  skipped: { label: NODE_STATUS_LABELS.skipped, border: "border-line", dot: "bg-ink-faint" },
 };
 
 function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNode>) {
@@ -75,13 +76,14 @@ function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNode>) {
         } ${selected ? "ring-1 ring-accent" : ""}`}
       >
         <div className="flex items-center gap-1.5">
-          <span className={`size-1.5 shrink-0 rounded-full ${status.dot}`} />
+          <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${status.dot}`} />
           <span
             className={`font-mono text-[9px] font-semibold tracking-widest ${type.accent}`}
             title={node.type}
           >
             {type.badge}
           </span>
+          <span className="font-mono text-[9px] text-ink-muted">{status.label}</span>
           <span className="flex-1" />
           {node.data.parallelism !== undefined && (
             <span className="font-mono text-[9px] text-ink-faint" title="Parallelism">

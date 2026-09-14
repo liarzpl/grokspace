@@ -14,6 +14,7 @@ import {
   mountTerminal,
   writeNotice,
 } from "../lib/terminals";
+import { sessionStatusPhrase } from "../lib/statusText";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { useSessionStore } from "../stores/sessionStore";
@@ -79,16 +80,27 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
                 ? "This session has not proposed steps yet"
                 : undefined
           }
+          aria-label={
+            option === "graph"
+              ? hasGraph
+                ? "graph, has graph"
+                : "graph, no graph yet"
+              : option === "steps"
+                ? hasSteps
+                  ? "steps, has steps"
+                  : "steps, no steps yet"
+                : "term"
+          }
           className={`rounded-sm px-1 text-[10px] transition-colors ${
             view === option ? "bg-accent-soft text-ink" : "text-ink-faint hover:text-ink-muted"
           }`}
         >
           {option === "terminal" ? "term" : option === "graph" ? "graph" : "steps"}
           {option === "graph" && hasGraph && (
-            <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
+            <span aria-hidden="true" className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
           )}
           {option === "steps" && hasSteps && (
-            <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
+            <span aria-hidden="true" className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
           )}
         </button>
       ))}
@@ -245,7 +257,9 @@ function TerminalPane({
   return (
     <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-terminal">
       <header className="flex h-7 shrink-0 items-center gap-2 border-b border-line bg-panel px-2">
-        {session ? <StatusDot status={session.status} title={session.status} /> : null}
+        {session ? (
+          <StatusDot status={session.status} title={sessionStatusPhrase(session.status)} />
+        ) : null}
 
         {renaming && session ? (
           <input
@@ -281,6 +295,9 @@ function TerminalPane({
                 role is titled after it, so printing both would read "Reviewer · Reviewer". */}
             {session?.role != null && session.role !== session.title ? (
               <span className="ml-1.5 text-ink-faint">· {session.role}</span>
+            ) : null}
+            {session && running ? (
+              <span className="ml-1.5 text-ink-faint">· running</span>
             ) : null}
             {session && !running ? (
               <span className="ml-1.5 text-ink-faint">
