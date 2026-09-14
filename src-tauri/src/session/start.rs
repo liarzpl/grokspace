@@ -13,7 +13,7 @@ use super::db::{
 use super::worktree_cmds::{close_with, WorktreeTeardown};
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, memory, program, project, steps, task, worktree, AppState};
+use crate::{acp, graph, memory, program, project, settings, steps, task, worktree, AppState};
 
 /// Emitted when a child terminates. Status changes are infrequent, so the event
 /// system is the right fit here; the output stream is not, and uses a channel.
@@ -378,6 +378,7 @@ pub(crate) fn isolate_agent(
     }
     // Fresh trees copy `.grokspace/worktreeinclude` inside `worktree::add`.
     // A missing or refused line is a skip reason, not an isolation skip.
+    // Opt-in setup runs in `start` after this: Restart must not run it again.
     Some(worktree::add(project_path, &session.id))
 }
 
@@ -404,7 +405,7 @@ pub(crate) fn start<R: Runtime>(
         }
     }
 
-    let (session, project_path, remembered) = {
+    let (session, project_path, remembered, run_setup) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
         let project = project::get(&conn, &request.project_id)?;
         // A role makes a better title than the kind does: five agents all called
@@ -414,6 +415,9 @@ pub(crate) fn start<R: Runtime>(
             .clone()
             .or_else(|| request.role.clone())
             .unwrap_or_else(|| request.kind.default_title().to_string());
+        let run_setup = settings::get(&conn)
+            .ok()
+            .is_some_and(|prefs| prefs.run_worktree_setup == settings::WorktreeSetup::On);
         (
             insert(
                 &conn,
@@ -425,11 +429,27 @@ pub(crate) fn start<R: Runtime>(
             )?,
             project.path,
             memory::list(&conn, &request.project_id)?,
+            run_setup,
         )
     };
 
     let project_path = PathBuf::from(project_path);
-    let isolation = isolate_agent(&request, &session, &project_path);
+    let reused = request
+        .reuse_worktree
+        .as_ref()
+        .is_some_and(|path| worktree::is_checkout(path));
+    let isolation = isolate_agent(&request, &session, &project_path).map(|outcome| {
+        if reused {
+            outcome
+        } else {
+            worktree::apply_setup_to_isolation(
+                &project_path,
+                outcome,
+                run_setup,
+                worktree::SETUP_TIMEOUT,
+            )
+        }
+    });
     if let Some(worktree::Isolation::Skipped(skip)) = &isolation {
         if !request.allow_unisolated {
             // Fail-closed: do not write on the project tree unless the caller

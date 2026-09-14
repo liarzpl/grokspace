@@ -119,6 +119,33 @@ impl DispatchTarget {
     }
 }
 
+/// Whether to run `<project>/.grokspace/worktree-setup` after isolating an agent.
+///
+/// Off unless the user turns it on. A setup script is a trust boundary; default-on
+/// would be RCE on clone. FEAT-027 folder trust is the later product.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeSetup {
+    Off,
+    On,
+}
+
+impl WorktreeSetup {
+    pub const DEFAULT: Self = Self::Off;
+    pub const ALL: [Self; 2] = [Self::Off, Self::On];
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|item| item.as_str() == value)
+    }
+}
+
 /// Every preference, with the defaults filled in.
 ///
 /// Values are validated on the way out as well as in: a missing key is the default,
@@ -135,6 +162,9 @@ pub struct Settings {
     /// or a paneless agent. Only the ordering of the offer changes — nothing is chosen
     /// on the user's behalf — but it decides which chip is nearest the pointer.
     pub default_dispatch: DispatchTarget,
+    /// Run the project's worktree setup script after a fresh `git worktree add`.
+    /// Default off. Until folder trust exists, this toggle is the stand-in.
+    pub run_worktree_setup: WorktreeSetup,
 }
 
 impl Settings {
@@ -157,6 +187,12 @@ impl Settings {
                 DispatchTarget::from_str,
                 DispatchTarget::DEFAULT,
                 "defaultDispatch",
+            )?,
+            run_worktree_setup: stored_or_default(
+                rows.get("runWorktreeSetup"),
+                WorktreeSetup::from_str,
+                WorktreeSetup::DEFAULT,
+                "runWorktreeSetup",
             )?,
         })
     }
@@ -203,6 +239,7 @@ pub fn put(conn: &Connection, key: &str, value: &str) -> Result<Settings> {
         "defaultLayout" => PaneLayout::from_str(value).is_some(),
         "openingTab" => WorkspaceTab::from_str(value).is_some(),
         "defaultDispatch" => DispatchTarget::from_str(value).is_some(),
+        "runWorktreeSetup" => WorktreeSetup::from_str(value).is_some(),
         _ => return Err(Error::Invalid(format!("`{key}` is not a setting"))),
     };
     if !known {
@@ -248,6 +285,7 @@ mod tests {
         assert_eq!(settings.default_layout, PaneLayout::DEFAULT);
         assert_eq!(settings.opening_tab, WorkspaceTab::DEFAULT);
         assert_eq!(settings.default_dispatch, DispatchTarget::DEFAULT);
+        assert_eq!(settings.run_worktree_setup, WorktreeSetup::Off);
     }
 
     #[test]
@@ -259,6 +297,7 @@ mod tests {
         assert_eq!(after.opening_tab, WorkspaceTab::Tasks);
         assert_eq!(after.default_layout, PaneLayout::DEFAULT);
         assert_eq!(after.default_dispatch, DispatchTarget::DEFAULT);
+        assert_eq!(after.run_worktree_setup, WorktreeSetup::Off);
     }
 
     #[test]
@@ -293,6 +332,10 @@ mod tests {
             put(&conn, "openingTab", "nonesuch"),
             Err(Error::Invalid(_))
         ));
+        assert!(matches!(
+            put(&conn, "runWorktreeSetup", "always"),
+            Err(Error::Invalid(_))
+        ));
     }
 
     #[test]
@@ -305,6 +348,18 @@ mod tests {
 
         assert_eq!(after.opening_tab, WorkspaceTab::Diff);
         assert_eq!(get(&conn).unwrap().opening_tab, WorkspaceTab::Diff);
+    }
+
+    #[test]
+    fn worktree_setup_is_off_until_written_on() {
+        let conn = conn();
+
+        let after = put(&conn, "runWorktreeSetup", "on").unwrap();
+
+        assert_eq!(after.run_worktree_setup, WorktreeSetup::On);
+        assert_eq!(get(&conn).unwrap().run_worktree_setup, WorktreeSetup::On);
+        let off = put(&conn, "runWorktreeSetup", "off").unwrap();
+        assert_eq!(off.run_worktree_setup, WorktreeSetup::Off);
     }
 
     #[test]

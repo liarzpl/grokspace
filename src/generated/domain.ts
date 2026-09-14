@@ -12,6 +12,9 @@ export const DEFAULT_TAB = "terminals" as const;
 export const DISPATCH_TARGETS = ["pane", "agent"] as const;
 export const DEFAULT_DISPATCH = "pane" as const;
 
+export const WORKTREE_SETUP = ["off", "on"] as const;
+export const DEFAULT_WORKTREE_SETUP = "off" as const;
+
 export const SESSION_STATUSES = ["idle", "running", "needs_input", "stopped"] as const;
 export const SESSION_KINDS = ["grok", "shell", "agent"] as const;
 export const TASK_STATUSES = ["backlog", "in_progress", "review", "done"] as const;

@@ -5,7 +5,7 @@
 
 use crate::memory::MemoryEntryType;
 use crate::session::{SessionKind, SessionStatus};
-use crate::settings::{DispatchTarget, PaneLayout, WorkspaceTab};
+use crate::settings::{DispatchTarget, PaneLayout, WorkspaceTab, WorktreeSetup};
 use crate::steps::{StepOrigin, StepStatus, StepsPhase};
 use crate::task::TaskStatus;
 
@@ -49,6 +49,15 @@ pub fn typescript_bindings() -> String {
     out.push_str(&emit_default(
         "DEFAULT_DISPATCH",
         DispatchTarget::DEFAULT.as_str(),
+    ));
+    out.push('\n');
+    out.push_str(&emit_list(
+        "WORKTREE_SETUP",
+        &WorktreeSetup::ALL.map(WorktreeSetup::as_str),
+    ));
+    out.push_str(&emit_default(
+        "DEFAULT_WORKTREE_SETUP",
+        WorktreeSetup::DEFAULT.as_str(),
     ));
     out.push('\n');
     out.push_str(&emit_list(

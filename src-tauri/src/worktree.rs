@@ -22,11 +22,18 @@
 //! copied by default — not `.env`. Restart reuses a checkout and does not
 //! copy again.
 //!
+//! An optional `<project>/.grokspace/worktree-setup` (or `setup` in
+//! `worktrees.json`) runs only when Settings `runWorktreeSetup` is on.
+//! Default off: a script is a trust boundary. Fail or timeout is an isolation
+//! skip, not a silent half-prepared tree. The command is part of the reason.
+//! Restart does not run it again.
+//!
 //! No Tauri, no database: tests drive real git against temporary repositories.
-
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::error::{Error, Result};
 use crate::program;
@@ -209,6 +216,238 @@ pub fn add(project_path: &Path, session_id: &str) -> Isolation {
     }
     let _ = apply_include(project_path, &dest);
     Isolation::Isolated(dest)
+}
+
+/// How long a worktree setup script may run before isolation skips.
+pub const SETUP_TIMEOUT: Duration = Duration::from_secs(120);
+
+const SETUP_LOG: &str = "worktree-setup";
+
+/// Outcome of an optional worktree setup script.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Setup {
+    /// Toggle off, or no `.grokspace/worktree-setup` / `worktrees.json` `setup`.
+    Skipped,
+    Ran {
+        command: String,
+        output: String,
+    },
+    Failed {
+        command: String,
+        reason: String,
+        output: String,
+    },
+}
+
+pub(crate) fn setup_file(project_path: &Path) -> PathBuf {
+    project_path.join(".grokspace").join("worktree-setup")
+}
+
+fn setup_json_file(project_path: &Path) -> PathBuf {
+    project_path.join(".grokspace").join("worktrees.json")
+}
+
+fn shell() -> String {
+    program::find("sh").unwrap_or_else(|| "/bin/sh".into())
+}
+
+fn display_rel(project_path: &Path, path: &Path) -> String {
+    path.strip_prefix(project_path)
+        .map(|relative| relative.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
+/// After a successful add: run setup if enabled. On failure, force-remove
+/// `dest` so start cannot keep a half-prepared tree, and return a skip whose
+/// reason names the command.
+pub fn apply_setup_to_isolation(
+    project_path: &Path,
+    isolation: Isolation,
+    enabled: bool,
+    timeout: Duration,
+) -> Isolation {
+    let Isolation::Isolated(dest) = isolation else {
+        return isolation;
+    };
+    match run_setup(project_path, &dest, enabled, timeout) {
+        Setup::Skipped | Setup::Ran { .. } => Isolation::Isolated(dest),
+        Setup::Failed {
+            command, reason, ..
+        } => {
+            let _ = remove(project_path, &dest, true);
+            add_failed(format!("{reason} ({command})"))
+        }
+    }
+}
+
+/// Runs the project's worktree setup in `dest`.
+///
+/// Off, or no script, is a no-op. `$GROKSPACE_WORKTREE` is the dest; a
+/// `worktree-setup` file also gets dest as `$1`. Output is logged line by
+/// line. The command string is kept on success and on failure.
+pub(crate) fn run_setup(
+    project_path: &Path,
+    dest: &Path,
+    enabled: bool,
+    timeout: Duration,
+) -> Setup {
+    if !enabled {
+        return Setup::Skipped;
+    }
+    match prepare_setup(project_path, dest) {
+        None => Setup::Skipped,
+        Some(Err(failed)) => failed,
+        Some(Ok((mut cmd, command))) => {
+            cmd.current_dir(dest)
+                .env("GROKSPACE_WORKTREE", dest)
+                .stdin(Stdio::null());
+            execute(cmd, command, timeout)
+        }
+    }
+}
+
+fn prepare_setup(
+    project_path: &Path,
+    dest: &Path,
+) -> Option<std::result::Result<(Command, String), Setup>> {
+    let script = setup_file(project_path);
+    if script.is_file() {
+        let command = format!(
+            "sh {} {}",
+            display_rel(project_path, &script),
+            dest.display()
+        );
+        let mut cmd = Command::new(shell());
+        cmd.arg(&script).arg(dest);
+        return Some(Ok((cmd, command)));
+    }
+
+    let json_path = setup_json_file(project_path);
+    if !json_path.is_file() {
+        return None;
+    }
+    parse_setup_json(project_path, &json_path)
+}
+
+fn parse_setup_json(
+    project_path: &Path,
+    json_path: &Path,
+) -> Option<std::result::Result<(Command, String), Setup>> {
+    let shown = display_rel(project_path, json_path);
+    let failed = |reason: String| {
+        Some(Err(Setup::Failed {
+            command: shown.clone(),
+            reason,
+            output: String::new(),
+        }))
+    };
+    let text = fs::read_to_string(json_path)
+        .map_err(|error| format!("could not read worktrees.json: {error}"));
+    let text = match text {
+        Ok(text) => text,
+        Err(reason) => return failed(reason),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
+        Err(error) => return failed(format!("could not parse worktrees.json: {error}")),
+    };
+    match value.get("setup") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(script)) => {
+            let script = script.trim();
+            if script.is_empty() {
+                return failed("worktrees.json setup is empty".into());
+            }
+            let command = format!("sh -c {script:?}");
+            let mut cmd = Command::new(shell());
+            cmd.arg("-c").arg(script);
+            Some(Ok((cmd, command)))
+        }
+        Some(_) => failed("worktrees.json setup must be a string".into()),
+    }
+}
+
+fn execute(mut cmd: Command, command: String, timeout: Duration) -> Setup {
+    crate::log::write("info", SETUP_LOG, &format!("running {command}"));
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            return Setup::Failed {
+                command,
+                reason: format!("worktree setup could not start: {error}"),
+                output: String::new(),
+            };
+        }
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    if let Some(stdout) = child.stdout.take() {
+        let tx = tx.clone();
+        std::thread::spawn(move || stream_lines(stdout, tx));
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let tx = tx.clone();
+        std::thread::spawn(move || stream_lines(stderr, tx));
+    }
+    drop(tx);
+
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if started.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(error) => {
+                return Setup::Failed {
+                    command,
+                    reason: format!("worktree setup failed: {error}"),
+                    output: collect_lines(&rx),
+                };
+            }
+        }
+    };
+
+    let output = collect_lines(&rx);
+    match status {
+        Err(()) => Setup::Failed {
+            command,
+            reason: format!("worktree setup timed out after {timeout:?}"),
+            output,
+        },
+        Ok(status) if status.success() => Setup::Ran { command, output },
+        Ok(status) => {
+            let code = status
+                .code()
+                .map(|code| format!("exit {code}"))
+                .unwrap_or_else(|| "killed".into());
+            Setup::Failed {
+                command,
+                reason: format!("worktree setup failed: {code}"),
+                output,
+            }
+        }
+    }
+}
+
+fn collect_lines(rx: &std::sync::mpsc::Receiver<String>) -> String {
+    rx.iter().collect::<Vec<_>>().join("\n")
+}
+
+fn stream_lines(pipe: impl std::io::Read, tx: std::sync::mpsc::Sender<String>) {
+    let reader = BufReader::new(pipe);
+    for line in reader.lines() {
+        let Ok(line) = line else { break };
+        crate::log::write("info", SETUP_LOG, &line);
+        if tx.send(line).is_err() {
+            break;
+        }
+    }
 }
 
 /// `<project>/.grokspace/worktreeinclude` — one relative path per line.
@@ -1202,5 +1441,123 @@ mod tests {
             Some("nothing to merge")
         );
         assert!(tree.exists(), "inspect must leave the worktree");
+    }
+
+    fn write_setup_script(dir: &Path, body: &str) {
+        fs::create_dir_all(dir.join(".grokspace")).unwrap();
+        fs::write(setup_file(dir), body).unwrap();
+    }
+
+    #[test]
+    fn worktree_setup_writes_env_and_dest() {
+        let dir = repo();
+        write_setup_script(
+            dir.path(),
+            "#!/bin/sh\nprintf '%s\\n' \"$GROKSPACE_WORKTREE\" > env\nprintf '%s\\n' \"$1\" > arg\necho setup-hello\n",
+        );
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        match run_setup(dir.path(), &tree, true, SETUP_TIMEOUT) {
+            Setup::Ran { command, output } => {
+                assert!(command.contains("worktree-setup"), "{command}");
+                let dest = tree.to_str().expect("utf-8 dest");
+                assert!(command.contains(dest), "dest must be visible: {command}");
+                assert!(output.contains("setup-hello"), "{output}");
+            }
+            other => panic!("expected Ran, got {other:?}"),
+        }
+        let dest = tree.to_str().expect("utf-8 dest");
+        assert_eq!(fs::read_to_string(tree.join("env")).unwrap().trim(), dest);
+        assert_eq!(fs::read_to_string(tree.join("arg")).unwrap().trim(), dest);
+        assert!(is_checkout(&tree));
+    }
+
+    #[test]
+    fn worktree_setup_json_passes_worktree_env() {
+        let dir = repo();
+        fs::create_dir_all(dir.path().join(".grokspace")).unwrap();
+        fs::write(
+            dir.path().join(".grokspace").join("worktrees.json"),
+            r#"{"setup":"printf '%s' \"$GROKSPACE_WORKTREE\" > from-json"}"#,
+        )
+        .unwrap();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert!(
+            matches!(
+                run_setup(dir.path(), &tree, true, SETUP_TIMEOUT),
+                Setup::Ran { .. }
+            ),
+            "json setup should run"
+        );
+        assert_eq!(
+            fs::read_to_string(tree.join("from-json")).unwrap().trim(),
+            tree.to_str().expect("utf-8 dest")
+        );
+    }
+
+    #[test]
+    fn worktree_setup_off_does_not_run() {
+        let dir = repo();
+        write_setup_script(
+            dir.path(),
+            "#!/bin/sh\nprintf ran > \"$(dirname \"$0\")/ran\"\n",
+        );
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        assert_eq!(
+            run_setup(dir.path(), &tree, false, SETUP_TIMEOUT),
+            Setup::Skipped
+        );
+        assert!(!dir.path().join(".grokspace").join("ran").exists());
+        assert!(is_checkout(&tree));
+    }
+
+    #[test]
+    fn worktree_setup_timeout_is_an_isolation_skip() {
+        let dir = repo();
+        write_setup_script(dir.path(), "#!/bin/sh\nsleep 10\n");
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let outcome = apply_setup_to_isolation(
+            dir.path(),
+            Isolation::Isolated(tree.clone()),
+            true,
+            std::time::Duration::from_millis(300),
+        );
+        match outcome {
+            Isolation::Skipped(IsolationSkip::Failed(reason)) => {
+                assert!(reason.contains("timed out"), "{reason}");
+                assert!(
+                    reason.contains("worktree-setup"),
+                    "command must be visible: {reason}"
+                );
+            }
+            other => panic!("expected skip, got {other:?}"),
+        }
+        assert!(
+            !tree.exists(),
+            "a failed setup must not leave a silent tree"
+        );
+    }
+
+    #[test]
+    fn worktree_setup_nonzero_exit_is_an_isolation_skip() {
+        let dir = repo();
+        write_setup_script(dir.path(), "#!/bin/sh\necho boom\nexit 7\n");
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let outcome = apply_setup_to_isolation(
+            dir.path(),
+            Isolation::Isolated(tree.clone()),
+            true,
+            SETUP_TIMEOUT,
+        );
+        match outcome {
+            Isolation::Skipped(IsolationSkip::Failed(reason)) => {
+                assert!(reason.contains("exit 7"), "{reason}");
+                assert!(
+                    reason.contains("worktree-setup"),
+                    "command must be visible: {reason}"
+                );
+            }
+            other => panic!("expected skip, got {other:?}"),
+        }
+        assert!(!tree.exists());
     }
 }

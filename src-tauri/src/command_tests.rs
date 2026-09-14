@@ -306,6 +306,47 @@ fn create_session_spawn_failure_removes_the_worktree() {
 }
 
 #[test]
+fn create_session_refuses_when_worktree_setup_fails() {
+    let app = CommandApp::with_git_repo();
+    let grokspace = app.project_path.join(".grokspace");
+    std::fs::create_dir_all(&grokspace).unwrap();
+    std::fs::write(
+        grokspace.join("worktree-setup"),
+        "#!/bin/sh\necho boom\nexit 7\n",
+    )
+    .unwrap();
+    {
+        let state = app.state();
+        let conn = state.db.lock().expect("db");
+        crate::settings::put(&conn, "runWorktreeSetup", "on").unwrap();
+    }
+    let _override = OverrideLaunch::missing();
+
+    let error = app
+        .create(new_session(&app.project_id, "agent", None))
+        .expect_err("a failed setup is an isolation skip");
+
+    let text = error.to_string();
+    assert!(
+        text.contains("isolation did not happen"),
+        "fail-closed, not spawn: {text}"
+    );
+    assert!(text.contains("worktree setup"), "{text}");
+    assert!(
+        text.contains("worktree-setup"),
+        "the command must be visible: {text}"
+    );
+    assert!(
+        listed(&app).is_empty(),
+        "a refused start must delete the row"
+    );
+    assert!(
+        worktree_dirs(&app.project_path).is_empty(),
+        "a failed setup must not leave a silent tree"
+    );
+}
+
+#[test]
 fn watch_project_graphs_emits_graph_changed() {
     let app = CommandApp::new();
     let session = session::insert(

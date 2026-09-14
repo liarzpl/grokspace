@@ -16,6 +16,7 @@ const settings = (overrides: Partial<Settings> = {}): Settings => ({
   defaultLayout: "2x2",
   openingTab: "terminals",
   defaultDispatch: "pane",
+  runWorktreeSetup: "off",
   ...overrides,
 });
 
@@ -29,6 +30,7 @@ beforeEach(() => {
 describe("settings", () => {
   it("start at the defaults, so nothing has to guard the moment before they load", () => {
     expect(useSettingsStore.getState().settings).toEqual(settings());
+    expect(useSettingsStore.getState().settings.runWorktreeSetup).toBe("off");
   });
 
   it("take what the backend reports", async () => {
@@ -68,6 +70,15 @@ describe("settings", () => {
 
     expect(writeSetting).toHaveBeenCalledWith("openingTab", "diff");
     expect(useSettingsStore.getState().settings.openingTab).toBe("diff");
+  });
+
+  it("writes worktree setup on only when asked, and starts off", async () => {
+    writeSetting.mockResolvedValue(settings({ runWorktreeSetup: "on" }));
+
+    await useSettingsStore.getState().setSetting("runWorktreeSetup", "on");
+
+    expect(writeSetting).toHaveBeenCalledWith("runWorktreeSetup", "on");
+    expect(useSettingsStore.getState().settings.runWorktreeSetup).toBe("on");
   });
 
   it("report a refused write and change nothing", async () => {
