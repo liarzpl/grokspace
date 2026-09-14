@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Project, Session } from "../types";
+import type { PaneLayout, Project, Session } from "../types";
 
 // The real terminal registry pulls in xterm, which a list of dispatch targets has no
 // business dragging into its tests.
@@ -15,7 +15,7 @@ const { dispatchTargets, paneOf, sessionCanTakeWork, targetKey, targetLabel } =
   await import("./dispatch");
 const { useSettingsStore } = await import("../stores/settingsStore");
 
-function project(layout = "2x2"): Project {
+function project(layout: PaneLayout = "2x2"): Project {
   return {
     id: "p1",
     name: "acme",

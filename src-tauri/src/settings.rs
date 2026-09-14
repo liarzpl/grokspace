@@ -19,7 +19,11 @@ use crate::error::{Error, Result};
 use crate::AppState;
 
 const DEFAULT_LAYOUT: &str = "2x2";
-const LAYOUTS: [&str; 4] = ["1x1", "2x1", "2x2", "3x2"];
+pub(crate) const LAYOUTS: [&str; 4] = ["1x1", "2x1", "2x2", "3x2"];
+
+pub(crate) fn is_pane_layout(value: &str) -> bool {
+    LAYOUTS.contains(&value)
+}
 
 const DEFAULT_TAB: &str = "terminals";
 const TABS: [&str; 5] = ["terminals", "graph", "tasks", "memory", "diff"];
