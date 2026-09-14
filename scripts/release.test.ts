@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -117,6 +117,30 @@ describe("release-version.sh", () => {
 
     expect(ran.status, ran.stderr).toBe(0);
     expect(ran.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+});
+
+describe("sync-version.sh", () => {
+  it("writes Cargo.toml and tauri.conf.json from package.json", () => {
+    const dir = checkout({ config: "0.1.0", package: "2.3.4", cargo: "0.1.0" });
+    const ran = run("sync-version.sh", [], { RELEASE_ROOT: dir });
+
+    expect(ran.status, ran.stderr).toBe(0);
+    expect(ran.stdout.trim()).toBe("2.3.4");
+
+    const check = run("release-version.sh", [], { RELEASE_ROOT: dir });
+    expect(check.status, check.stderr).toBe(0);
+    expect(check.stdout.trim()).toBe("2.3.4");
+  });
+
+  it("does not rewrite a dependency version in Cargo.toml", () => {
+    const dir = checkout({ config: "0.1.0", package: "9.9.9", cargo: "0.1.0" });
+    const ran = run("sync-version.sh", [], { RELEASE_ROOT: dir });
+
+    expect(ran.status, ran.stderr).toBe(0);
+    const cargo = readFileSync(join(dir, "src-tauri", "Cargo.toml"), "utf8");
+    expect(cargo).toContain('version = "9.9.9"');
+    expect(cargo).toContain('tauri-build = { version = "2", features = [] }');
   });
 });
 

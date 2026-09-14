@@ -29,6 +29,7 @@ use rusqlite::Connection;
 use tauri::{Manager, RunEvent};
 
 use crate::acp::AcpManager;
+use crate::error::{Error, Result};
 use crate::graph::GraphWatchers;
 use crate::pty::PtyManager;
 use crate::steps::StepWatchers;
@@ -42,6 +43,14 @@ pub struct AppState {
     pub acp: AcpManager,
     pub graphs: GraphWatchers,
     pub steps: StepWatchers,
+}
+
+impl AppState {
+    /// Runs `run` with the database lock held. Poison becomes `StatePoisoned`.
+    pub fn with_db<T>(&self, run: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let conn = self.db.lock().map_err(|_| Error::StatePoisoned)?;
+        run(&conn)
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -128,4 +137,37 @@ pub fn run() {
             state.steps.shutdown();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> AppState {
+        AppState {
+            db: Mutex::new(db::open_in_memory().expect("in-memory database should open")),
+            pty: PtyManager::new(),
+            acp: AcpManager::new(),
+            graphs: GraphWatchers::new(),
+            steps: StepWatchers::new(),
+        }
+    }
+
+    #[test]
+    fn with_db_runs_the_closure_against_the_locked_connection() {
+        let state = state();
+        let n: i64 = state
+            .with_db(|conn| Ok(conn.query_row("SELECT 1", [], |row| row.get(0))?))
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn with_db_maps_a_closure_error() {
+        let state = state();
+        let err = state
+            .with_db::<()>(|_| Err(Error::Invalid("nope".into())))
+            .unwrap_err();
+        assert!(err.to_string().contains("nope"));
+    }
 }

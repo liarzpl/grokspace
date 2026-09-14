@@ -27,10 +27,9 @@ pub use store::{
 #[allow(unused_imports)]
 pub use watch::StepWatchers;
 
-use rusqlite::Connection;
 use tauri::{AppHandle, Runtime, State};
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::skill::{Skill, SkillFile, SkillStatus};
 use crate::AppState;
 
@@ -42,17 +41,9 @@ const SKILL: Skill = Skill {
     }],
 };
 
-fn with_db<T>(
-    state: &State<'_, AppState>,
-    run: impl FnOnce(&Connection) -> Result<T>,
-) -> Result<T> {
-    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    run(&conn)
-}
-
 #[tauri::command]
 pub fn list_session_steps(state: State<'_, AppState>, session_id: String) -> Result<SessionSteps> {
-    with_db(&state, |conn| snapshot(conn, &session_id))
+    state.with_db(|conn| snapshot(conn, &session_id))
 }
 
 #[tauri::command]
@@ -61,7 +52,7 @@ pub fn add_session_step(
     session_id: String,
     title: String,
 ) -> Result<SessionSteps> {
-    with_db(&state, |conn| add(conn, &session_id, &title))
+    state.with_db(|conn| add(conn, &session_id, &title))
 }
 
 #[tauri::command]
@@ -71,12 +62,12 @@ pub fn update_session_step(
     title: Option<String>,
     status: Option<StepStatus>,
 ) -> Result<SessionSteps> {
-    with_db(&state, |conn| update(conn, &id, title.as_deref(), status))
+    state.with_db(|conn| update(conn, &id, title.as_deref(), status))
 }
 
 #[tauri::command]
 pub fn remove_session_step(state: State<'_, AppState>, id: String) -> Result<SessionSteps> {
-    with_db(&state, |conn| remove(conn, &id))
+    state.with_db(|conn| remove(conn, &id))
 }
 
 #[tauri::command]
@@ -85,7 +76,7 @@ pub fn reorder_session_steps(
     session_id: String,
     ids: Vec<String>,
 ) -> Result<SessionSteps> {
-    with_db(&state, |conn| reorder(conn, &session_id, &ids))
+    state.with_db(|conn| reorder(conn, &session_id, &ids))
 }
 
 #[tauri::command]
@@ -93,7 +84,7 @@ pub fn approve_session_steps(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<SessionSteps> {
-    with_db(&state, |conn| approve(conn, &session_id))
+    state.with_db(|conn| approve(conn, &session_id))
 }
 
 #[tauri::command]
@@ -101,7 +92,7 @@ pub fn reopen_session_steps(
     state: State<'_, AppState>,
     session_id: String,
 ) -> Result<SessionSteps> {
-    with_db(&state, |conn| reopen(conn, &session_id))
+    state.with_db(|conn| reopen(conn, &session_id))
 }
 
 #[tauri::command]

@@ -263,17 +263,9 @@ fn project_to_disk(entries: &[MemoryEntry], project_path: Option<&str>) {
     }
 }
 
-fn with_db<T>(
-    state: &State<'_, AppState>,
-    run: impl FnOnce(&Connection) -> Result<T>,
-) -> Result<T> {
-    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    run(&conn)
-}
-
 #[tauri::command]
 pub fn list_memory(state: State<'_, AppState>, project_id: String) -> Result<Vec<MemoryEntry>> {
-    with_db(&state, |conn| list(conn, &project_id))
+    state.with_db(|conn| list(conn, &project_id))
 }
 
 /// Writes an entry and returns the whole memory, since the projection is rebuilt
@@ -286,7 +278,7 @@ pub fn put_memory(
     content: String,
     entry_type: MemoryEntryType,
 ) -> Result<Vec<MemoryEntry>> {
-    let (entries, path) = with_db(&state, |conn| {
+    let (entries, path) = state.with_db(|conn| {
         put(conn, &project_id, &key, &content, entry_type)?;
         memory_and_path(conn, &project_id)
     })?;
@@ -300,7 +292,7 @@ pub fn remove_memory(
     project_id: String,
     key: String,
 ) -> Result<Vec<MemoryEntry>> {
-    let (entries, path) = with_db(&state, |conn| {
+    let (entries, path) = state.with_db(|conn| {
         remove(conn, &project_id, &key)?;
         memory_and_path(conn, &project_id)
     })?;
@@ -321,7 +313,7 @@ pub fn install_memory_skill() -> Result<SkillStatus> {
 /// The path the panel names, so someone can look at what agents are being given.
 #[tauri::command]
 pub fn memory_file_path(state: State<'_, AppState>, project_id: String) -> Result<String> {
-    with_db(&state, |conn| {
+    state.with_db(|conn| {
         let project = project::get(conn, &project_id)?;
         Ok(memory_file(Path::new(&project.path))
             .to_string_lossy()

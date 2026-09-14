@@ -125,8 +125,9 @@ gh secret list --repo liarzpl/grokspace
 
 ### 2. Version sync
 
-Three files carry the version; the `version` job refuses the build if they disagree.
-They are currently all `0.1.0`.
+`package.json` is the source of the version. `scripts/sync-version.sh` writes
+`Cargo.toml` and `tauri.conf.json` from it. The `version` job still refuses the
+build if they disagree. They are currently all `0.1.0`.
 
 ```bash
 ./scripts/release-version.sh          # prints the agreed version, or the disagreement
@@ -178,14 +179,16 @@ publishing it.
 
 ## Releasing
 
-Three files carry the version and none is derived from the others, so all three move
-together. The `version` job refuses the build if they disagree, which is the point of
-it: `tauri.conf.json` names the app and the DMG, `Cargo.toml` is what the binary
-reports, and `package.json` is what `npm version` would bump.
+`package.json` is the source. `scripts/sync-version.sh` writes the other two.
+The `version` job still refuses the build if they disagree: `tauri.conf.json`
+names the app and the DMG, `Cargo.toml` is what the binary reports, and
+`package.json` is what `npm version` bumps.
 
 ```bash
-# 1. Bump all three to the same value.
-$EDITOR src-tauri/tauri.conf.json src-tauri/Cargo.toml package.json
+# 1. Bump package.json, then derive the other two.
+npm version 0.2.0 --no-git-tag-version
+./scripts/sync-version.sh
+./scripts/release-version.sh v0.2.0
 
 # 2. Commit it, and tag what you committed.
 git commit -am "Release 0.2.0"

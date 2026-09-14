@@ -19,8 +19,8 @@ set -euo pipefail
 root="${RELEASE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 tag="${1:-}"
 
-# Three files, none derived from the others: tauri.conf.json names the app and the DMG,
-# Cargo.toml is what the binary reports, package.json is what `npm version` bumps.
+# Three files. package.json is the source; sync-version.sh writes the other two.
+# This script only checks they still agree.
 config="$(jq -er .version "$root/src-tauri/tauri.conf.json")"
 package="$(jq -er .version "$root/package.json")"
 # The anchor matters. Without it this would also match `tauri-build = { version = "2" }`.

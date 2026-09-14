@@ -191,22 +191,14 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn with_db<T>(
-    state: &State<'_, AppState>,
-    run: impl FnOnce(&Connection) -> Result<T>,
-) -> Result<T> {
-    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    run(&conn)
-}
-
 #[tauri::command]
 pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>> {
-    with_db(&state, list)
+    state.with_db(list)
 }
 
 #[tauri::command]
 pub fn open_project(state: State<'_, AppState>, path: String) -> Result<Project> {
-    with_db(&state, |conn| open_folder(conn, &path))
+    state.with_db(|conn| open_folder(conn, &path))
 }
 
 #[tauri::command]
@@ -216,14 +208,12 @@ pub fn update_project(
     name: Option<String>,
     settings: Option<ProjectSettings>,
 ) -> Result<Project> {
-    with_db(&state, |conn| {
-        update(conn, &id, name.as_deref(), settings.as_ref())
-    })
+    state.with_db(|conn| update(conn, &id, name.as_deref(), settings.as_ref()))
 }
 
 #[tauri::command]
 pub fn touch_project(state: State<'_, AppState>, id: String) -> Result<Project> {
-    with_db(&state, |conn| touch(conn, &id))
+    state.with_db(|conn| touch(conn, &id))
 }
 
 #[tauri::command]

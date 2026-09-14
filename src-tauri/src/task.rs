@@ -298,17 +298,9 @@ pub fn remove(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn with_db<T>(
-    state: &State<'_, AppState>,
-    run: impl FnOnce(&Connection) -> Result<T>,
-) -> Result<T> {
-    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    run(&conn)
-}
-
 #[tauri::command]
 pub fn list_tasks(state: State<'_, AppState>, project_id: String) -> Result<Vec<Task>> {
-    with_db(&state, |conn| list(conn, &project_id))
+    state.with_db(|conn| list(conn, &project_id))
 }
 
 #[tauri::command]
@@ -318,9 +310,7 @@ pub fn create_task(
     title: String,
     description: Option<String>,
 ) -> Result<Task> {
-    with_db(&state, |conn| {
-        insert(conn, &project_id, &title, description.as_deref())
-    })
+    state.with_db(|conn| insert(conn, &project_id, &title, description.as_deref()))
 }
 
 #[tauri::command]
@@ -332,7 +322,7 @@ pub fn update_task(
     status: Option<TaskStatus>,
     priority: Option<i64>,
 ) -> Result<Task> {
-    with_db(&state, |conn| {
+    state.with_db(|conn| {
         update(
             conn,
             &id,
@@ -346,17 +336,17 @@ pub fn update_task(
 
 #[tauri::command]
 pub fn dispatch_task(state: State<'_, AppState>, id: String, session_id: String) -> Result<Task> {
-    with_db(&state, |conn| dispatch(conn, &id, &session_id))
+    state.with_db(|conn| dispatch(conn, &id, &session_id))
 }
 
 #[tauri::command]
 pub fn undispatch_task(state: State<'_, AppState>, id: String) -> Result<Task> {
-    with_db(&state, |conn| undispatch(conn, &id))
+    state.with_db(|conn| undispatch(conn, &id))
 }
 
 #[tauri::command]
 pub fn remove_task(state: State<'_, AppState>, id: String) -> Result<()> {
-    with_db(&state, |conn| remove(conn, &id))
+    state.with_db(|conn| remove(conn, &id))
 }
 
 #[cfg(test)]
