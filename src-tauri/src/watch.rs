@@ -23,7 +23,11 @@ pub fn session_id_for(path: &Path, watched: &[PathBuf]) -> Option<String> {
         return None;
     }
     let stem = path.file_stem()?.to_str()?;
-    (!stem.is_empty()).then(|| stem.to_string())
+    // Host sidecar `<id>.permissions.json` sits next to the agent graph.
+    if stem.is_empty() || stem.ends_with(".permissions") {
+        return None;
+    }
+    Some(stem.to_string())
 }
 
 /// Watches `dirs` non-recursively for session JSON appearing, changing, or going
@@ -78,6 +82,10 @@ mod tests {
         assert_eq!(
             session_id_for(Path::new("/w/graphs/s1.json"), &watched).as_deref(),
             Some("s1")
+        );
+        assert_eq!(
+            session_id_for(Path::new("/w/graphs/s1.permissions.json"), &watched),
+            None
         );
         assert_eq!(
             session_id_for(Path::new("/w/graphs/s1.json.tmp"), &watched),

@@ -153,6 +153,19 @@ export interface PermissionLedgerEntry {
   optionId: string | null;
 }
 
+/** Host sidecar next to the agent graph. Not `$GROKSPACE_GRAPH_FILE`. */
+export interface PermissionHeatAsk {
+  requestId: number;
+  summary: string;
+  chip: string;
+  stepId?: string | null;
+}
+
+export interface PermissionHeatSnapshot {
+  path: string;
+  asks: PermissionHeatAsk[];
+}
+
 export interface Session {
   id: string;
   projectId: string;

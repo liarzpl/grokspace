@@ -27,7 +27,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::error::{Error, Result};
-use crate::AppState;
+use crate::{project, AppState};
 
 #[tauri::command]
 pub fn list_sessions(state: State<'_, AppState>, project_id: String) -> Result<Vec<Session>> {
@@ -130,14 +130,14 @@ pub fn answer_session_permission(
     allow: bool,
     option_id: Option<String>,
 ) -> Result<()> {
-    let snapshot = ledger_snapshot(&state, &id, request_id);
+    let snapshot = answer_snapshot(&state, &id, request_id);
     state
         .acp
         .answer_permission(&id, request_id, allow, option_id.as_deref())?;
     if let Ok(conn) = state.db.lock() {
         let _ = clear_permission(&conn, &id, request_id);
     }
-    if let Some((project_id, summary)) = snapshot {
+    if let Some((project_id, summary, project_path, step_id)) = snapshot {
         crate::ledger::record_answer(
             &project_id,
             &id,
@@ -146,16 +146,32 @@ pub fn answer_session_permission(
             allow,
             option_id.as_deref(),
         );
+        crate::permission_heat::record_answer(
+            &project_path,
+            &id,
+            request_id,
+            &summary,
+            allow,
+            option_id.as_deref(),
+            step_id.as_deref(),
+        );
     }
     Ok(())
 }
 
-fn ledger_snapshot(state: &AppState, id: &str, request_id: u64) -> Option<(String, String)> {
+fn answer_snapshot(
+    state: &AppState,
+    id: &str,
+    request_id: u64,
+) -> Option<(String, String, PathBuf, Option<String>)> {
     let conn = state.db.lock().ok()?;
     let session = get(&conn, id).ok()?;
+    let path = project::get(&conn, &session.project_id).ok()?.path;
     Some((
         session.project_id,
         db::permission_summary(&conn, id, request_id),
+        PathBuf::from(path),
+        crate::permission_heat::doing_step_id(&conn, id),
     ))
 }
 

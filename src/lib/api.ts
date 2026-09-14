@@ -11,6 +11,7 @@ import type {
   MemoryEntry,
   MemoryEntryType,
   MergeOutcome,
+  PermissionHeatSnapshot,
   PermissionLedgerEntry,
   PermissionPolicy,
   PermissionPolicyRule,
@@ -377,6 +378,10 @@ export const api = {
    */
   watchProjectGraphs: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_graphs", { projectId }),
+
+  /** Host sidecar `<id>.permissions.json`. Empty asks when missing. Not the agent graph. */
+  readSessionPermissionHeat: (sessionId: string): Promise<PermissionHeatSnapshot> =>
+    invoke<PermissionHeatSnapshot>("read_session_permission_heat", { sessionId }),
 
   /** Project `.grokspace/edges.json`, whether or not it exists. */
   readProjectEdges: (projectId: string): Promise<EdgesSnapshot> =>

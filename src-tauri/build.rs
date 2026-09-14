@@ -59,6 +59,7 @@ const APP_COMMANDS: &[&str] = &[
     "read_session_graph",
     "list_session_graphs",
     "watch_project_graphs",
+    "read_session_permission_heat",
     "read_project_edges",
     "list_session_steps",
     "list_project_steps",

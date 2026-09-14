@@ -148,6 +148,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `read_session_graph` | The file for one session, whether or not it exists |
 | `list_session_graphs` | Every session's graph in one project, including missing files |
 | `watch_project_graphs` | Watch that project's graph dir; asking twice is harmless |
+| `read_session_permission_heat` | Host sidecar `<session-id>.permissions.json` next to the graph (`requestId`, `summary`, `chip`, optional `stepId`). Missing file is empty `asks`. Never the agent graph |
 | `graph_skill_status` | Whether `~/.grok/skills/grokspace-graph` is current |
 | `install_graph_skill` | Install or refresh that skill |
 
