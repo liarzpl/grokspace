@@ -256,6 +256,33 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_kind_is_an_error_rather_than_grok() {
+        // `kind` has no CHECK — 0002 could not add one to the live table — so a
+        // hand-edited row is the path that used to collapse to Grok.
+        let (conn, project_id) = fixture();
+        let session = insert(
+            &conn,
+            &project_id,
+            Some("1"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE sessions SET kind = 'wizard' WHERE id = ?1",
+            [&session.id],
+        )
+        .unwrap();
+
+        let error = get(&conn, &session.id).unwrap_err();
+        assert!(
+            error.to_string().contains("unknown session kind `wizard`"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn a_new_session_starts_running_in_its_pane() {
         let (conn, project_id) = fixture();
 

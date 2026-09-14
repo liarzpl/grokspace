@@ -33,11 +33,11 @@ impl SessionStatus {
         }
     }
 
-    fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::Stopped)
+            .ok_or_else(|| Error::Invalid(format!("unknown session status `{value}`")))
     }
 }
 
@@ -67,11 +67,11 @@ impl SessionKind {
         }
     }
 
-    fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::Grok)
+            .ok_or_else(|| Error::Invalid(format!("unknown session kind `{value}`")))
     }
 
     pub(crate) fn default_title(self) -> &'static str {
@@ -125,12 +125,12 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         project_id: row.get("project_id")?,
         pane_id: row.get("pane_id")?,
         process_id: process_id.and_then(|pid| u32::try_from(pid).ok()),
-        status: SessionStatus::parse(&status),
+        status: SessionStatus::parse(&status).map_err(Error::into_sql)?,
         title: row.get("title")?,
         role: row.get("role")?,
         worktree_path: row.get("worktree_path")?,
         isolation_skip: row.get("isolation_skip")?,
-        kind: SessionKind::parse(&kind),
+        kind: SessionKind::parse(&kind).map_err(Error::into_sql)?,
         exit_code: row.get("exit_code")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,

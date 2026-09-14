@@ -6,7 +6,8 @@
 //! each is cheap.
 //!
 //! A missing key reads as its default rather than as an error, so a database from an
-//! older build needs no backfill and a hand-deleted row heals itself.
+//! older build needs no backfill and a hand-deleted row heals itself. A value this
+//! build does not know is an error rather than a silent remap.
 
 use std::collections::HashMap;
 
@@ -120,8 +121,8 @@ impl DispatchTarget {
 
 /// Every preference, with the defaults filled in.
 ///
-/// Values are validated on the way out as well as in: a row edited by hand should
-/// give the app a working default rather than a layout it cannot draw.
+/// Values are validated on the way out as well as in: a missing key is the default,
+/// and a value this build does not know is an error rather than a layout we invent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
@@ -137,31 +138,45 @@ pub struct Settings {
 }
 
 impl Settings {
-    fn from_rows(rows: &HashMap<String, String>) -> Self {
-        Self {
-            default_layout: one_of(
+    fn from_rows(rows: &HashMap<String, String>) -> Result<Self> {
+        Ok(Self {
+            default_layout: stored_or_default(
                 rows.get("defaultLayout"),
                 PaneLayout::from_str,
                 PaneLayout::DEFAULT,
-            ),
-            opening_tab: one_of(
+                "defaultLayout",
+            )?,
+            opening_tab: stored_or_default(
                 rows.get("openingTab"),
                 WorkspaceTab::from_str,
                 WorkspaceTab::DEFAULT,
-            ),
-            default_dispatch: one_of(
+                "openingTab",
+            )?,
+            default_dispatch: stored_or_default(
                 rows.get("defaultDispatch"),
                 DispatchTarget::from_str,
                 DispatchTarget::DEFAULT,
-            ),
-        }
+                "defaultDispatch",
+            )?,
+        })
     }
 }
 
-/// The stored value when it is one of the ones this build knows, and the default
-/// otherwise.
-fn one_of<T>(stored: Option<&String>, parse: fn(&str) -> Option<T>, fallback: T) -> T {
-    stored.and_then(|value| parse(value)).unwrap_or(fallback)
+/// A missing key is the default. A value this build does not know is an error.
+fn stored_or_default<T>(
+    stored: Option<&String>,
+    parse: fn(&str) -> Option<T>,
+    fallback: T,
+    key: &str,
+) -> Result<T> {
+    match stored {
+        None => Ok(fallback),
+        Some(value) => parse(value).ok_or_else(|| {
+            Error::Invalid(format!(
+                "`{value}` is not one of the values `{key}` can take"
+            ))
+        }),
+    }
 }
 
 fn rows(conn: &Connection) -> Result<HashMap<String, String>> {
@@ -175,7 +190,7 @@ fn rows(conn: &Connection) -> Result<HashMap<String, String>> {
 }
 
 pub fn get(conn: &Connection) -> Result<Settings> {
-    Ok(Settings::from_rows(&rows(conn)?))
+    Settings::from_rows(&rows(conn)?)
 }
 
 /// Writes one preference and returns them all.
@@ -293,9 +308,8 @@ mod tests {
     }
 
     #[test]
-    fn a_value_edited_by_hand_reads_as_the_default() {
-        // Validated on the way out as well as in, so a hand-edited row gives the app
-        // a layout it can draw rather than one it cannot.
+    fn a_value_edited_by_hand_is_an_error() {
+        // Remapping `9x9` to `2x2` would look exactly like the setting not working.
         let conn = conn();
         conn.execute(
             "INSERT INTO app_settings (key, value, updated_at) VALUES ('defaultLayout', '9x9', 0)",
@@ -303,6 +317,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(get(&conn).unwrap().default_layout, PaneLayout::DEFAULT);
+        assert!(matches!(get(&conn), Err(Error::Invalid(_))));
     }
 }

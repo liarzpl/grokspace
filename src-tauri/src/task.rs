@@ -46,14 +46,13 @@ impl TaskStatus {
         }
     }
 
-    /// Anything unrecognised reads as `backlog`: the column values are constrained
-    /// by the schema, so a surprise here means a hand-edited database, and the
-    /// leftmost column is where a task is easiest to notice and put right.
-    fn parse(value: &str) -> Self {
+    /// The column values are constrained by the schema, so a surprise here means
+    /// a hand-edited database. Remapping it to `backlog` would hide the typo.
+    pub(crate) fn parse(value: &str) -> Result<Self> {
         Self::ALL
             .into_iter()
             .find(|item| item.as_str() == value)
-            .unwrap_or(Self::Backlog)
+            .ok_or_else(|| Error::Invalid(format!("unknown task status `{value}`")))
     }
 }
 
@@ -85,7 +84,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Task> {
         project_id: row.get("project_id")?,
         title: row.get("title")?,
         description: row.get("description")?,
-        status: TaskStatus::parse(&status),
+        status: TaskStatus::parse(&status).map_err(Error::into_sql)?,
         assigned_session_id: row.get("assigned_session_id")?,
         priority: row.get("priority")?,
         created_at: row.get("created_at")?,

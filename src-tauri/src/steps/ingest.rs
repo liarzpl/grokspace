@@ -59,7 +59,7 @@ pub(crate) fn parse_steps_json(input: &str) -> Vec<ParsedStep> {
             let status = record
                 .get("status")
                 .and_then(Value::as_str)
-                .map(StepStatus::parse)
+                .and_then(|value| StepStatus::parse(value).ok())
                 .unwrap_or(StepStatus::Pending);
             Some(ParsedStep {
                 id,
