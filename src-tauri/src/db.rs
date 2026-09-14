@@ -24,10 +24,33 @@ pub fn data_dir() -> Result<PathBuf> {
 }
 
 /// Opens (and creates, if needed) the workspace database in `~/.grokspace`.
+///
+/// On Unix the directory is `0o700` and the database file is `0o600`, including
+/// when they already existed with a looser umask (SEC-006).
 pub fn open_default() -> Result<Connection> {
-    let dir = data_dir()?;
-    std::fs::create_dir_all(&dir)?;
-    open_at(&dir.join("grokspace.db"))
+    open_in_dir(&data_dir()?)
+}
+
+fn open_in_dir(dir: &Path) -> Result<Connection> {
+    std::fs::create_dir_all(dir)?;
+    restrict_unix_mode(dir, 0o700)?;
+    let path = dir.join("grokspace.db");
+    let conn = open_at(&path)?;
+    restrict_unix_mode(&path, 0o600)?;
+    Ok(conn)
+}
+
+fn restrict_unix_mode(path: &Path, mode: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+    }
+    Ok(())
 }
 
 pub fn open_at(path: &Path) -> Result<Connection> {
@@ -132,6 +155,63 @@ mod tests {
         // failing on `CREATE TABLE projects` already existing.
         let second = open_at(&path).expect("reopening should succeed");
         assert_eq!(user_version(&second), MIGRATIONS.len() as i64);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_dir_and_database_use_restrictive_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("temp dir should be created");
+        let workspace = tmp.path().join(".grokspace");
+
+        let _conn = open_in_dir(&workspace).expect("workspace database should open");
+
+        let dir_mode = std::fs::metadata(&workspace)
+            .expect("workspace dir should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+        let db_mode = std::fs::metadata(workspace.join("grokspace.db"))
+            .expect("database file should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(dir_mode, 0o700, "workspace dir must be owner-only");
+        assert_eq!(db_mode, 0o600, "database file must be owner-only");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_in_dir_tightens_existing_permissive_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("temp dir should be created");
+        let workspace = tmp.path().join(".grokspace");
+        std::fs::create_dir_all(&workspace).expect("workspace dir should be created");
+        std::fs::set_permissions(&workspace, std::fs::Permissions::from_mode(0o755))
+            .expect("permissive dir mode should apply");
+        let db_path = workspace.join("grokspace.db");
+        std::fs::write(&db_path, []).expect("database file should be created");
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o644))
+            .expect("permissive file mode should apply");
+
+        let _conn = open_in_dir(&workspace).expect("reopen should succeed");
+
+        let dir_mode = std::fs::metadata(&workspace)
+            .expect("workspace dir should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+        let db_mode = std::fs::metadata(&db_path)
+            .expect("database file should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(dir_mode, 0o700, "existing workspace dir must be tightened");
+        assert_eq!(db_mode, 0o600, "existing database file must be tightened");
     }
 
     #[test]
