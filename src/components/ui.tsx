@@ -1,6 +1,11 @@
 import type { SessionStatus } from "../types";
+import { moveSegmented } from "../lib/segmented";
 import { statusDotClass } from "../lib/statusTone";
 import { choiceOptionClass, QUIET_BUTTON_CLASS, textButtonClass } from "../lib/ui";
+
+function choiceId(label: string, option: string): string {
+  return `settings-${label.toLowerCase().replace(/\s+/g, "-")}-${option}`;
+}
 
 export function StatusDot({
   status,
@@ -81,11 +86,22 @@ export function Choice<T extends string>({
         <h3 className="text-[12px] font-medium text-ink">{label}</h3>
         <span className="text-[10px] text-ink-faint">{hint}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-0.5 self-start rounded-md border border-line p-0.5">
+      <div
+        role="radiogroup"
+        aria-label={label}
+        onKeyDown={(event) =>
+          moveSegmented(event, options, value, onChoose, (option) => choiceId(label, option))
+        }
+        className="flex flex-wrap items-center gap-0.5 self-start rounded-md border border-line p-0.5"
+      >
         {options.map((option) => (
           <button
             key={option}
+            id={choiceId(label, option)}
             type="button"
+            role="radio"
+            aria-checked={option === value}
+            tabIndex={option === value ? 0 : -1}
             onClick={() => onChoose(option)}
             className={choiceOptionClass(option === value)}
           >

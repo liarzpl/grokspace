@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { MAX_MEMORY_CHARS } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
+import { moveSegmented } from "../lib/segmented";
 import { entriesOfType, MEMORY_TYPES, memorySize, useMemoryStore } from "../stores/memoryStore";
 import type { MemoryEntry, MemoryEntryType, Project } from "../types";
 import { SkillHint } from "./SkillHint";
@@ -100,11 +101,28 @@ function NewEntryForm({ projectId }: { projectId: string }) {
           placeholder="key, for example database"
           className={`${field} w-56 font-mono`}
         />
-        <div className="flex items-center gap-0.5 rounded-md border border-line p-0.5">
+        <div
+          role="radiogroup"
+          aria-label="Memory type"
+          onKeyDown={(event) =>
+            moveSegmented(
+              event,
+              MEMORY_TYPES.map((item) => item.type),
+              type,
+              setType,
+              (candidate) => `memory-type-${candidate}`,
+            )
+          }
+          className="flex items-center gap-0.5 rounded-md border border-line p-0.5"
+        >
           {MEMORY_TYPES.map(({ type: candidate, label }) => (
             <button
               key={candidate}
+              id={`memory-type-${candidate}`}
               type="button"
+              role="radio"
+              aria-checked={candidate === type}
+              tabIndex={candidate === type ? 0 : -1}
               onClick={() => setType(candidate)}
               className={`rounded-sm px-2 py-0.5 text-[11px] transition-colors ${
                 candidate === type

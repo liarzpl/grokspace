@@ -552,6 +552,7 @@ function SwarmLauncher({ project }: { project: Project }) {
         <button
           key={role.name}
           type="button"
+          aria-pressed={chosen.includes(role.name)}
           onClick={() => toggle(role.name)}
           title={running.has(role.name) ? `${role.name} is already running` : role.summary}
           className={`rounded-md border px-2 py-0.5 text-[11px] transition-colors ${

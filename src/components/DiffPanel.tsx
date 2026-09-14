@@ -304,8 +304,11 @@ function ScopeChips({
   return (
     <>
       <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-3 py-1.5">
+        <div role="radiogroup" aria-label="Diff scope" className="flex items-center gap-1">
         <button
           type="button"
+          role="radio"
+          aria-checked={scope === null}
           onClick={() => onSelect(null)}
           className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
             scope === null
@@ -319,6 +322,8 @@ function ScopeChips({
           <button
             key={session.id}
             type="button"
+            role="radio"
+            aria-checked={scope === session.id}
             onClick={() => onSelect(session.id)}
             className={`shrink-0 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
               scope === session.id
@@ -329,6 +334,7 @@ function ScopeChips({
             {sessionLabel(session)}
           </button>
         ))}
+        </div>
         {unisolated.map((session) => (
           <span
             key={session.id}
