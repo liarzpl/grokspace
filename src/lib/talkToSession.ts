@@ -13,6 +13,39 @@ import type { Session } from "../types";
 /** A baton prompt names a slice of the source transcript, never the whole log. */
 export const BATON_EXCERPT_BYTES = 2 * 1024;
 
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Host brief after Continue this job. Restart-shaped start already reused the
+ * tree and minted a new id; this is what the new ACP mind is told. Graph path
+ * and step titles, never the full transcript. One line: a newline submits.
+ */
+export function handoffPrompt(input: {
+  graphPath: string;
+  stepTitles: readonly string[];
+  excerpt: string;
+}): string {
+  const parts = [
+    "Continue this job on the same worktree. This is a new conversation, not a resumed grok thread.",
+    "Read $GROKSPACE_MEMORY_FILE.",
+    `The previous graph is at ${oneLine(input.graphPath)} (read-only; do not write it).`,
+    "Your own graph is $GROKSPACE_GRAPH_FILE.",
+  ];
+  if (input.stepTitles.length > 0) {
+    const titles = input.stepTitles
+      .map((title, index) => `${index + 1}. ${oneLine(title)}`)
+      .join(" ");
+    parts.push(`Steps: ${titles}.`);
+  }
+  const excerpt = oneLine(input.excerpt);
+  if (excerpt !== "") {
+    parts.push(`Excerpt: ${excerpt}`);
+  }
+  return parts.join(" ");
+}
+
 /**
  * The tail of a transcript, flattened to one line and capped at 2 KiB.
  * A newline would submit in a TUI; the cap is bytes on the wire, not UTF-16.

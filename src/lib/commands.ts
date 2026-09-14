@@ -366,6 +366,29 @@ export function commands(project: Project | null): Command[] {
             .restartSession(session.id, FALLBACK_PTY_SIZE.cols, FALLBACK_PTY_SIZE.rows);
         },
       });
+      list.push({
+        id: `continue-job-${session.id}`,
+        label: `Continue this job: ${title}`,
+        group: "Session",
+        run: () => {
+          useUiStore.getState().closePalette();
+          void (async () => {
+            const next = await useSessionStore
+              .getState()
+              .continueJob(
+                session.id,
+                FALLBACK_PTY_SIZE.cols,
+                FALLBACK_PTY_SIZE.rows,
+                project.path,
+              );
+            if (next === null && useSessionStore.getState().error === null) {
+              useSessionStore.setState({
+                error: "Could not continue this job.",
+              });
+            }
+          })();
+        },
+      });
       if (session.worktreePath !== null) {
         list.push({
           id: `merge-agent-${session.id}`,

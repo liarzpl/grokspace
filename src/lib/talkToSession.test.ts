@@ -13,7 +13,8 @@ vi.mock("./api", async () => {
   };
 });
 
-const { talkToSession, transcriptExcerpt, BATON_EXCERPT_BYTES } = await import("./talkToSession");
+const { talkToSession, transcriptExcerpt, handoffPrompt, BATON_EXCERPT_BYTES } =
+  await import("./talkToSession");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -80,5 +81,38 @@ describe("transcriptExcerpt", () => {
     expect(excerpt).not.toBe(unique);
     expect(excerpt).not.toContain("HEAD-");
     expect(excerpt.endsWith("-TAIL")).toBe(true);
+  });
+});
+
+describe("handoffPrompt", () => {
+  const graph = "/p/.grokspace/graphs/old.json";
+
+  it("names memory, the previous graph as read-only, steps, and a capped excerpt", () => {
+    const prompt = handoffPrompt({
+      graphPath: graph,
+      stepTitles: ["Ship the gate"],
+      excerpt: "recent-tail",
+    });
+
+    expect(prompt).not.toContain("\n");
+    expect(prompt).toContain("new conversation");
+    expect(prompt).not.toContain("--resume");
+    expect(prompt).toContain("$GROKSPACE_MEMORY_FILE");
+    expect(prompt).toContain(graph);
+    expect(prompt).toContain("read-only");
+    expect(prompt).toContain("$GROKSPACE_GRAPH_FILE");
+    expect(prompt).toContain("1. Ship the gate");
+    expect(prompt).toContain("recent-tail");
+  });
+
+  it("includes proposed step titles and omits an empty excerpt", () => {
+    const prompt = handoffPrompt({
+      graphPath: graph,
+      stepTitles: ["Read it"],
+      excerpt: "",
+    });
+
+    expect(prompt).toContain("1. Read it");
+    expect(prompt).not.toContain("Excerpt:");
   });
 });

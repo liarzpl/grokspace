@@ -201,6 +201,7 @@ describe("the command list", () => {
     expect(shown).toContain("Cancel Reviewer");
     expect(shown).toContain("Stop Reviewer");
     expect(shown).toContain("Close Reviewer");
+    expect(shown).not.toContain("Continue this job: Reviewer");
     expect(shown).toContain("Export pack for Reviewer");
     expect(shown).toContain("Export pack for Grok");
     expect(shown).not.toContain("Stop Grok");
@@ -251,6 +252,7 @@ describe("the command list", () => {
     const shown = labels(project());
 
     expect(shown).toContain("Restart Reviewer");
+    expect(shown).toContain("Continue this job: Reviewer");
     expect(shown).toContain("Merge Reviewer");
     expect(shown).toContain("Discard worktree for Reviewer");
     expect(shown).toContain("Close Reviewer");
@@ -286,6 +288,8 @@ describe("the command list", () => {
     expect(shown).not.toContain("Merge Scout");
     expect(shown).toContain("Stop Coder");
     expect(shown).toContain("Restart Scout");
+    expect(shown).not.toContain("Continue this job: Coder");
+    expect(shown).toContain("Continue this job: Scout");
   });
 
   it("does not offer another project's agent while this one is open", () => {
@@ -571,6 +575,48 @@ describe("running a command", () => {
     await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
     expect(useSessionStore.getState().error).toBeNull();
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
+  });
+
+  it("continues a stopped agent from the palette without --resume", async () => {
+    const tree = "/tmp/acme/.grokspace/worktrees/agent-1";
+    useUiStore.setState({
+      isPaletteOpen: true,
+      transcript: { "agent-1": [{ kind: "message", text: "overnight-tail" }] },
+    });
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          title: "Coder",
+          role: "Coder",
+          status: "stopped",
+          worktreePath: tree,
+        }),
+      ],
+    });
+    restartSession.mockResolvedValue(
+      session({
+        id: "fresh",
+        paneId: null,
+        kind: "agent",
+        title: "Coder",
+        role: "Coder",
+        status: "idle",
+        worktreePath: tree,
+      }),
+    );
+    promptSession.mockResolvedValue(undefined);
+
+    commands(project()).find((command) => command.id === "continue-job-agent-1")?.run();
+    await vi.waitFor(() =>
+      expect(promptSession).toHaveBeenCalledWith("fresh", expect.stringContaining("overnight-tail")),
+    );
+
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
+    expect(restartSession).toHaveBeenCalledWith("agent-1", 80, 24);
+    expect(promptSession.mock.calls[0]?.[1]).not.toContain("--resume");
   });
 
   it("hands a live Planner to Coder from the palette", async () => {

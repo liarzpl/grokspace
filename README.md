@@ -93,8 +93,11 @@ replays the last 20). Nothing is uploaded.
   named rather than losing the rest. Palette **Hand to Coder** / **Hand to Reviewer**
   starts that role (or prompts an idle one) with the source graph path (read-only),
   approved step titles, and a ≤2 KiB transcript excerpt; the source is left idle.
+  Palette **Continue this job** is Restart-shaped (new GrokSpace id, same
+  worktree, new ACP handshake, never `--resume`) with a host brief from the
+  previous graph path, step titles, and that same excerpt cap.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
-  launches, Hand to Coder/Reviewer, Export pack for a session, project switches, skill installs, Merge for a stopped isolated
+  launches, Hand to Coder/Reviewer, Continue this job for a stopped agent, Export pack for a session, project switches, skill installs, Merge for a stopped isolated
   agent, Allow first wait, and Jump to first Needs you from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
   and can refresh that list; there is no remote catalog. "Install or refresh
@@ -486,7 +489,10 @@ commits leftover files on the session branch (a dirty tree cannot be merged
 otherwise) and `git merge`s that branch into the project. Uncommitted files on
 the project block the merge; `.grokspace/` does not, because that folder is
 GrokSpace's own. Conflicts abort. Restart mints a new session id but
-reuses the directory, so uncommitted files survive. Forgetting a project
+reuses the directory, so uncommitted files survive. Palette **Continue this
+job** is the same start (new id, same tree, no `--resume`) plus a host brief
+from the previous graph path, step titles, and a ≤2 KiB transcript excerpt.
+Forgetting a project
 force-removes every leftover tree so git is not left with registered worktrees
 for a folder the sidebar no longer knows. Settings can dry-run leftover trees
 under `.grokspace/worktrees/` that have no session row, with sizes. Removing
