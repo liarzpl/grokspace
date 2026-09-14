@@ -828,7 +828,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn listing_a_project_does_not_attach_another_projects_permissions() {
         let (conn, project_id) = fixture();
         let other = project::upsert_by_path(&conn, "/tmp/other-perms", "other-perms").unwrap();
