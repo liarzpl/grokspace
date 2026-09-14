@@ -117,6 +117,7 @@ const initialUiState = useUiStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessionMergeReadiness.mockResolvedValue(null);
   useSessionStore.getState().cancelUnisolatedStart();
   useSessionStore.setState(initialState, true);
   useGraphStore.setState(initialGraphState, true);
@@ -964,6 +965,29 @@ describe("discardWorktree", () => {
 });
 
 describe("mergeWorktree", () => {
+  it("writes a readiness refusal onto the strip and does not invoke merge", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          status: "stopped",
+          worktreePath: "/tmp/tree",
+        }),
+      ],
+    });
+    sessionMergeReadiness.mockResolvedValue("nothing to merge");
+
+    await useSessionStore.getState().mergeWorktree("agent-1");
+
+    expect(sessionMergeReadiness).toHaveBeenCalledWith("agent-1");
+    expect(mergeSessionWorktree).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBe("/tmp/tree");
+    expect(useSessionStore.getState().mergeReasons["agent-1"]).toBe("nothing to merge");
+    expect(useSessionStore.getState().error).toBeNull();
+  });
+
   it("clears the path once the branch has landed on the project", async () => {
     useSessionStore.setState({
       sessions: [

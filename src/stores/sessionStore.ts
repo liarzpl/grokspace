@@ -279,6 +279,8 @@ interface SessionState {
   /**
    * Commits leftover files on a stopped agent's branch and merges that branch
    * into the project. The tree is then removed, same as a successful Discard.
+   * A non-null readiness reason is written onto the merge strip and merge is
+   * not invoked — palette and Diff share this path.
    */
   mergeWorktree: (id: string) => Promise<void>;
   /**
@@ -628,6 +630,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   mergeWorktree: async (id) => {
     try {
+      const reason = await api.sessionMergeReadiness(id);
+      if (reason != null) {
+        bumpInspect(id);
+        set((state) => ({
+          mergeReasons: { ...state.mergeReasons, [id]: reason },
+        }));
+        return;
+      }
       const { session, teardownError } = await api.mergeSessionWorktree(id);
       bumpInspect(id);
       set((state) => {

@@ -76,8 +76,8 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   one agent per chosen role, each briefed for its job; a role that will not start is
   named rather than losing the rest.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
-  launches, project switches, and skill installs from one place, and it opens over a
-  focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
+  launches, project switches, skill installs, and Merge for a stopped isolated
+  agent from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
   and can refresh that list; there is no remote catalog. "Install or refresh
   GrokSpace skills" writes graph, memory, and steps in that order; the Graph

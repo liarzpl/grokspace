@@ -15,6 +15,8 @@ const stopSession = vi.fn();
 const closeSession = vi.fn();
 const restartSession = vi.fn();
 const discardSessionWorktree = vi.fn();
+const mergeSessionWorktree = vi.fn();
+const sessionMergeReadiness = vi.fn();
 const approveSessionSteps = vi.fn();
 const reopenSessionSteps = vi.fn();
 const writeSession = vi.fn();
@@ -36,6 +38,8 @@ vi.mock("../lib/api", async () => {
       closeSession,
       restartSession,
       discardSessionWorktree,
+      mergeSessionWorktree,
+      sessionMergeReadiness,
       approveSessionSteps,
       reopenSessionSteps,
       writeSession,
@@ -177,10 +181,41 @@ describe("the command list", () => {
     const shown = labels(project());
 
     expect(shown).toContain("Restart Reviewer");
+    expect(shown).toContain("Merge Reviewer");
     expect(shown).toContain("Discard worktree for Reviewer");
     expect(shown).toContain("Close Reviewer");
     expect(shown).not.toContain("Stop Reviewer");
     expect(shown).not.toContain("Cancel Reviewer");
+  });
+
+  it("does not offer Merge unless the agent is stopped and still has a worktree", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "live",
+          paneId: null,
+          kind: "agent",
+          title: "Coder",
+          status: "running",
+          worktreePath: "/tmp/acme/.grokspace/worktrees/live",
+        }),
+        session({
+          id: "done",
+          paneId: null,
+          kind: "agent",
+          title: "Scout",
+          status: "stopped",
+          worktreePath: null,
+        }),
+      ],
+    });
+
+    const shown = labels(project());
+
+    expect(shown).not.toContain("Merge Coder");
+    expect(shown).not.toContain("Merge Scout");
+    expect(shown).toContain("Stop Coder");
+    expect(shown).toContain("Restart Scout");
   });
 
   it("does not offer another project's agent while this one is open", () => {
@@ -480,6 +515,64 @@ describe("running a command", () => {
     );
     expect(useSkillStore.getState().byId.memory.status?.current).toBe(true);
     expect(useSkillStore.getState().byId.steps.status?.current).toBe(true);
+  });
+
+  it("does not invoke merge when readiness already names a refusal", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          title: "Reviewer",
+          status: "stopped",
+          worktreePath: "/tmp/acme/.grokspace/worktrees/agent-1",
+        }),
+      ],
+    });
+    sessionMergeReadiness.mockResolvedValue("commit or stash the project first");
+
+    commands(project()).find((command) => command.id === "merge-agent-agent-1")?.run();
+    await vi.waitFor(() =>
+      expect(useSessionStore.getState().mergeReasons["agent-1"]).toBe(
+        "commit or stash the project first",
+      ),
+    );
+
+    expect(sessionMergeReadiness).toHaveBeenCalledWith("agent-1");
+    expect(mergeSessionWorktree).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().error).toBeNull();
+  });
+
+  it("merges a stopped worktree when readiness is null", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          title: "Reviewer",
+          status: "stopped",
+          worktreePath: "/tmp/acme/.grokspace/worktrees/agent-1",
+        }),
+      ],
+    });
+    sessionMergeReadiness.mockResolvedValue(null);
+    mergeSessionWorktree.mockResolvedValue({
+      session: session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        title: "Reviewer",
+        status: "stopped",
+        worktreePath: null,
+      }),
+    });
+
+    commands(project()).find((command) => command.id === "merge-agent-agent-1")?.run();
+    await vi.waitFor(() => expect(mergeSessionWorktree).toHaveBeenCalledWith("agent-1"));
+
+    expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
   });
 
   it("refreshes the skill list without installing", async () => {
