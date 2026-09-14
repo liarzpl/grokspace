@@ -20,8 +20,8 @@ import { firstSkillError, useSkillStore } from "./stores/skillStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
+import { listenBackendEvents } from "./lib/events";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
-import { type AgentUpdateKind, type PermissionRequest, type SessionStatus } from "./types";
 
 const dockAttention = createDockTracker();
 
@@ -35,44 +35,6 @@ function dockNative(): DockNative {
       void current.requestUserAttention(UserAttentionType.Informational);
     },
   };
-}
-
-interface SessionExited {
-  id: string;
-  exitCode: number | null;
-}
-
-/** The backend also reports `path` and `removed`; the re-read covers both. */
-interface GraphChanged {
-  sessionId: string;
-}
-
-interface StepsChanged {
-  sessionId: string;
-}
-
-interface TasksChanged {
-  projectId: string;
-}
-
-interface SessionStatusChanged {
-  id: string;
-  status: SessionStatus;
-}
-
-interface PermissionAsked extends PermissionRequest {
-  id: string;
-}
-
-interface SessionUpdated {
-  id: string;
-  kind: AgentUpdateKind;
-  text: string;
-}
-
-interface IsolationFailed {
-  id: string;
-  reason: string;
 }
 
 export default function App() {
@@ -173,127 +135,24 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Terminal output streams over a channel; exits are infrequent enough to
-    // belong on the event system.
-    const unlisten = listen<SessionExited>("session-exited", (event) => {
-      useSessionStore.getState().markExited(event.payload.id, event.payload.exitCode);
-      dockAttention.note(
-        event.payload.id,
-        "stopped",
-        useSessionStore.getState().sessions,
-        dockNative(),
-      );
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    // Only agents report these: a terminal cannot say what the process inside it
-    // is doing. The backend has already written the status to the database, so this
-    // is the live path rather than the only one.
-    const unlisten = listen<SessionStatusChanged>("session-status", (event) => {
-      const current = useSessionStore
-        .getState()
-        .sessions.find((session) => session.id === event.payload.id);
-      // Closed or already-stopped ids: a late ACP status must not revive them
-      // or bounce the dock for a process that has gone.
-      if (current === undefined || current.status === "stopped") return;
-      useSessionStore.getState().markStatus(event.payload.id, event.payload.status);
-      dockAttention.note(
-        event.payload.id,
-        event.payload.status,
-        useSessionStore.getState().sessions,
-        dockNative(),
-      );
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    // An agent blocked on a permission does nothing until it is answered, which is
-    // why this is an event rather than something to be polled for. Permission is
-    // also what needs_input means, and the backend emits it before the status
-    // event, so the bounce starts here rather than waiting on the follow-up.
-    const unlisten = listen<PermissionAsked>("session-permission", (event) => {
-      const { id, requestId, summary, options } = event.payload;
-      useSessionStore.getState().askPermission(id, {
-        requestId,
-        summary,
-        options: options ?? [],
-      });
-      dockAttention.note(id, "needs_input", useSessionStore.getState().sessions, dockNative());
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    // Isolation is best-effort and the session has already started. This is the
-    // live skip reason; reload still shows the banner from a null worktree path.
-    const unlisten = listen<IsolationFailed>("session-isolation", (event) => {
-      useSessionStore.getState().noteIsolation(event.payload.id, event.payload.reason);
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    // ACP has no pane; these are the words, tools, and plans that would otherwise
-    // only exist on the agent's stdout.
-    const unlisten = listen<SessionUpdated>("session-update", (event) => {
-      const { id, kind, text } = event.payload;
-      if (text === "" || kind === "prompt") return;
-      useSessionStore.getState().appendUpdate(id, { kind, text });
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    // Graph files are watched by the backend; the event says which session's file
-    // moved and the store re-reads it. A removal is refreshed rather than dropped:
-    // the pane is still there, and the re-read is what reports the file as gone.
-    // Whether the session is still open is answered here, since the watch outlives
-    // the sessions it was started for.
-    const unlisten = listen<GraphChanged>("graph-changed", (event) => {
-      const { sessionId } = event.payload;
-      const isOpen = useSessionStore
-        .getState()
-        .sessions.some((session) => session.id === sessionId);
-      useGraphStore.getState().refresh(sessionId, isOpen);
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    const unlisten = listen<StepsChanged>("steps-changed", (event) => {
-      const { sessionId } = event.payload;
-      const isOpen = useSessionStore
-        .getState()
-        .sessions.some((session) => session.id === sessionId);
-      useStepStore.getState().refresh(sessionId, isOpen);
-    });
-    return () => {
-      void unlisten.then((stop) => stop());
-    };
-  }, []);
-
-  useEffect(() => {
-    // Idle review writes the card to `review` in the database; this is the live
-    // path so the board does not wait for a tab switch to notice.
-    const unlisten = listen<TasksChanged>("tasks-changed", (event) => {
-      const active = useProjectStore.getState().activeProjectId;
-      if (active !== event.payload.projectId) return;
-      void useTaskStore.getState().loadTasks(event.payload.projectId);
+    // Terminal output streams over a channel; these eight events are infrequent
+    // enough to belong on the event system. Names and payloads live in events.ts.
+    const unlisten = listenBackendEvents(listen, {
+      markExited: (id, exitCode) => useSessionStore.getState().markExited(id, exitCode),
+      markStatus: (id, status) => useSessionStore.getState().markStatus(id, status),
+      askPermission: (id, request) => useSessionStore.getState().askPermission(id, request),
+      noteIsolation: (id, reason) => useSessionStore.getState().noteIsolation(id, reason),
+      appendUpdate: (id, update) => useSessionStore.getState().appendUpdate(id, update),
+      sessions: () => useSessionStore.getState().sessions,
+      refreshGraph: (sessionId, isOpen) => useGraphStore.getState().refresh(sessionId, isOpen),
+      refreshSteps: (sessionId, isOpen) => useStepStore.getState().refresh(sessionId, isOpen),
+      activeProjectId: () => useProjectStore.getState().activeProjectId,
+      loadTasks: (projectId) => {
+        void useTaskStore.getState().loadTasks(projectId);
+      },
+      noteDock: (id, status) => {
+        dockAttention.note(id, status, useSessionStore.getState().sessions, dockNative());
+      },
     });
     return () => {
       void unlisten.then((stop) => stop());
