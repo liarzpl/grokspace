@@ -42,8 +42,9 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev
 
-      # `npm run build` is `tsc --noEmit && vite build`, so this is the type check
-      # as well as the bundle.
+      # `npm run build` is `tsc --noEmit && vite build`. tsconfig include covers
+      # src/, vite.config.ts, and scripts/, so this is the type check as well as
+      # the bundle.
       - name: Type-check and build
         run: npm run build
 
