@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { talkToSession } from "../lib/talkToSession";
 import { sessionCanTakeWork } from "../lib/dispatch";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import type { Task, TaskStatus } from "../types";
@@ -162,8 +163,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       // The backend cleared the last job's list with the assignment. Forget it
       // here so the rail does not keep showing a tally until the next load.
       useStepStore.getState().reset(sessionId);
-      if (session.kind === "agent") await api.promptSession(sessionId, dispatchPrompt(task));
-      else await api.writeSession(sessionId, `${dispatchPrompt(task)}\r`);
+      await talkToSession(session, dispatchPrompt(task));
       return true;
     } catch (error) {
       if (assigned) {

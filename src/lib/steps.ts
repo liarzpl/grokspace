@@ -2,14 +2,13 @@
  * Approving a session's step list, and the small amounts of progress the board
  * and pane switch need to show.
  *
- * A terminal Grok is typed at; an ACP agent is prompted. The two cannot share a
- * write path: `writeSession` is a pty, and a pane-less agent has none. The prompt
- * is one line because a newline submits in a TUI.
+ * The prompt is one line because a newline submits in a TUI. Sending it goes
+ * through `talkToSession`.
  */
 
-import { api } from "./api";
 import type { Session, SessionStep, StepsPhase } from "../types";
 import { MAX_STEPS } from "./limits";
+import { talkToSession } from "./talkToSession";
 
 export { MAX_STEPS };
 
@@ -48,12 +47,7 @@ export async function sendApproval(
   session: Session,
   steps: readonly SessionStep[],
 ): Promise<void> {
-  const text = approvalPrompt(steps);
-  if (session.kind === "agent") {
-    await api.promptSession(session.id, text);
-    return;
-  }
-  await api.writeSession(session.id, `${text}\r`);
+  await talkToSession(session, approvalPrompt(steps));
 }
 
 /**
