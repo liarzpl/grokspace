@@ -220,13 +220,17 @@ pub fn render(entries: &[MemoryEntry]) -> String {
     out
 }
 
-/// Writes the projection, creating its directory if need be.
+/// Writes the projection, creating its directory if need be, and plants
+/// `.grokspace/.gitignore` so `git add .` does not commit the folder.
 ///
 /// One direction only. GrokSpace writes and the agent reads: a file the agent also
 /// wrote to would need merging against the table on every change, and a merge that
 /// guesses wrong loses something someone typed. The skill therefore teaches reading
 /// and nothing else.
 pub fn write_projection(project_path: &Path, entries: &[MemoryEntry]) -> Result<()> {
+    // Ignore first so a crash between mkdir and memory.md still leaves the
+    // folder hidden from `git add .`.
+    let _ = project::ensure_grokspace_ignored(project_path);
     let file = memory_file(project_path);
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)?;
@@ -484,6 +488,19 @@ mod tests {
         let file = memory_file(dir.path());
         assert!(file.ends_with(".grokspace/memory.md"));
         assert!(std::fs::read_to_string(&file).unwrap().contains("Tauri"));
+    }
+
+    #[test]
+    fn writing_the_projection_plants_a_gitignore() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+
+        write_projection(dir.path(), &[]).unwrap();
+
+        let ignore = dir.path().join(".grokspace").join(".gitignore");
+        assert_eq!(
+            std::fs::read_to_string(&ignore).unwrap(),
+            project::GROKSPACE_IGNORE
+        );
     }
 
     #[test]

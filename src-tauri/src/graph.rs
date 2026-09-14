@@ -92,6 +92,9 @@ fn graph_dirs(project_path: &Path) -> Vec<PathBuf> {
 pub fn ensure_graph_dir(project_path: &Path) -> Result<PathBuf> {
     let preferred = project_graph_dir(project_path);
     if std::fs::create_dir_all(&preferred).is_ok() {
+        // Only when the project itself accepted the write. The home fallback
+        // is `~/.grokspace/graphs`, not a user repository.
+        let _ = project::ensure_grokspace_ignored(project_path);
         return Ok(preferred);
     }
     let fallback = home_graph_dir()?;
@@ -509,6 +512,19 @@ mod tests {
 
         assert_eq!(graphs, project_graph_dir(project.path()));
         assert!(graphs.is_dir());
+    }
+
+    #[test]
+    fn ensuring_the_graph_dir_plants_a_gitignore() {
+        let project = dir();
+
+        ensure_graph_dir(project.path()).unwrap();
+
+        let ignore = project.path().join(".grokspace").join(".gitignore");
+        assert_eq!(
+            std::fs::read_to_string(&ignore).unwrap(),
+            project::GROKSPACE_IGNORE
+        );
     }
 
     #[test]
