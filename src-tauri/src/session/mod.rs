@@ -828,6 +828,23 @@ mod tests {
     }
 
     #[test]
+    fn listing_a_project_does_not_attach_another_projects_permissions() {
+        let (conn, project_id) = fixture();
+        let other = project::upsert_by_path(&conn, "/tmp/other-perms", "other-perms").unwrap();
+        let ours = insert(&conn, &project_id, None, SessionKind::Agent, "Ours", None).unwrap();
+        let theirs = insert(&conn, &other.id, None, SessionKind::Agent, "Theirs", None).unwrap();
+
+        record_permission(&conn, &theirs.id, 1, "Write a secret", &[]).unwrap();
+        record_permission(&conn, &ours.id, 2, "Write a file", &[]).unwrap();
+
+        let listed = list(&conn, &project_id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].pending_permissions.len(), 1);
+        assert_eq!(listed[0].pending_permissions[0].request_id, 2);
+        assert_eq!(listed[0].pending_permissions[0].summary, "Write a file");
+    }
+
+    #[test]
     fn a_pending_permission_survives_a_list_round_trip() {
         let (conn, project_id) = fixture();
         let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
