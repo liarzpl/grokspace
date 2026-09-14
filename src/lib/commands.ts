@@ -13,6 +13,8 @@
  */
 
 import { useDiffStore } from "../stores/diffStore";
+import { useGraphStore } from "../stores/graphStore";
+import { useMemoryStore } from "../stores/memoryStore";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
 import { SKILL_IDS, skillCommandLabel, skillOf, useSkillStore } from "../stores/skillStore";
 import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
@@ -20,11 +22,18 @@ import { stepsFor, useStepStore } from "../stores/stepStore";
 import { tasksForProject, useTaskStore } from "../stores/taskStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
-import { errorMessage } from "./api";
+import { api, errorMessage } from "./api";
 import { exportHandoffPack } from "./handoffPack";
 import { inboxItems, type InboxItem } from "./inboxItems";
 import { FALLBACK_PTY_SIZE } from "./limits";
 import { ALLOW_ONCE, REJECT_ONCE, permissionChips } from "./permissions";
+import {
+  canSavePlaybook,
+  playbookNameFromQuery,
+  playbookPrompt,
+  resolvePlaybookRoles,
+  snapshotPlaybook,
+} from "./playbook";
 import { BATON_ROLES, ROLES } from "./roles";
 import type { GlobalShortcutId } from "./shortcuts";
 import { canApproveSteps, sendApproval } from "./steps";
@@ -155,7 +164,7 @@ async function installGrokspaceSkills(): Promise<void> {
  * are free both change, and a stale list would offer to switch to a project that has
  * been forgotten.
  */
-export function commands(project: Project | null): Command[] {
+export function commands(project: Project | null, query = ""): Command[] {
   const ui = useUiStore.getState();
   const list: Command[] = [];
 
@@ -480,7 +489,84 @@ export function commands(project: Project | null): Command[] {
     });
   }
 
+  addPlaybookCommands(list, project, query);
+
   return list;
+}
+
+function playbookSource(projectId: string) {
+  return {
+    sessions: sessionsForProject(useSessionStore.getState().sessions, projectId),
+    graphs: useGraphStore.getState().bySession,
+    steps: useStepStore.getState().bySession,
+    memory: useMemoryStore.getState().entries,
+  };
+}
+
+function addPlaybookCommands(list: Command[], project: Project, query: string): void {
+  const source = playbookSource(project.id);
+  const named = playbookNameFromQuery(query);
+  if (canSavePlaybook(source)) {
+    list.push({
+      id: named === null ? "save-playbook" : `save-playbook-${named}`,
+      label:
+        named === null
+          ? "Save successful run as playbook"
+          : `Save successful run as playbook !${named}`,
+      group: "Playbooks",
+      run: () => {
+        if (named === null) {
+          useSessionStore.getState().setError("Type !name in the palette to name the playbook.");
+          return;
+        }
+        useUiStore.getState().closePalette();
+        void savePlaybookRun(project, named);
+      },
+    });
+  }
+  if (named !== null) {
+    list.push({
+      id: `dispatch-playbook-${named}`,
+      label: `Dispatch playbook !${named}`,
+      group: "Playbooks",
+      run: () => {
+        useUiStore.getState().closePalette();
+        void dispatchNamedPlaybook(project, named);
+      },
+    });
+  }
+}
+
+async function savePlaybookRun(project: Project, name: string): Promise<void> {
+  const snapshot = snapshotPlaybook(name, playbookSource(project.id));
+  if (snapshot === null) {
+    useSessionStore.getState().setError("Nothing to save as a playbook yet.");
+    return;
+  }
+  try {
+    await api.savePlaybook(snapshot);
+  } catch (error) {
+    useSessionStore.getState().setError(errorMessage(error));
+  }
+}
+
+async function dispatchNamedPlaybook(project: Project, name: string): Promise<void> {
+  try {
+    const record = await api.readPlaybook(name, project.id);
+    const roles = resolvePlaybookRoles(record.roles);
+    if (roles.length === 0) {
+      useSessionStore.getState().setError("That playbook lists no roles to start.");
+      return;
+    }
+    const failed = await useSessionStore.getState().launchSwarm(project.id, roles, {
+      promptFor: (role) => playbookPrompt(role, record),
+    });
+    if (failed.length > 0 && useSessionStore.getState().error === null) {
+      useSessionStore.getState().setError(`Could not start ${failed.join(", ")}.`);
+    }
+  } catch (error) {
+    useSessionStore.getState().setError(errorMessage(error));
+  }
 }
 
 /**

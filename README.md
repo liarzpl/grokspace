@@ -97,7 +97,9 @@ replays the last 20). Nothing is uploaded.
   launches, Hand to Coder/Reviewer, Export pack for a session, project switches, skill installs, Merge for a stopped isolated
   agent, Allow first wait, and Jump to first Needs you from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
-  and can refresh that list; there is no remote catalog. "Install or refresh
+  and can refresh that list; there is no remote catalog. Palette **Save successful
+  run as playbook** (`!name`) and **Dispatch playbook !name** snapshot and replay a
+  session shape (see [How playbooks work](#how-playbooks-work)). "Install or refresh
   GrokSpace skills" writes graph, memory, and steps in that order; the Graph
   empty-state button still installs graph alone.
   Search matches a subsequence, so `sgr` finds "Start Grok in the first free pane".
@@ -389,6 +391,15 @@ palette's "install GrokSpace skills".
 
 [`docs/session-steps.md`](docs/session-steps.md) has the file contract, the
 phase machine, and how to test the rail by hand.
+
+### How playbooks work
+
+A playbook is a **session shape**, not a skill. Palette `!name` saves a successful
+run (graph stub, steps stub, role list, memory excerpt) to
+`~/.grokspace/playbooks/<name>/`, or you can drop the same folder under the
+project's `.grokspace/playbooks/`. Dispatch starts those roles and briefs them
+with `$GROKSPACE_GRAPH_FILE` / `$GROKSPACE_STEPS_FILE` / `$GROKSPACE_MEMORY_FILE`.
+The snapshot does not include the transcript. There is no remote catalog.
 
 ### How memory works
 

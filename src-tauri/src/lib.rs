@@ -10,6 +10,7 @@ mod handoff;
 mod ledger;
 mod log;
 mod memory;
+mod playbook;
 mod policy;
 mod program;
 mod project;
@@ -138,6 +139,8 @@ pub fn run() {
             policy::read_permission_policy,
             policy::write_permission_policy,
             ledger::list_permission_ledger,
+            playbook::save_playbook,
+            playbook::read_playbook,
             graph::read_session_graph,
             graph::list_session_graphs,
             graph::watch_project_graphs,
