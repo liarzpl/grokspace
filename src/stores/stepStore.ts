@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 import type { SessionStep, SessionSteps, StepsPhase } from "../types";
 
 /**
@@ -11,9 +12,6 @@ import type { SessionStep, SessionSteps, StepsPhase } from "../types";
  * store re-reads that session. A burst of writes is coalesced so the checklist
  * is not rebuilt for every intermediate save.
  */
-
-/** Long enough to swallow a burst of writes, short enough to still read as live. */
-const COALESCE_MS = 80;
 
 /** Drops in-flight `syncSessions` work that a newer project switch has replaced. */
 let syncGeneration = 0;
@@ -86,7 +84,7 @@ function fromSnapshot(snapshot: SessionSteps): StepEntry {
 }
 
 /** Timers live outside the store: they are plumbing, not state to render. */
-const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const watch = createWatchedSessionMap({ onClosed: "forget" });
 
 export const useStepStore = create<StepState>((set, get) => {
   const write = (sessionId: string, changes: Partial<StepEntry>) =>
@@ -148,33 +146,18 @@ export const useStepStore = create<StepState>((set, get) => {
     },
 
     refresh: (sessionId, isOpenSession) => {
-      // Closing a session removes it from the workspace but leaves its file and
-      // its project's watcher behind, so a late write can name a session that
-      // nothing is showing. The rows CASCADE-delete with the session, so a
-      // re-read would only be an error.
-      if (!isOpenSession) {
-        get().forget(sessionId);
-        return;
-      }
-
-      const queued = pending.get(sessionId);
-      if (queued !== undefined) clearTimeout(queued);
-      pending.set(
-        sessionId,
-        setTimeout(() => {
-          pending.delete(sessionId);
-          void get().load(sessionId);
-        }, COALESCE_MS),
-      );
+      // Closing a session CASCADE-deletes its rows. A re-read would only be an
+      // error, so the closed-session policy is forget.
+      watch.refresh(sessionId, isOpenSession, {
+        hasEntry: () => sessionId in get().bySession,
+        load: () => void get().load(sessionId),
+        forget: () => get().forget(sessionId),
+      });
     },
 
     forget: (sessionId) => {
       bump(sessionId);
-      const queued = pending.get(sessionId);
-      if (queued !== undefined) {
-        clearTimeout(queued);
-        pending.delete(sessionId);
-      }
+      watch.cancel(sessionId);
       set((state) => {
         if (!(sessionId in state.bySession)) return state;
         const bySession = { ...state.bySession };
@@ -185,11 +168,7 @@ export const useStepStore = create<StepState>((set, get) => {
 
     reset: (sessionId) => {
       bump(sessionId);
-      const queued = pending.get(sessionId);
-      if (queued !== undefined) {
-        clearTimeout(queued);
-        pending.delete(sessionId);
-      }
+      watch.cancel(sessionId);
       set((state) => ({
         bySession: {
           ...state.bySession,

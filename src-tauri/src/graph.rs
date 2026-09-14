@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecommendedWatcher;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
@@ -197,20 +197,6 @@ pub fn remove_graph(project_path: &Path, session_id: &str) {
     }
 }
 
-/// A graph file's session id, or `None` for anything else in the directory —
-/// artifacts, temporary files a writer renames from, and subdirectories.
-fn session_id_for(path: &Path, watched: &[PathBuf]) -> Option<String> {
-    let parent = path.parent()?;
-    if !watched.iter().any(|dir| dir == parent) {
-        return None;
-    }
-    if path.extension()?.to_str()? != "json" {
-        return None;
-    }
-    let stem = path.file_stem()?.to_str()?;
-    (!stem.is_empty()).then(|| stem.to_string())
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphChanged {
@@ -222,53 +208,20 @@ pub struct GraphChanged {
 
 /// Watches `dirs` for graph files appearing, changing, and going away.
 ///
-/// Split out from the command so the filtering can be tested against real
-/// filesystem events without a webview to emit them to. The returned watcher owns
-/// the background thread: dropping it stops the watch.
+/// Wraps the shared session-JSON watcher so a graph event can say whether the
+/// file is still there. Existence, not the notify kind, is the honest signal:
+/// a rename over the target looks different per platform.
 fn watch_dirs(
     dirs: &[PathBuf],
     on_change: impl Fn(GraphChanged) + Send + 'static,
 ) -> Result<RecommendedWatcher> {
-    let watched = dirs.to_vec();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let Ok(event) = event else { return };
-        // Access events fire for reads, which includes GrokSpace's own.
-        if !matches!(
-            event.kind,
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) {
-            return;
-        }
-        for path in &event.paths {
-            let Some(session_id) = session_id_for(path, &watched) else {
-                continue;
-            };
-            on_change(GraphChanged {
-                session_id,
-                path: path.to_string_lossy().into_owned(),
-                // A rename away from the path and an outright delete both leave
-                // nothing behind, so existence is the honest signal rather than
-                // the event kind, which differs per platform.
-                removed: !path.exists(),
-            });
-        }
+    crate::watch::watch_session_json_dir(dirs, "graph", move |session_id, path| {
+        on_change(GraphChanged {
+            session_id,
+            path: path.to_string_lossy().into_owned(),
+            removed: !path.exists(),
+        });
     })
-    .map_err(|error| Error::Invalid(format!("could not watch for graph changes: {error}")))?;
-
-    for dir in dirs {
-        // Non-recursive: artifacts a run writes under the graph directory are not
-        // graphs, and on a busy run they would be most of the events.
-        watcher
-            .watch(dir, RecursiveMode::NonRecursive)
-            .map_err(|error| {
-                Error::Invalid(format!(
-                    "could not watch {}: {error}",
-                    dir.to_string_lossy()
-                ))
-            })?;
-    }
-
-    Ok(watcher)
 }
 
 /// The directories a project's watcher covers.
@@ -564,35 +517,6 @@ mod tests {
         let watched = watched_dirs(Path::new("/proc/nonexistent-project"));
 
         assert_eq!(watched, vec![home_graph_dir().unwrap()]);
-    }
-
-    #[test]
-    fn only_json_files_directly_in_a_watched_directory_are_graphs() {
-        let watched = vec![PathBuf::from("/w/graphs")];
-
-        assert_eq!(
-            session_id_for(Path::new("/w/graphs/s1.json"), &watched).as_deref(),
-            Some("s1")
-        );
-        // A writer's temporary file, an artifact, and a subdirectory are not
-        // graphs, and treating them as one would emit events for sessions that
-        // do not exist.
-        assert_eq!(
-            session_id_for(Path::new("/w/graphs/s1.json.tmp"), &watched),
-            None
-        );
-        assert_eq!(
-            session_id_for(Path::new("/w/graphs/notes.md"), &watched),
-            None
-        );
-        assert_eq!(
-            session_id_for(Path::new("/w/graphs/artifacts/s1.json"), &watched),
-            None
-        );
-        assert_eq!(
-            session_id_for(Path::new("/elsewhere/s1.json"), &watched),
-            None
-        );
     }
 
     /// Polls rather than sleeping a fixed amount, matching the pty tests: fast
