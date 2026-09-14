@@ -12,8 +12,33 @@ import { talkToSession } from "./talkToSession";
 
 export { MAX_STEPS };
 
+/** Visible names for the steps phase. Spec is `proposed`; Build is `approved`. */
+export const STEPS_MODES = ["spec", "build"] as const;
+export type StepsMode = (typeof STEPS_MODES)[number];
+
+export const STEPS_MODE_LABEL: Record<StepsMode, string> = {
+  spec: "Spec",
+  build: "Build",
+};
+
 /**
- * Whether Approve should be offered for this session right now.
+ * Spec | Build chip from the session's steps phase. `none` has no named mode.
+ * The phase strings stay `proposed` / `approved`; only the chrome is renamed.
+ */
+export function stepsMode(phase: StepsPhase): StepsMode | null {
+  if (phase === "proposed") return "spec";
+  if (phase === "approved") return "build";
+  return null;
+}
+
+export function stepsModeLabel(phase: StepsPhase): string | null {
+  const mode = stepsMode(phase);
+  return mode === null ? null : STEPS_MODE_LABEL[mode];
+}
+
+/**
+ * Whether Build (the existing Approve path) should be offered for this session
+ * right now.
  *
  * Agents are idle-only: a second `session/prompt` while one is in flight would
  * stack. A Grok terminal is always typed at, so `running` is the ready state.

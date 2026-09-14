@@ -2,20 +2,26 @@ import { useEffect, useState } from "react";
 
 import { errorMessage } from "../lib/api";
 import { isKeyboardClick } from "../lib/keyboardClick";
+import { moveSegmented } from "../lib/segmented";
 import {
   canApproveSteps,
   MAX_STEPS,
   sendApproval,
   sessionsWithSteps,
+  STEPS_MODE_LABEL,
+  STEPS_MODES,
   stepProgress,
+  stepsMode,
+  type StepsMode,
 } from "../lib/steps";
 import { sessionStatusPhrase } from "../lib/statusText";
+import { choiceOptionClass } from "../lib/ui";
 import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
 import AgentTranscript from "./AgentTranscript";
 import { SkillHint } from "./SkillHint";
-import { QuietButton, StatusDot, TextButton } from "./ui";
+import { QuietButton, StatusDot } from "./ui";
 
 const STEP_MARK: Record<StepStatus, { glyph: string; tone: string; title: string }> = {
   pending: { glyph: "○", tone: "text-ink-faint", title: "Pending" },
@@ -177,9 +183,93 @@ function AddStep({ sessionId, disabled }: { sessionId: string; disabled: boolean
   );
 }
 
+function liveSession(session: Session): Session {
+  return (
+    useSessionStore.getState().sessions.find((candidate) => candidate.id === session.id) ??
+    session
+  );
+}
+
+function StepsModeChip({
+  session,
+  mode,
+  canBuild,
+  building,
+  onBuild,
+  onSpec,
+}: {
+  session: Session;
+  mode: StepsMode;
+  canBuild: boolean;
+  building: boolean;
+  onBuild: () => void;
+  onSpec: () => void;
+}) {
+  const choose = (next: StepsMode) => {
+    if (building || next === mode) return;
+    if (next === "spec") onSpec();
+    else if (canBuild) onBuild();
+  };
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Spec or Build"
+      onKeyDown={(event) =>
+        moveSegmented(
+          event,
+          STEPS_MODES,
+          mode,
+          choose,
+          (option) => `steps-mode-${session.id}-${option}`,
+        )
+      }
+      className="flex items-center gap-0.5 self-start rounded-md border border-line p-0.5"
+    >
+      {STEPS_MODES.map((option) => {
+        const active = option === mode;
+        const disabled = building || (option === "build" && !canBuild && !active);
+        const label =
+          option === "build" && building ? "Building…" : STEPS_MODE_LABEL[option];
+        return (
+          <button
+            key={option}
+            id={`steps-mode-${session.id}-${option}`}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            disabled={disabled}
+            title={
+              option === "spec"
+                ? active
+                  ? "This list is Spec — titles can still change"
+                  : "Reopen Spec so titles can change again"
+                : active
+                  ? "This list is locked"
+                  : canBuild
+                    ? "Lock this list and tell the agent to continue"
+                    : session.kind === "agent"
+                      ? "The agent is still working; Build when it is idle."
+                      : "That session is not running."
+            }
+            onClick={() => choose(option)}
+            className={choiceOptionClass(active)}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * The checklist for one session. Edits live in SQLite and go back to the agent
  * as the Approve prompt, not by rewriting the file the agent is writing.
+ *
+ * Spec | Build is the visible name for `proposed` | `approved`. Build still
+ * calls `sendApproval`. Spec on an approved list Reopens.
  */
 export default function SessionSteps({
   session,
@@ -200,13 +290,12 @@ export default function SessionSteps({
   }, [session.id, load]);
 
   const progress = stepProgress(entry.steps);
+  const mode = stepsMode(entry.phase);
   const canApprove = canApproveSteps(session, entry.phase, entry.steps.length);
   const atCap = entry.steps.length >= MAX_STEPS;
 
-  const onApprove = async () => {
-    const live =
-      useSessionStore.getState().sessions.find((candidate) => candidate.id === session.id) ??
-      session;
+  const onBuild = async () => {
+    const live = liveSession(session);
     const latest = stepsFor(useStepStore.getState().bySession, live.id);
     if (!canApproveSteps(live, latest.phase, latest.steps.length)) return;
 
@@ -223,6 +312,13 @@ export default function SessionSteps({
     }
   };
 
+  const onSpec = async () => {
+    const live = liveSession(session);
+    const latest = stepsFor(useStepStore.getState().bySession, live.id);
+    if (stepsMode(latest.phase) !== "build") return;
+    await useStepStore.getState().reopen(live.id);
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1.5 p-2">
       <div className="flex shrink-0 items-baseline gap-1.5">
@@ -232,26 +328,15 @@ export default function SessionSteps({
             {progress.done}/{progress.total}
           </span>
         )}
-        {entry.phase === "proposed" && (
-          <span className="text-[10px] text-warning">proposed</span>
-        )}
-        {entry.phase === "approved" && (
-          <span className="text-[10px] text-success">approved</span>
-        )}
         <div className="flex-1" />
-        {entry.phase === "proposed" && entry.steps.length > 0 && (
-          <TextButton
-            primary
-            label={approving ? "Approving…" : "Approve"}
-            disabled={!canApprove || approving}
-            title={
-              canApprove
-                ? "Lock this list and tell the agent to continue"
-                : session.kind === "agent"
-                  ? "The agent is still working; approve when it is idle."
-                  : "That session is not running."
-            }
-            onClick={() => void onApprove()}
+        {mode !== null && entry.steps.length > 0 && (
+          <StepsModeChip
+            session={session}
+            mode={mode}
+            canBuild={canApprove}
+            building={approving}
+            onBuild={() => void onBuild()}
+            onSpec={() => void onSpec()}
           />
         )}
       </div>

@@ -67,6 +67,9 @@ T0 still writes the graph file. A small graph is still worth seeing.
 - Spawn depth is 1. Do not nest. The orchestrator re-spawns.
 - A plan-mode parent can still have write-capable children. Analysis children should
   be read-only.
+- GrokSpace Spec is the session step list still `proposed`. Build is after the
+  human Approves. That gate is the steps file, not grok `plan` mode. A
+  `human-gate` node still waits.
 - Arena means isolated producers and a separate judge. It is not an equal-weight merge
   of everyone's answer.
 - High effort belongs on the lead, the debug root-cause, and the judge — not on every

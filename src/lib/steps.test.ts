@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Session, SessionStep } from "../types";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { STEPS_PHASES, type Session, type SessionStep } from "../types";
 
 const writeSession = vi.fn();
 const promptSession = vi.fn();
@@ -18,8 +22,14 @@ const {
   canApproveSteps,
   sendApproval,
   sessionsWithSteps,
+  STEPS_MODE_LABEL,
+  STEPS_MODES,
   stepProgress,
+  stepsMode,
+  stepsModeLabel,
 } = await import("./steps");
+
+const skills = join(dirname(fileURLToPath(import.meta.url)), "../../src-tauri/skills");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -57,6 +67,21 @@ beforeEach(() => {
   vi.clearAllMocks();
   writeSession.mockResolvedValue(undefined);
   promptSession.mockResolvedValue(undefined);
+});
+
+describe("stepsMode", () => {
+  it("names Spec and Build from STEPS_PHASES, and leaves none unnamed", () => {
+    expect(STEPS_PHASES).toEqual(["none", "proposed", "approved"]);
+    expect(STEPS_MODES).toEqual(["spec", "build"]);
+    expect(stepsMode("none")).toBeNull();
+    expect(stepsMode("proposed")).toBe("spec");
+    expect(stepsMode("approved")).toBe("build");
+    expect(stepsModeLabel("none")).toBeNull();
+    expect(stepsModeLabel("proposed")).toBe("Spec");
+    expect(stepsModeLabel("approved")).toBe("Build");
+    expect(STEPS_MODE_LABEL.spec).toBe("Spec");
+    expect(STEPS_MODE_LABEL.build).toBe("Build");
+  });
 });
 
 describe("canApproveSteps", () => {
@@ -131,6 +156,24 @@ describe("stepProgress", () => {
   it("allocates a new object on every call when there is something to count", () => {
     const steps = [step({ status: "done" })];
     expect(stepProgress(steps)).not.toBe(stepProgress(steps));
+  });
+});
+
+describe("bundled skills", () => {
+  it("names Spec as the wait and Build as Approve, without grok plan argv", () => {
+    const stepsSkill = readFileSync(join(skills, "grokspace-steps/SKILL.md"), "utf8");
+    const graphSkill = readFileSync(join(skills, "grokspace-graph/SKILL.md"), "utf8");
+
+    expect(stepsSkill).toContain("GROKSPACE_STEPS_FILE");
+    expect(stepsSkill).toContain("wait");
+    expect(stepsSkill).toContain("Spec");
+    expect(stepsSkill).toContain("Build");
+    expect(stepsSkill).not.toMatch(/--plan\b|permission-mode|grok agent.*plan/);
+
+    expect(graphSkill).toContain("GROKSPACE_GRAPH_FILE");
+    expect(graphSkill).toContain("Spec");
+    expect(graphSkill).toContain("Build");
+    expect(graphSkill).not.toMatch(/--plan\b|permission-mode/);
   });
 });
 
