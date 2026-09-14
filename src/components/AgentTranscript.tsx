@@ -1,7 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
+import { MAX_MEMORY_CHARS } from "../lib/limits";
+import {
+  DEFAULT_MEMORY_PROPOSE_TYPE,
+  draftFromTranscriptText,
+  MEMORY_PROPOSE_TYPES,
+  memoryWouldExceedCap,
+  offersMemoryChip,
+  type MemoryProposeType,
+} from "../lib/memoryPropose";
+import { moveSegmented } from "../lib/segmented";
+import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type { AgentUpdate, AgentUpdateKind, Session } from "../types";
+import { QuietButton } from "./ui";
 
 const EMPTY: AgentUpdate[] = [];
 
@@ -21,14 +33,133 @@ const KIND_CLASS: Record<AgentUpdateKind, string> = {
   plan: "whitespace-pre-wrap font-mono text-ink-muted",
 };
 
-function TranscriptLine({ entry }: { entry: AgentUpdate }) {
+const FIELD =
+  "selectable rounded-sm border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
+
+/**
+ * Files through `createEntry`. The Markdown projection is the backend's job.
+ */
+function MemoryProposeChip({ projectId, text }: { projectId: string; text: string }) {
+  const createEntry = useMemoryStore((state) => state.createEntry);
+  const entries = useEntriesForProject(projectId);
+  const formId = useId();
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [content, setContent] = useState("");
+  const [type, setType] = useState<MemoryProposeType>(DEFAULT_MEMORY_PROPOSE_TYPE);
+
+  const openForm = () => {
+    const draft = draftFromTranscriptText(text);
+    setKey(draft.key);
+    setContent(draft.content);
+    setType(DEFAULT_MEMORY_PROPOSE_TYPE);
+    setOpen(true);
+  };
+
+  const overCap = memoryWouldExceedCap(entries, key, content);
+  const canSave = key.trim() !== "" && content.trim() !== "" && !overCap;
+
+  const save = async () => {
+    if (!canSave) return;
+    if (await createEntry(projectId, { key: key.trim(), content: content.trim(), type })) {
+      setOpen(false);
+    }
+  };
+
+  if (!open) return <QuietButton label="Add to Memory" onClick={openForm} />;
+
   return (
-    <p className={`text-[11px] leading-snug ${KIND_CLASS[entry.kind]}`}>
-      <span className="mr-1.5 font-mono text-[10px] not-italic text-ink-faint">
-        {KIND_LABEL[entry.kind]}
-      </span>
-      <span className="selectable">{entry.text}</span>
-    </p>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void save();
+      }}
+      className="mb-0.5 flex flex-col gap-1 rounded-md border border-line bg-canvas px-1.5 py-1"
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+          aria-label="Memory key"
+          placeholder="key, for example database"
+          className={`${FIELD} w-36 font-mono`}
+        />
+        <div
+          role="radiogroup"
+          aria-label="Memory type"
+          onKeyDown={(event) =>
+            moveSegmented(event, MEMORY_PROPOSE_TYPES, type, setType, (next) => `${formId}-${next}`)
+          }
+          className="flex items-center gap-0.5 rounded-md border border-line p-0.5"
+        >
+          {MEMORY_PROPOSE_TYPES.map((candidate) => (
+            <button
+              key={candidate}
+              id={`${formId}-${candidate}`}
+              type="button"
+              role="radio"
+              aria-checked={candidate === type}
+              tabIndex={candidate === type ? 0 : -1}
+              onClick={() => setType(candidate)}
+              className={`rounded-sm px-1.5 py-0.5 text-[10px] capitalize transition-colors ${
+                candidate === type
+                  ? "bg-accent-soft text-ink"
+                  : "text-ink-faint hover:bg-elevated hover:text-ink-muted"
+              }`}
+            >
+              {candidate}
+            </button>
+          ))}
+        </div>
+      </div>
+      <textarea
+        value={content}
+        onChange={(event) => setContent(event.target.value)}
+        aria-label="Memory content"
+        rows={2}
+        className={`${FIELD} w-full resize-y`}
+      />
+      <div className="flex items-center gap-1">
+        <button
+          type="submit"
+          disabled={!canSave}
+          title={
+            overCap ? `This project's memory would pass ${MAX_MEMORY_CHARS} characters` : undefined
+          }
+          className="rounded-md bg-accent px-2 py-0.5 text-[10px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-40"
+        >
+          Remember
+        </button>
+        <QuietButton label="Cancel" onClick={() => setOpen(false)} />
+      </div>
+      {overCap && (
+        <p className="text-[10px] text-warning">
+          This note would pass the {MAX_MEMORY_CHARS}-character cap every session reads.
+        </p>
+      )}
+    </form>
+  );
+}
+
+function TranscriptLine({
+  entry,
+  offerMemory,
+  projectId,
+}: {
+  entry: AgentUpdate;
+  offerMemory: boolean;
+  projectId: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className={`text-[11px] leading-snug ${KIND_CLASS[entry.kind]}`}>
+        <span className="mr-1.5 font-mono text-[10px] not-italic text-ink-faint">
+          {KIND_LABEL[entry.kind]}
+        </span>
+        <span className="selectable">{entry.text}</span>
+      </p>
+      {offerMemory && <MemoryProposeChip projectId={projectId} text={entry.text} />}
+    </div>
   );
 }
 
@@ -86,7 +217,12 @@ export default function AgentTranscript({ session }: { session: Session }) {
         ) : (
           <div className="flex flex-col gap-1 py-0.5">
             {entries.map((entry, index) => (
-              <TranscriptLine key={`${index}-${entry.kind}`} entry={entry} />
+              <TranscriptLine
+                key={`${index}-${entry.kind}`}
+                entry={entry}
+                projectId={session.projectId}
+                offerMemory={offersMemoryChip(entry, index === entries.length - 1)}
+              />
             ))}
           </div>
         )}

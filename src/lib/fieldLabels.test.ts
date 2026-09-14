@@ -27,6 +27,9 @@ describe("field labels (A11Y-007)", () => {
 
     const transcript = source("components/AgentTranscript.tsx");
     expect(transcript).toMatch(/aria-label=\{`Follow up to \$\{session\.title \?\? "agent"\}`\}/);
+    expect(transcript).toMatch(/aria-label="Memory key"/);
+    expect(transcript).toMatch(/aria-label="Memory content"/);
+    expect(transcript).toMatch(/aria-label="Memory type"/);
 
     const steps = source("components/SessionSteps.tsx");
     expect(steps).toMatch(/aria-label="Step title"/);

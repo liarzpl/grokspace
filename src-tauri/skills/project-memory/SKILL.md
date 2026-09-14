@@ -59,8 +59,14 @@ being refused: it looks like it worked.
 
 When you learn something that belongs in the memory — a decision made during this
 session, a convention you had to infer — **say so in your reply** and name the key
-it should go under. The person you are working with puts it in the panel, and every
-later session gets it. Two lines of your answer buy that.
+it should go under, on its own line:
+
+```
+Memory key: `database`
+```
+
+The person you are working with can add it from the **Add to Memory** chip on the
+transcript, or put it in the Memory panel. Two lines of your answer buy that.
 
 ## What it is not
 
