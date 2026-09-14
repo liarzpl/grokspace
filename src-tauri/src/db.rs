@@ -15,6 +15,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004_session_permissions.sql"),
     include_str!("../migrations/0005_session_steps.sql"),
     include_str!("../migrations/0006_permission_options.sql"),
+    include_str!("../migrations/0007_session_isolation_skip.sql"),
 ];
 
 /// GrokSpace keeps all of its state under `~/.grokspace` rather than the

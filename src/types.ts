@@ -74,6 +74,8 @@ export interface Session {
   title: string | null;
   role: string | null;
   worktreePath: string | null;
+  /** Why isolation was skipped; set on the session row so a reload keeps it. */
+  isolationSkip?: string | null;
   kind: SessionKind;
   exitCode: number | null;
   createdAt: number;

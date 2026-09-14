@@ -994,6 +994,26 @@ describe("isolationReasons", () => {
     expect(useSessionStore.getState().isolationReasons["agent-1"]).toBe(UNISOLATED_REASON);
   });
 
+  it("uses a persisted skip reason after reload, without a live event", async () => {
+    listSessions.mockResolvedValue([
+      session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "idle",
+        worktreePath: null,
+        title: "Reviewer",
+        isolationSkip: "this folder is not a git repository",
+      }),
+    ]);
+
+    await useSessionStore.getState().loadSessions("p1");
+
+    expect(useSessionStore.getState().isolationReasons["agent-1"]).toBe(
+      "this folder is not a git repository",
+    );
+  });
+
   it("flags a live agent with no worktree after reload, without a live event", async () => {
     listSessions.mockResolvedValue([
       session({

@@ -15,7 +15,7 @@ use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
 use crate::{acp, graph, memory, program, project, steps, task, worktree, AppState};
 
 const COLUMNS: &str = "id, project_id, pane_id, process_id, status, title, role, \
-                       worktree_path, kind, exit_code, created_at, updated_at";
+                       worktree_path, isolation_skip, kind, exit_code, created_at, updated_at";
 
 /// Emitted when a child terminates. Status changes are infrequent, so the event
 /// system is the right fit here; the output stream is not, and uses a channel.
@@ -115,6 +115,9 @@ pub struct Session {
     pub title: Option<String>,
     pub role: Option<String>,
     pub worktree_path: Option<String>,
+    /// Why this agent is on the project tree. Set when isolation is skipped;
+    /// absent when the session isolated or was never meant to.
+    pub isolation_skip: Option<String>,
     pub kind: SessionKind,
     pub exit_code: Option<i32>,
     pub created_at: i64,
@@ -147,6 +150,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         title: row.get("title")?,
         role: row.get("role")?,
         worktree_path: row.get("worktree_path")?,
+        isolation_skip: row.get("isolation_skip")?,
         kind: SessionKind::parse(&kind),
         exit_code: row.get("exit_code")?,
         created_at: row.get("created_at")?,
@@ -221,6 +225,14 @@ fn set_worktree_path(conn: &Connection, id: &str, path: Option<&Path>) -> Result
     conn.execute(
         "UPDATE sessions SET worktree_path = ?2, updated_at = ?3 WHERE id = ?1",
         rusqlite::params![id, stored, now_ms()],
+    )?;
+    get(conn, id)
+}
+
+fn set_isolation_skip(conn: &Connection, id: &str, reason: Option<&str>) -> Result<Session> {
+    conn.execute(
+        "UPDATE sessions SET isolation_skip = ?2, updated_at = ?3 WHERE id = ?1",
+        rusqlite::params![id, reason, now_ms()],
     )?;
     get(conn, id)
 }
@@ -550,8 +562,8 @@ struct SessionUpdated {
     text: String,
 }
 
-/// Why this agent is on the project tree. Infrequent, and the row still starts,
-/// so the event system carries the reason without a schema change.
+/// Why this agent is on the project tree. Infrequent; the row also stores
+/// `isolation_skip` so a reload can say the same thing.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct IsolationFailed {
@@ -742,8 +754,8 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
     let project_path = PathBuf::from(project_path);
     let isolation = isolate_agent(&request, &session, &project_path);
     if let Some(worktree::Isolation::Skipped(skip)) = &isolation {
-        // The row still starts. The event is how the UI learns why, without a
-        // column to persist it; reload falls back to kind + a null path.
+        // The row still starts. The event is how the live UI learns why;
+        // isolation_skip is how a reload keeps the same sentence.
         let _ = app.emit(
             ISOLATION_EVENT,
             IsolationFailed {
@@ -751,6 +763,9 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
                 reason: skip.as_str().to_string(),
             },
         );
+        if let Ok(conn) = state.db.lock() {
+            let _ = set_isolation_skip(&conn, &session.id, Some(skip.as_str()));
+        }
     }
     let worktree = isolation.and_then(worktree::Isolation::path);
     if let Some(ref path) = worktree {
@@ -1750,6 +1765,33 @@ mod tests {
         assert!(list(&conn, &project_id).unwrap()[0]
             .pending_permissions
             .is_empty());
+    }
+
+    #[test]
+    fn an_isolation_skip_survives_a_list_round_trip() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        assert_eq!(session.isolation_skip, None);
+
+        let stored = set_isolation_skip(
+            &conn,
+            &session.id,
+            Some("this folder is not a git repository"),
+        )
+        .unwrap();
+        assert_eq!(
+            stored.isolation_skip.as_deref(),
+            Some("this folder is not a git repository")
+        );
+        assert_eq!(
+            list(&conn, &project_id).unwrap()[0]
+                .isolation_skip
+                .as_deref(),
+            Some("this folder is not a git repository")
+        );
+
+        let cleared = set_isolation_skip(&conn, &session.id, None).unwrap();
+        assert_eq!(cleared.isolation_skip, None);
     }
 
     #[test]
