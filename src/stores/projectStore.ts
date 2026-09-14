@@ -169,15 +169,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
  * one value.
  */
 export function layoutOf(project: Project | null, fallback?: PaneLayout): PaneLayout {
-  const settings = project?.settings;
-  const stored =
-    settings !== null &&
-    typeof settings === "object" &&
-    !Array.isArray(settings)
-      ? settings["terminalLayout"]
-      : undefined;
-  if (typeof stored === "string" && (PANE_LAYOUTS as readonly string[]).includes(stored)) {
-    return stored as PaneLayout;
+  const stored = project?.settings.terminalLayout;
+  if (stored !== undefined && (PANE_LAYOUTS as readonly string[]).includes(stored)) {
+    return stored;
   }
   return fallback ?? useSettingsStore.getState().settings.defaultLayout;
 }

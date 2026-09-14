@@ -7,6 +7,7 @@ use tauri::State;
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::session;
+use crate::settings;
 use crate::AppState;
 
 const COLUMNS: &str = "id, name, path, last_opened, settings, created_at";
@@ -18,8 +19,46 @@ pub struct Project {
     pub name: String,
     pub path: String,
     pub last_opened: Option<i64>,
-    pub settings: serde_json::Value,
+    pub settings: ProjectSettings,
     pub created_at: i64,
+}
+
+/// The only project preference this build writes. Unknown keys are refused on
+/// the way in so a typo cannot sit in the blob forever.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_layout: Option<String>,
+}
+
+impl ProjectSettings {
+    fn from_json(raw: &str) -> Self {
+        // Hand-edited extra keys must not make the project unreadable. They are
+        // dropped here; `update` is what refuses them so they cannot be written.
+        let value: serde_json::Value =
+            serde_json::from_str(raw).unwrap_or_else(|_| serde_json::json!({}));
+        let Some(object) = value.as_object() else {
+            return Self::default();
+        };
+        let terminal_layout = object
+            .get("terminalLayout")
+            .and_then(|value| value.as_str())
+            .filter(|layout| settings::is_pane_layout(layout))
+            .map(str::to_string);
+        Self { terminal_layout }
+    }
+
+    fn validated(self) -> Result<Self> {
+        if let Some(layout) = &self.terminal_layout {
+            if !settings::is_pane_layout(layout) {
+                return Err(Error::Invalid(format!(
+                    "`{layout}` is not one of the pane layouts"
+                )));
+            }
+        }
+        Ok(self)
+    }
 }
 
 fn from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
@@ -29,8 +68,7 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
         name: row.get("name")?,
         path: row.get("path")?,
         last_opened: row.get("last_opened")?,
-        // A hand-edited settings blob should not make the whole project unreadable.
-        settings: serde_json::from_str(&settings).unwrap_or_else(|_| serde_json::json!({})),
+        settings: ProjectSettings::from_json(&settings),
         created_at: row.get("created_at")?,
     })
 }
@@ -103,7 +141,7 @@ pub fn update(
     conn: &Connection,
     id: &str,
     name: Option<&str>,
-    settings: Option<&serde_json::Value>,
+    settings: Option<&ProjectSettings>,
 ) -> Result<Project> {
     if let Some(name) = name {
         if name.trim().is_empty() {
@@ -112,7 +150,10 @@ pub fn update(
     }
 
     let name = name.map(str::trim);
-    let settings = settings.map(serde_json::to_string).transpose()?;
+    let settings = match settings {
+        Some(settings) => Some(serde_json::to_string(&settings.clone().validated()?)?),
+        None => None,
+    };
 
     let affected = conn.execute(
         "UPDATE projects
@@ -173,7 +214,7 @@ pub fn update_project(
     state: State<'_, AppState>,
     id: String,
     name: Option<String>,
-    settings: Option<serde_json::Value>,
+    settings: Option<ProjectSettings>,
 ) -> Result<Project> {
     with_db(&state, |conn| {
         update(conn, &id, name.as_deref(), settings.as_ref())
@@ -232,7 +273,7 @@ mod tests {
 
         assert_eq!(project.name, "acme-api");
         assert!(project.last_opened.is_some());
-        assert_eq!(project.settings, serde_json::json!({}));
+        assert_eq!(project.settings, ProjectSettings::default());
         assert_eq!(list(&conn).unwrap().len(), 1);
     }
 
@@ -301,12 +342,67 @@ mod tests {
 
         assert!(update(&conn, &project.id, Some("   "), None).is_err());
 
-        let settings = serde_json::json!({ "defaultLayout": "2x2" });
+        let settings = ProjectSettings {
+            terminal_layout: Some("2x2".into()),
+        };
         let updated = update(&conn, &project.id, None, Some(&settings)).unwrap();
         assert_eq!(updated.settings, settings);
         assert_eq!(
             updated.name, "gamma",
             "settings-only updates must not touch the name"
+        );
+    }
+
+    #[test]
+    fn update_refuses_an_unknown_settings_key_and_an_unknown_layout() {
+        let conn = conn();
+        let project = upsert_by_path(&conn, "/tmp/kappa", "kappa").unwrap();
+
+        let unknown = serde_json::from_value::<ProjectSettings>(serde_json::json!({
+            "terminalLayout": "2x2",
+            "lastGraphSession": "s7"
+        }));
+        assert!(unknown.is_err(), "unknown keys must not deserialize");
+
+        let bad = ProjectSettings {
+            terminal_layout: Some("9x9".into()),
+        };
+        assert!(update(&conn, &project.id, None, Some(&bad)).is_err());
+        assert_eq!(
+            get(&conn, &project.id).unwrap().settings,
+            ProjectSettings::default()
+        );
+    }
+
+    #[test]
+    fn a_hand_edited_blob_keeps_only_a_known_layout() {
+        let conn = conn();
+        let project = upsert_by_path(&conn, "/tmp/lambda", "lambda").unwrap();
+        conn.execute(
+            "UPDATE projects SET settings = ?1 WHERE id = ?2",
+            rusqlite::params![
+                r#"{"terminalLayout":"3x2","lastGraphSession":"s7","terminal_layout":"1x1"}"#,
+                project.id
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            get(&conn, &project.id).unwrap().settings,
+            ProjectSettings {
+                terminal_layout: Some("3x2".into()),
+            }
+        );
+
+        conn.execute(
+            "UPDATE projects SET settings = '{\"terminalLayout\":\"9x9\"}' WHERE id = ?1",
+            [&project.id],
+        )
+        .unwrap();
+        assert_eq!(
+            get(&conn, &project.id).unwrap().settings,
+            ProjectSettings::default(),
+            "an unknown layout must not be served to the frontend"
         );
     }
 

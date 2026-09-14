@@ -172,19 +172,16 @@ describe("renameProject", () => {
 });
 
 describe("setLayout", () => {
-  it("keeps the settings it is not changing", async () => {
-    // The layout rides along in the settings blob, so writing it must not become a
-    // way to drop everything else kept there.
-    const settings = { terminalLayout: "2x2", lastGraphSession: "s7" };
-    useProjectStore.setState({ projects: [project({ settings })] });
-    updateProject.mockResolvedValue(
-      project({ settings: { ...settings, terminalLayout: "3x2" } }),
-    );
+  it("writes only the typed layout field", async () => {
+    useProjectStore.setState({
+      projects: [project({ settings: { terminalLayout: "2x2" } })],
+    });
+    updateProject.mockResolvedValue(project({ settings: { terminalLayout: "3x2" } }));
 
     await useProjectStore.getState().setLayout("p1", "3x2");
 
     expect(updateProject).toHaveBeenCalledWith("p1", {
-      settings: { terminalLayout: "3x2", lastGraphSession: "s7" },
+      settings: { terminalLayout: "3x2" },
     });
     expect(layoutOf(useProjectStore.getState().projects[0] ?? null)).toBe("3x2");
   });
@@ -245,17 +242,13 @@ describe("forgetProject", () => {
 });
 
 describe("layoutOf", () => {
-  it("does not throw when settings is null", () => {
-    // A JSON `null` blob would make `settings["terminalLayout"]` throw, and that
-    // throw is in PaneGrid's render — production React then blanks the window.
-    expect(
-      layoutOf(project({ settings: null as unknown as Project["settings"] })),
-    ).toBe("2x2");
+  it("reads the typed terminalLayout field", () => {
+    expect(layoutOf(project({ settings: { terminalLayout: "1x1" } }))).toBe("1x1");
   });
 
-  it("ignores a settings value that is not a record", () => {
+  it("falls back when the stored layout is not a pane layout", () => {
     expect(
-      layoutOf(project({ settings: [] as unknown as Project["settings"] })),
+      layoutOf(project({ settings: { terminalLayout: "9x9" as Project["settings"]["terminalLayout"] } })),
     ).toBe("2x2");
   });
 });

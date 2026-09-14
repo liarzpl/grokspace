@@ -3,7 +3,10 @@
  * New fields land here beside the Rust type rather than as a second model.
  */
 
-export type ProjectSettings = Record<string, unknown>;
+/** Per-project prefs. Only known keys; a typo must not persist as a silent fallback. */
+export interface ProjectSettings {
+  terminalLayout?: PaneLayout;
+}
 
 export interface Project {
   id: string;
