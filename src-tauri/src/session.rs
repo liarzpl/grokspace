@@ -699,7 +699,11 @@ fn isolate_agent(
     if request.kind != SessionKind::Agent {
         return None;
     }
-    if let Some(existing) = request.reuse_worktree.as_ref().filter(|path| path.is_dir()) {
+    if let Some(existing) = request
+        .reuse_worktree
+        .as_ref()
+        .filter(|path| worktree::is_checkout(path))
+    {
         return Some(worktree::Isolation::Isolated(existing.clone()));
     }
     Some(worktree::add(project_path, &session.id))
@@ -1845,6 +1849,30 @@ mod tests {
         assert!(
             !json.to_string().contains("the branch landed"),
             "the frontend must not have to match a sentence, got: {json}"
+        );
+    }
+
+    #[test]
+    fn isolate_agent_does_not_reuse_a_directory_that_is_not_a_checkout() {
+        let leftover = tempfile::tempdir().expect("temp dir should be created");
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        let request = StartRequest {
+            project_id,
+            pane_id: None,
+            kind: SessionKind::Agent,
+            title: None,
+            role: None,
+            cols: 80,
+            rows: 24,
+            reuse_worktree: Some(leftover.path().to_path_buf()),
+        };
+        assert_eq!(
+            isolate_agent(&request, &session, leftover.path()),
+            Some(worktree::Isolation::Skipped(
+                worktree::IsolationSkip::NotARepo
+            )),
+            "a leftover folder is not Isolated; add() then skips the non-repo project"
         );
     }
 
