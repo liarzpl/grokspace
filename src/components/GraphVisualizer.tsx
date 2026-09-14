@@ -11,6 +11,7 @@ import {
 
 import { errorMessage } from "../lib/api";
 import { inferDirection, type GraphDocument } from "../lib/graph";
+import { prefersReducedMotion } from "../lib/motion";
 import { askForGraph, canAskForGraph } from "../lib/graphAsk";
 import { openArtifactInDiff } from "../lib/graphArtifact";
 import { homeRelative } from "../lib/paths";
@@ -180,6 +181,7 @@ function GraphCanvas({
   );
 
   const direction = useMemo(() => inferDirection(graph.nodes), [graph.nodes]);
+  const reduceMotion = prefersReducedMotion();
 
   const nodes = useMemo<GraphFlowNode[]>(
     () =>
@@ -202,7 +204,7 @@ function GraphCanvas({
         source: edge.source,
         target: edge.target,
         type: edge.type,
-        animated: edge.animated,
+        animated: edge.animated && !reduceMotion,
         ...(edge.label !== undefined ? { label: edge.label } : {}),
         style: { stroke: theme.edge },
         labelStyle: { fill: theme.edgeLabel, fontSize: 10 },
@@ -210,7 +212,7 @@ function GraphCanvas({
         labelBgPadding: [4, 2] as [number, number],
         labelBgBorderRadius: 3,
       })),
-    [graph.edges, theme],
+    [graph.edges, theme, reduceMotion],
   );
 
   // Derived rather than stored, so a node that disappears from a reloaded graph

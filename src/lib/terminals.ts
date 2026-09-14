@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 
 import { api } from "./api";
+import { prefersReducedMotion } from "./motion";
 import { terminalTheme } from "./theme";
 
 /**
@@ -68,7 +69,7 @@ export function acquireTerminal(sessionId: string): PaneTerminal {
     fontFamily: FONT_FAMILY,
     fontSize: 12,
     lineHeight: 1.25,
-    cursorBlink: true,
+    cursorBlink: !prefersReducedMotion(),
     scrollback: 10_000,
     macOptionIsMeta: true,
     drawBoldTextInBrightColors: true,
