@@ -73,8 +73,10 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
   launches, project switches, and skill installs from one place, and it opens over a
   focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
-  project folder. "Install or refresh GrokSpace skills" writes graph, memory, and
-  steps in that order; the Graph empty-state button still installs graph alone.
+  project folder. The palette lists each bundled skill as installed or missing
+  and can refresh that list; there is no remote catalog. "Install or refresh
+  GrokSpace skills" writes graph, memory, and steps in that order; the Graph
+  empty-state button still installs graph alone.
   Search matches a subsequence, so `sgr` finds "Start Grok in the first free pane".
 - **Settings** — a default pane layout for projects that have never chosen one, which
   panel the workspace opens on, and which new session a dispatch reaches for first.

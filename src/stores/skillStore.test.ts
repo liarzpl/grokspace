@@ -13,7 +13,8 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { firstSkillError, skillOf, useSkillStore } = await import("./skillStore");
+const { firstSkillError, skillCommandLabel, skillOf, SKILL_IDS, useSkillStore } =
+  await import("./skillStore");
 
 const initial = useSkillStore.getState();
 
@@ -48,6 +49,56 @@ describe("load", () => {
 
     expect(skillOf(useSkillStore.getState().byId, "memory").status).toBeNull();
     expect(skillOf(useSkillStore.getState().byId, "memory").error).toBeNull();
+  });
+});
+
+describe("refresh", () => {
+  it("asks the backend again even when a status is already cached", async () => {
+    skillStatus
+      .mockResolvedValueOnce(status({ installed: false, current: false }))
+      .mockResolvedValueOnce(status({ installed: true, current: true }));
+
+    await useSkillStore.getState().load("graph");
+    await useSkillStore.getState().refresh("graph");
+
+    expect(skillStatus).toHaveBeenCalledTimes(2);
+    expect(skillOf(useSkillStore.getState().byId, "graph").status?.installed).toBe(true);
+  });
+
+  it("re-reads every bundled skill in install order", async () => {
+    const seen: string[] = [];
+    skillStatus.mockImplementation(async (id: string) => {
+      seen.push(id);
+      return status({ installed: id !== "steps", current: id !== "steps" });
+    });
+
+    await useSkillStore.getState().refreshAll();
+
+    expect(seen).toEqual(["graph", "memory", "steps"]);
+    expect(skillOf(useSkillStore.getState().byId, "steps").status?.installed).toBe(false);
+  });
+});
+
+describe("skillCommandLabel", () => {
+  it("names missing versus installed for each bundled id", () => {
+    const empty = { status: null, isInstalling: false, error: null };
+    const missing = {
+      status: status({ installed: false, current: false }),
+      isInstalling: false,
+      error: null,
+    };
+    const installed = {
+      status: status({ installed: true, current: true }),
+      isInstalling: false,
+      error: null,
+    };
+
+    expect(SKILL_IDS).toEqual(["graph", "memory", "steps"]);
+    for (const id of SKILL_IDS) {
+      expect(skillCommandLabel(id, empty)).toBe(`Install or refresh the ${id} skill`);
+      expect(skillCommandLabel(id, missing)).toBe(`Install the ${id} skill (missing)`);
+      expect(skillCommandLabel(id, installed)).toBe(`Refresh the ${id} skill (installed)`);
+    }
   });
 });
 

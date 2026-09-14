@@ -21,6 +21,9 @@ function emptySlots(): Record<SkillId, SkillSlot> {
 interface SkillStoreState {
   byId: Record<SkillId, SkillSlot>;
   load: (id: SkillId) => Promise<void>;
+  /** Re-reads disk even when a status is already cached. */
+  refresh: (id: SkillId) => Promise<void>;
+  refreshAll: () => Promise<void>;
   install: (id: SkillId) => Promise<void>;
   setError: (id: SkillId, error: string) => void;
   clearError: (id?: SkillId) => void;
@@ -41,11 +44,21 @@ export const useSkillStore = create<SkillStoreState>((set, get) => ({
 
   load: async (id) => {
     if (get().byId[id].status !== null) return;
+    await get().refresh(id);
+  },
+
+  refresh: async (id) => {
     try {
       write(set, id, { status: await api.skillStatus(id) });
     } catch {
       // Only decides whether to offer the install; a failure here should not
       // put an error over a panel that is otherwise working.
+    }
+  },
+
+  refreshAll: async () => {
+    for (const id of SKILL_IDS) {
+      await get().refresh(id);
     }
   },
 
@@ -88,4 +101,16 @@ export function firstSkillError(byId: Record<SkillId, SkillSlot>): string | null
     if (error !== null) return error;
   }
   return null;
+}
+
+/**
+ * Palette wording for one bundled skill. Installed vs missing only — there is
+ * no remote catalog, and a slot that has not been read yet keeps the older
+ * "install or refresh" line rather than guessing.
+ */
+export function skillCommandLabel(id: SkillId, slot: SkillSlot): string {
+  if (slot.status == null) return `Install or refresh the ${id} skill`;
+  return slot.status.installed
+    ? `Refresh the ${id} skill (installed)`
+    : `Install the ${id} skill (missing)`;
 }

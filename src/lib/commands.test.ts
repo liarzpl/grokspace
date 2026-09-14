@@ -20,6 +20,7 @@ const reopenSessionSteps = vi.fn();
 const writeSession = vi.fn();
 const promptSession = vi.fn();
 const installSkill = vi.fn();
+const skillStatus = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -40,6 +41,7 @@ vi.mock("../lib/api", async () => {
       writeSession,
       promptSession,
       installSkill,
+      skillStatus,
     },
   };
 });
@@ -229,10 +231,38 @@ describe("the command list", () => {
   it("offers one click for all three skills once there is a project", () => {
     const with_ = labels(project());
 
+    expect(with_).toContain("Refresh the skill list");
     expect(with_).toContain("Install or refresh GrokSpace skills");
     expect(with_).toContain("Install or refresh the graph skill");
     expect(with_).toContain("Install or refresh the memory skill");
+    expect(with_).toContain("Install or refresh the steps skill");
     expect(labels(null)).not.toContain("Install or refresh GrokSpace skills");
+  });
+
+  it("lists each bundled skill as installed or missing", () => {
+    const slot = (installed: boolean) => ({
+      status: {
+        path: "/home/dev/.grok/skills/x",
+        installed,
+        current: installed,
+      },
+      isInstalling: false,
+      error: null,
+    });
+    useSkillStore.setState({
+      byId: {
+        graph: slot(true),
+        memory: slot(false),
+        steps: slot(true),
+      },
+    });
+
+    const shown = labels(project());
+
+    expect(shown).toContain("Refresh the graph skill (installed)");
+    expect(shown).toContain("Install the memory skill (missing)");
+    expect(shown).toContain("Refresh the steps skill (installed)");
+    expect(shown).not.toContain("Install or refresh the graph skill");
   });
 
   it("gives every command a distinct id", () => {
@@ -432,6 +462,24 @@ describe("running a command", () => {
     );
     expect(useSkillStore.getState().byId.memory.status?.current).toBe(true);
     expect(useSkillStore.getState().byId.steps.status?.current).toBe(true);
+  });
+
+  it("refreshes the skill list without installing", async () => {
+    const ok = { path: "/h/.grok/skills/x", installed: true, current: true };
+    skillStatus.mockResolvedValue(ok);
+    useUiStore.setState({ isPaletteOpen: true });
+
+    commands(project()).find((command) => command.id === "refresh-skill-list")?.run();
+    await vi.waitFor(() => expect(skillStatus).toHaveBeenCalledWith("steps"));
+
+    expect(skillStatus.mock.calls.map((call) => call[0])).toEqual([
+      "graph",
+      "memory",
+      "steps",
+    ]);
+    expect(installSkill).not.toHaveBeenCalled();
+    expect(useUiStore.getState().isPaletteOpen).toBe(true);
+    expect(labels(project())).toContain("Refresh the graph skill (installed)");
   });
 });
 
