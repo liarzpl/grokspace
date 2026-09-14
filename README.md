@@ -108,10 +108,16 @@ telemetry; workspace state lives in `~/.grokspace`.
 - Node.js 20+ and npm
 - Rust 1.88+ (`rustup toolchain install 1.88`; `rust-toolchain.toml` pins this channel)
 - On macOS: Xcode Command Line Tools (`xcode-select --install`)
-- The [`grok` CLI](https://docs.x.ai/build) — not needed for Phase 0, but it is
-  the engine behind every later phase
+- The [`grok` CLI](https://docs.x.ai/build) — not needed to compile or run the
+  CI checks; it is the engine behind every agent session
+- Optional: `XAI_API_KEY` in the **process environment** if you want ACP to
+  authenticate with an API key instead of `grok login`. A repo-root `.env` is
+  not loaded. Export it in the same shell as `npm run tauri:dev`. A packaged
+  `.app` needs the key in the user environment, or a prior `grok login`.
 
 ```bash
+# optional — only if you are not using `grok login`
+export XAI_API_KEY=…
 npm install
 npm run tauri:dev
 ```
