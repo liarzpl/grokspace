@@ -91,16 +91,17 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   rather than skipped. Paths another worktree (or the project) also touched are
   marked; lockfiles and migrations get a louder hotspot strip. That strip warns —
   it does not lock Merge. A stopped agent's Merge refusal (dirty project, nothing
-  to merge, missing git) is shown before you click. Discard throws away a stopped
-  agent's worktree so Close can proceed; Merge, on a stopped agent, lands that
-  branch on the project.
+  to merge, missing git) is shown before you click. The checkpoint is that
+  worktree's `HEAD`; Discard reverts it so Close can proceed. Merge, on a
+  stopped agent, lands that branch on the project. There is no shadow-git.
 - **Per-agent worktrees** — an ACP agent starts in a clean checkout of `HEAD` at
   `<project>/.grokspace/worktrees/<session-id>/`, on a branch named
   `grokspace/<short-id>`. Grok panes and shells stay on the project folder. Graphs,
   steps, and memory still live under the project, via absolute environment variables.
   If isolation is skipped, a banner says the agent is on the project tree. Close
-  refuses while that tree is dirty; Discard force-removes it. Merge, on a
-  stopped agent, commits leftover files and lands the branch on the project.
+  refuses while that checkpoint is dirty; Discard reverts it (force-remove).
+  Merge, on a stopped agent, commits leftover files and lands the branch on
+  the project.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on
@@ -400,7 +401,8 @@ worktree.
 
 Stop keeps the tree so the Diff panel can still read it. Close runs
 `git worktree remove` without `--force` and refuses while the tree is dirty.
-Discard, on a stopped session only, force-removes it. Merge, also stopped-only,
+The checkpoint is this worktree's `HEAD`. Discard, on a stopped session only,
+reverts it (force-remove). There is no second snapshot store. Merge, also stopped-only,
 commits leftover files on the session branch (a dirty tree cannot be merged
 otherwise) and `git merge`s that branch into the project. Uncommitted files on
 the project block the merge; `.grokspace/` does not, because that folder is
@@ -474,7 +476,7 @@ isolates. Filling a nullable column that already exists needed no new migration.
   [#23](https://github.com/liarzpl/grokspace/pull/23).
 - **Phase 5 — Isolation and review.** ACP agents start in their own git
   worktree, the diff panel can read that tree, Close refuses to eat dirty work,
-  Discard throws it away, Merge commits leftover files and lands the branch on
+  Discard reverts that checkpoint, Merge commits leftover files and lands the branch on
   the project. An assigned card moves to `review` when the agent goes idle,
   except while the step list is still `proposed` (the Approve gate). A selected
   hunk can be sent back as a prompt, and a graph node's file path opens in the

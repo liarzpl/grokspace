@@ -1,6 +1,10 @@
 import { lazy, memo, Suspense, useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 
+import {
+  CHECKPOINT_EQUALS_HEAD,
+  DISCARD_REVERTS_CHECKPOINT,
+} from "../lib/checkpoint";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
@@ -189,9 +193,17 @@ const SessionChip = memo(function SessionChip({
             />
           )}
           {session.status === "stopped" && session.worktreePath !== null && (
-            <QuietButton label="Discard" onClick={() => void discardWorktree(session.id)} />
+            <QuietButton
+              label="Discard"
+              title={DISCARD_REVERTS_CHECKPOINT}
+              onClick={() => void discardWorktree(session.id)}
+            />
           )}
-          <QuietButton label="Close" onClick={() => void closeSession(session.id)} />
+          <QuietButton
+            label="Close"
+            title={session.worktreePath !== null ? CHECKPOINT_EQUALS_HEAD : undefined}
+            onClick={() => void closeSession(session.id)}
+          />
         </>
       )}
     </div>
