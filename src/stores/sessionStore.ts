@@ -148,9 +148,21 @@ interface SessionState {
   mergeReasons: Record<string, string | null>;
 
   loadSessions: (projectId: string) => Promise<void>;
-  createSession: (input: StartInput) => Promise<Session | null>;
+  createSession: (
+    input: StartInput,
+    options?: {
+      /**
+       * A later swarm role must not wipe the banner that named an earlier
+       * failure. Palette and the board both read this field.
+       */
+      keepError?: boolean;
+    },
+  ) => Promise<Session | null>;
   /** @deprecated Use `createSession`. Alias for one release. */
-  startSession: (input: StartInput) => Promise<Session | null>;
+  startSession: (
+    input: StartInput,
+    options?: { keepError?: boolean },
+  ) => Promise<Session | null>;
   /**
    * Starts one agent per role and tells each what it is for. Returns the roles that
    * would not start, so the caller can say which rather than only that some did.
@@ -289,14 +301,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  createSession: async (input) => {
+  createSession: async (input, options) => {
     // An agent has no pane, so there is no pane to mark busy or to switch back to
     // its terminal. Keying either on `null` would invent a pane called "null".
     const paneId = input.paneId;
     const busy = (value: boolean) =>
       paneId === null ? {} : { busyPanes: { ...get().busyPanes, [paneId]: value } };
 
-    set((state) => ({ ...busy(true), error: null, permissions: state.permissions }));
+    set((state) => ({
+      ...busy(true),
+      error: options?.keepError ? state.error : null,
+      permissions: state.permissions,
+    }));
     try {
       const session = await api.createSession(input);
       if (paneId !== null) {
@@ -320,25 +336,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  startSession: (input) => get().createSession(input),
+  startSession: (input, options) => get().createSession(input, options),
 
   launchSwarm: async (projectId, roles) => {
     const failed: string[] = [];
+    const reasons: string[] = [];
     for (const role of roles) {
       // Sequential, and one role's failure does not stop the rest: five roles are
       // five independent sessions, and throwing four away because the fifth could
       // not start would be the wrong trade. They are agents rather than terminals
       // because five of them do not fit in a six-pane grid, and because an agent is
       // the kind that can report what it is doing.
-      const session = await get().createSession({
-        projectId,
-        paneId: null,
-        kind: "agent",
-        role: role.name,
-        ...FALLBACK_PTY_SIZE,
-      });
+      const session = await get().createSession(
+        {
+          projectId,
+          paneId: null,
+          kind: "agent",
+          role: role.name,
+          ...FALLBACK_PTY_SIZE,
+        },
+        { keepError: true },
+      );
       if (session === null) {
         failed.push(role.name);
+        reasons.push(`${role.name}: ${get().error ?? "could not start"}`);
         continue;
       }
 
@@ -346,10 +367,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         await api.promptSession(session.id, briefPrompt(role));
       } catch (error) {
         // Started but never briefed, which is worse than not started: it would sit
-        // there looking ready while knowing nothing about its job.
-        set({ error: errorMessage(error) });
+        // there looking ready while knowing nothing about its job. Close it so a
+        // retry can create the role again instead of seeing it already in play.
+        const reason = errorMessage(error);
+        await get().closeSession(session.id);
         failed.push(role.name);
+        reasons.push(`${role.name}: ${reason}`);
       }
+    }
+    if (failed.length > 0) {
+      set({ error: reasons.join(" · ") });
     }
     return failed;
   },
