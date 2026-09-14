@@ -31,9 +31,9 @@ the memory is genuinely empty, not that something went wrong.
 
 If `$GROKSPACE_PROJECT_DIR/AGENTS.md` exists, read it in addition to
 `$GROKSPACE_MEMORY_FILE`. That file is committed project instruction; this
-memory is the human overlay `.gitignore` keeps out of history. Memory wins on
-conflict. Do not paste `AGENTS.md` into a brief — name the path. Pasting an
-uncapped file would charge every later session for a copy.
+memory is the human overlay `.gitignore` keeps out of history.
+Memory wins on conflict. Do not paste `AGENTS.md` into a brief — name the
+path. Pasting an uncapped file would charge every later session for a copy.
 
 ## When to read it
 
