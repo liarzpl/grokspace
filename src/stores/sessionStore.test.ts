@@ -625,17 +625,44 @@ describe("launchSwarm", () => {
 
     expect(failed).toEqual(["Planner"]);
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["s-reviewer"]);
+    // A later successful start must not wipe the banner that named the failure.
+    expect(useSessionStore.getState().error).toBe("Planner: could not find `grok` on PATH");
   });
 
   it("counts a session that started but could not be briefed as failed", async () => {
     // Worse than not starting: it would sit there looking ready and knowing nothing.
     createSession.mockResolvedValue(session({ id: "s-planner", kind: "agent", paneId: null }));
     promptSession.mockRejectedValue("that session is no longer running");
+    closeSession.mockResolvedValue(undefined);
 
     const failed = await useSessionStore.getState().launchSwarm("p1", [roles[0]!]);
 
     expect(failed).toEqual(["Planner"]);
-    expect(useSessionStore.getState().error).toBe("that session is no longer running");
+    expect(closeSession).toHaveBeenCalledWith("s-planner");
+    expect(useSessionStore.getState().sessions).toEqual([]);
+    expect(useSessionStore.getState().error).toBe("Planner: that session is no longer running");
+  });
+
+  it("joins every failed role onto one banner so a later start cannot hide the first", async () => {
+    createSession.mockImplementation((input: { role?: string }) =>
+      input.role === "Planner"
+        ? Promise.reject("could not find `grok` on PATH")
+        : Promise.resolve(session({ id: `s-${input.role}`, kind: "agent", paneId: null })),
+    );
+    promptSession.mockImplementation((id: string) =>
+      id === "s-Reviewer"
+        ? Promise.reject("that session is no longer running")
+        : Promise.resolve(undefined),
+    );
+    closeSession.mockResolvedValue(undefined);
+
+    const failed = await useSessionStore.getState().launchSwarm("p1", roles);
+
+    expect(failed).toEqual(["Planner", "Reviewer"]);
+    expect(useSessionStore.getState().sessions).toEqual([]);
+    expect(useSessionStore.getState().error).toBe(
+      "Planner: could not find `grok` on PATH · Reviewer: that session is no longer running",
+    );
   });
 });
 

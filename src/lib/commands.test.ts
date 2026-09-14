@@ -373,6 +373,18 @@ describe("running a command", () => {
     expect(promptSession).not.toHaveBeenCalled();
   });
 
+  it("surfaces swarm failures from the palette instead of swallowing them", async () => {
+    createSession.mockRejectedValue("could not find `grok` on PATH");
+
+    commands(project()).find((command) => command.id === "launch-swarm")?.run();
+    await vi.waitFor(() =>
+      expect(useSessionStore.getState().error).toContain("Planner"),
+    );
+
+    expect(useSessionStore.getState().error).toContain("could not find `grok` on PATH");
+    expect(useSessionStore.getState().error).toContain("Reviewer");
+  });
+
   it("installs graph, memory, and steps together, and names a failure without stopping", async () => {
     const ok = { path: "/h/.grok/skills/x", installed: true, current: true };
     installSkill.mockImplementation(async (id: string) => {

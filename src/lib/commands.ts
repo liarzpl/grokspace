@@ -181,7 +181,17 @@ export function commands(project: Project | null): Command[] {
     group: "Session",
     run: () => {
       useUiStore.getState().closePalette();
-      void useSessionStore.getState().launchSwarm(project.id, ROLES);
+      void (async () => {
+        const failed = await useSessionStore.getState().launchSwarm(project.id, ROLES);
+        if (failed.length === 0) return;
+        // launchSwarm writes the combined banner. If a later start still wiped
+        // it, name the roles here so ⌘K is not a silent partial swarm.
+        if (useSessionStore.getState().error === null) {
+          useSessionStore.setState({
+            error: `Could not start ${failed.join(", ")}.`,
+          });
+        }
+      })();
     },
   });
 
