@@ -61,6 +61,7 @@
     "allow-read-session-graph",
     "allow-list-session-graphs",
     "allow-watch-project-graphs",
+    "allow-read-session-permission-heat",
     "allow-read-project-edges",
     "allow-list-session-steps",
     "allow-list-project-steps",

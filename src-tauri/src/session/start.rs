@@ -307,6 +307,8 @@ fn acp_callbacks<R: Runtime>(
                     .answer_permission(&permission_id, request.id, allow, None)
                     .is_ok()
                 {
+                    let mut recorded = false;
+                    let mut doing = None;
                     if let Ok(conn) = state.db.lock() {
                         if let Ok(session) = get(&conn, &permission_id) {
                             crate::ledger::record_answer(
@@ -317,7 +319,20 @@ fn acp_callbacks<R: Runtime>(
                                 allow,
                                 None,
                             );
+                            doing = crate::permission_heat::doing_step_id(&conn, &permission_id);
+                            recorded = true;
                         }
+                    }
+                    if recorded {
+                        crate::permission_heat::record_answer(
+                            project_path.as_path(),
+                            &permission_id,
+                            request.id,
+                            &request.summary,
+                            allow,
+                            None,
+                            doing.as_deref(),
+                        );
                     }
                     return;
                 }

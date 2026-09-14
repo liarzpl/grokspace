@@ -18,9 +18,20 @@ vi.mock("@xyflow/react", () => ({
 
 const reopenSessionSteps = vi.fn();
 
+const readSessionPermissionHeat = vi.fn().mockResolvedValue({
+  path: "/p/.grokspace/graphs/s1.permissions.json",
+  asks: [
+    { requestId: 1, summary: "Edit a", chip: "allow_once", stepId: "a" },
+    { requestId: 2, summary: "Edit b", chip: "deny", stepId: null },
+  ],
+});
+
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-  return { errorMessage: actual.errorMessage, api: { skillStatus: vi.fn(), reopenSessionSteps } };
+  return {
+    errorMessage: actual.errorMessage,
+    api: { skillStatus: vi.fn(), reopenSessionSteps, readSessionPermissionHeat },
+  };
 });
 
 const { default: GraphVisualizer } = await import("./GraphVisualizer");
@@ -119,5 +130,14 @@ describe("GraphVisualizer title stamp", () => {
       expect(screen.getByRole("option", { name: "Renamed A, Running" })).toBeInTheDocument(),
     );
     expect(screen.queryByText(/Reopen Spec to revise the plan/)).not.toBeInTheDocument();
+  });
+
+  it("shows a count badge and does not colour it as trust", async () => {
+    seed(graph("A", "B"), "proposed");
+    render(<GraphVisualizer session={session()} compact />);
+    const badge = await screen.findByTestId("permission-heat-badge");
+    expect(badge).toHaveTextContent("2 permission answers");
+    expect(badge.className).not.toMatch(/text-success|text-danger|text-warning|bg-success|bg-danger/);
+    expect(readSessionPermissionHeat).toHaveBeenCalledWith("s1");
   });
 });

@@ -201,6 +201,7 @@ pub(crate) fn close_with(
     // closes a session too, so leaving it meant every restart added one.
     if let Some(path) = project_path {
         graph::remove_graph(Path::new(&path), id);
+        crate::permission_heat::remove(Path::new(&path), id);
         steps::remove_steps_file(Path::new(&path), id);
     }
 

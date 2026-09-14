@@ -275,6 +275,7 @@ src-tauri/
     memory.rs     Shared project memory, and the file agents read it from
     skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
+    permission_heat.rs  Host `<id>.permissions.json` sidecar; Graph count badge
     edges.rs      Project `.grokspace/edges.json`; Graph tab overlay, not a merge
     steps/        Session steps: watch, ingest, approve
       store.rs    Types, paths, SQLite CRUD
@@ -382,6 +383,11 @@ Hand-offs live in `<project>/.grokspace/edges.json` as
 `{ fromSession, fromNode, toSession, kind }` (`delegates` | `blocks` | `reviews`).
 The Graph tab overlays rows that touch the selected session. Per-session graph
 files stay one plan each; they are not merged.
+
+Answered permission chips are also written to
+`<project>/.grokspace/graphs/<session-id>.permissions.json` (`requestId`,
+`summary`, `chip`, optional `stepId`). The Graph tab shows a count badge, not a
+trust colour. The agent's `$GROKSPACE_GRAPH_FILE` is never rewritten.
 
 ### How session steps work
 

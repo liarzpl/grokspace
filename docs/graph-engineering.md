@@ -62,7 +62,8 @@ file. Seven decisions in that path exist for a reason:
   still read; it is only no longer reported live.
 - **The watch is non-recursive, and only `.json` files directly in the directory
   count.** A run's artifacts live under the same directory and would otherwise be
-  most of the events. Put artifacts in a subdirectory.
+  most of the events. Put artifacts in a subdirectory. Host
+  `<session-id>.permissions.json` is ignored — it is not a session graph.
 - **Existence decides whether a file was removed,** not the event kind. A writer
   renaming a temporary file over the target produces different events on every
   platform.

@@ -10,7 +10,7 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 
-import { errorMessage } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import {
   graphTitleStampFor,
   inferDirection,
@@ -29,10 +29,12 @@ import {
   openArtifactInFinder,
 } from "../lib/graphArtifact";
 import { homeRelative } from "../lib/paths";
+import { heatBadgeLabel } from "../lib/permissionHeat";
 import { graphNodeA11yLabel, nodeStatusLabel } from "../lib/statusText";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
+import { useUiStore } from "../stores/uiStore";
 import type { Session } from "../types";
 import GraphNodeCard, {
   NODE_HEIGHT,
@@ -61,6 +63,41 @@ const nodeTypes = { graphNode: GraphNodeCard };
  * rather than a path keeps this correct for whichever session receives it.
  * The prompt itself lives in `lib/graphAsk.ts` so the ACP path can share it.
  */
+
+function PermissionHeatBadge({ sessionId }: { sessionId: string }) {
+  const pendingKey = useUiStore((state) =>
+    (state.permissions[sessionId] ?? []).map((request) => request.requestId).join("\0"),
+  );
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.readSessionPermissionHeat(sessionId).then(
+      (snapshot) => {
+        if (!cancelled) setCount(snapshot.asks.length);
+      },
+      () => {
+        if (!cancelled) setCount(0);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, pendingKey]);
+
+  const label = heatBadgeLabel(count);
+  if (label === "") return null;
+  return (
+    <p
+      role="status"
+      data-testid="permission-heat-badge"
+      title="Host permission answers for this session. Not a trust score."
+      className="shrink-0 border-b border-line bg-panel px-3 py-1 font-mono text-[11px] text-ink-faint"
+    >
+      {label}
+    </p>
+  );
+}
 
 function Centred({ children }: { children: React.ReactNode }) {
   return (
@@ -522,11 +559,13 @@ export default function GraphVisualizer({
   }, [sessionId]);
 
   if (!session) return <NoSession />;
-  if (entry.error !== null) return <UnreadableGraph error={entry.error} path={entry.path} />;
-  if (locked.graph === null) {
-    // Saying "no graph" before the first read has finished would be a guess.
-    if (entry.isLoading) {
-      return (
+
+  // Saying "no graph" before the first read has finished would be a guess.
+  const body =
+    entry.error !== null ? (
+      <UnreadableGraph error={entry.error} path={entry.path} />
+    ) : locked.graph === null ? (
+      entry.isLoading ? (
         <div
           className="flex min-h-0 flex-1 items-center justify-center"
           role="status"
@@ -535,20 +574,25 @@ export default function GraphVisualizer({
         >
           <p className="text-[12px] text-ink-muted">Reading graph…</p>
         </div>
-      );
-    }
-    return <AwaitingGraph session={session} path={entry.path} />;
-  }
+      ) : (
+        <AwaitingGraph session={session} path={entry.path} />
+      )
+    ) : (
+      <GraphCanvas
+        graph={locked.graph}
+        warnings={entry.warnings}
+        compact={compact}
+        session={session}
+        revisedTitles={locked.revisedTitles}
+        onReopenSpec={reopenSpec}
+      />
+    );
 
   return (
-    <GraphCanvas
-      graph={locked.graph}
-      warnings={entry.warnings}
-      compact={compact}
-      session={session}
-      revisedTitles={locked.revisedTitles}
-      onReopenSpec={reopenSpec}
-    />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <PermissionHeatBadge sessionId={session.id} />
+      {body}
+    </div>
   );
 }
 

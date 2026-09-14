@@ -10,6 +10,7 @@ mod handoff;
 mod ledger;
 mod log;
 mod memory;
+mod permission_heat;
 mod playbook;
 mod policy;
 mod program;
@@ -151,6 +152,7 @@ pub fn run() {
             graph::read_session_graph,
             graph::list_session_graphs,
             graph::watch_project_graphs,
+            permission_heat::read_session_permission_heat,
             edges::read_project_edges,
             steps::list_session_steps,
             steps::list_project_steps,
