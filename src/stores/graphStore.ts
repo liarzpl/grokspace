@@ -50,7 +50,7 @@ export interface GraphEntry {
   isLoading: boolean;
 }
 
-interface GraphState {
+interface GraphStoreState {
   bySession: Record<string, GraphEntry>;
   /**
    * Whether `grok` has been taught to write these files. Shared rather than
@@ -88,7 +88,7 @@ const EMPTY: GraphEntry = {
 /** Timers live outside the store: they are plumbing, not state to render. */
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
 
-export const useGraphStore = create<GraphState>((set, get) => {
+export const useGraphStore = create<GraphStoreState>((set, get) => {
   const write = (sessionId: string, changes: Partial<GraphEntry>) =>
     set((state) => {
       // A session forgotten while its read was in flight must not come back.

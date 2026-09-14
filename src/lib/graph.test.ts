@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { inferDirection, parseGraph, statusTally } from "./graph";
+import { inferDirection, parseGraph, statusTally, type GraphDocState } from "./graph";
 import { SAMPLE_GRAPH } from "./graphFixture";
 
 /** Minimal well-formed document; individual tests override the parts they care about. */
@@ -56,6 +56,8 @@ describe("parseGraph", () => {
     expect(drafting?.data.artifactPath).toBe(".grokspace/graphs/artifacts/drafts/");
     expect(graph.state?.currentLayer).toBe("ideas");
     expect(graph.state?.survivors).toEqual(["idea-3", "idea-7", "idea-9"]);
+    const docState: GraphDocState = graph.state ?? {};
+    expect(docState.survivors).toEqual(["idea-3", "idea-7", "idea-9"]);
   });
 });
 
