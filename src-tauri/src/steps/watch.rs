@@ -11,7 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use crate::error::{Error, Result};
 use crate::{project, session, AppState};
 
-use super::ingest::{ingest_from_disk, ingest_if_none};
+use super::ingest::{ingest_if_none_json, ingest_json, read_steps_file};
 use super::store::ensure_steps_dir;
 
 const CHANGE_EVENT: &str = "steps-changed";
@@ -75,13 +75,26 @@ impl StepWatchers {
         let path = project_path.to_path_buf();
         let watcher = watch_dirs(&existing, move |session_id| {
             let state = app.state::<AppState>();
-            let mut live = false;
-            if let Ok(conn) = state.db.lock() {
-                if session::get(&conn, &session_id).is_ok() {
-                    live = true;
-                    let _ = ingest_from_disk(&conn, &path, &session_id);
-                }
+            let live = match state.db.lock() {
+                Ok(conn) => session::get(&conn, &session_id).is_ok(),
+                Err(_) => false,
+            };
+            if !live {
+                return;
             }
+            // File I/O stays off the global SQLite mutex (PERF-005).
+            let json = read_steps_file(&path, &session_id);
+            let live = match state.db.lock() {
+                Ok(conn) => {
+                    if session::get(&conn, &session_id).is_ok() {
+                        let _ = ingest_json(&conn, &session_id, json.as_deref());
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Err(_) => false,
+            };
             // A close deletes the row and then the file. Emitting for a gone
             // session would make the frontend re-read it and banner SessionNotFound.
             if live {
@@ -125,10 +138,14 @@ pub(crate) fn watch_project_steps<R: Runtime>(
     // Files written while nothing was watching have to land in SQLite too, or the
     // panel would sit empty until the next save. A list already in SQLite is left
     // alone: re-folding the file would restore agent rows the user had deleted.
-    if let Ok(conn) = state.db.lock() {
-        let sessions = session::list(&conn, &project_id).unwrap_or_default();
-        for live in sessions {
-            let _ = ingest_if_none(&conn, path, &live.id);
+    let sessions = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        session::list(&conn, &project_id).unwrap_or_default()
+    };
+    for live in sessions {
+        let json = read_steps_file(path, &live.id);
+        if let Ok(conn) = state.db.lock() {
+            let _ = ingest_if_none_json(&conn, &live.id, json.as_deref());
         }
     }
     Ok(watched)

@@ -4,6 +4,7 @@
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::Mutex;
 use tauri::State;
 
 use crate::db::now_ms;
@@ -255,16 +256,17 @@ pub fn review_assigned(conn: &Connection, session_id: &str) -> Result<Vec<Task>>
 /// the agent skipped the gate) and `approved` (the work after Approve) are
 /// the idles that mean the turn is over.
 ///
-/// The steps watcher and this callback share one db lock. The agent writes the
-/// file and then goes idle, so the file is often on disk while SQLite still
-/// says `none`. Fold it here before the phase check, or the gate is skipped.
-/// Same gate as watch-start: a proposed list may already be user-edited.
-pub fn review_on_idle(
+/// The agent writes the file and then goes idle, so the file is often on disk
+/// while SQLite still says `none`. Fold the already-read JSON here before the
+/// phase check, or the gate is skipped. Same gate as watch-start: a proposed
+/// list may already be user-edited. The caller reads the file **outside** the
+/// db mutex (PERF-005).
+pub fn review_idle(
     conn: &Connection,
     session_id: &str,
-    project_path: &Path,
+    steps_json: Option<&str>,
 ) -> Result<Vec<Task>> {
-    let _ = steps::ingest_if_none(conn, project_path, session_id);
+    let _ = steps::ingest_if_none_json(conn, session_id, steps_json);
     let phase = match steps::snapshot(conn, session_id) {
         Ok(snapshot) => snapshot.phase,
         Err(Error::SessionNotFound(_)) => return Ok(Vec::new()),
@@ -274,6 +276,18 @@ pub fn review_on_idle(
         return Ok(Vec::new());
     }
     review_assigned(conn, session_id)
+}
+
+/// Live idle path: read the steps file **then** review under the db mutex
+/// (PERF-005). `review_idle` stays the SQL-only core.
+pub fn review_on_idle(
+    db: &Mutex<Connection>,
+    session_id: &str,
+    project_path: &Path,
+) -> Result<Vec<Task>> {
+    let json = steps::read_steps_file(project_path, session_id);
+    let conn = db.lock().map_err(|_| Error::StatePoisoned)?;
+    review_idle(&conn, session_id, json.as_deref())
 }
 
 /// Puts a task back in the backlog with no session.
@@ -608,8 +622,9 @@ mod tests {
     fn idle_review_moves_in_progress_cards_when_there_is_no_step_gate() {
         let (conn, project_id) = fixture();
         let (session_id, task_id) = agent_on_a_task(&conn, &project_id);
+        let db = Mutex::new(conn);
 
-        let moved = review_on_idle(&conn, &session_id, no_steps()).unwrap();
+        let moved = review_on_idle(&db, &session_id, no_steps()).unwrap();
 
         assert_eq!(moved.len(), 1);
         assert_eq!(moved[0].id, task_id);
@@ -631,8 +646,10 @@ mod tests {
             r#"{"steps":[{"title":"Write the file"}]}"#,
         )
         .unwrap();
+        let db = Mutex::new(conn);
 
-        let moved = review_on_idle(&conn, &session_id, no_steps()).unwrap();
+        let moved = review_on_idle(&db, &session_id, no_steps()).unwrap();
+        let conn = db.into_inner().expect("db mutex");
 
         assert!(moved.is_empty(), "the gate is still open");
         assert_eq!(get(&conn, &task_id).unwrap().status, TaskStatus::InProgress);
@@ -650,8 +667,9 @@ mod tests {
         .unwrap();
         session::set_status(&conn, &session_id, session::SessionStatus::Idle, None).unwrap();
         crate::steps::approve(&conn, &session_id).unwrap();
+        let db = Mutex::new(conn);
 
-        let moved = review_on_idle(&conn, &session_id, no_steps()).unwrap();
+        let moved = review_on_idle(&db, &session_id, no_steps()).unwrap();
 
         assert_eq!(moved.len(), 1);
         assert_eq!(moved[0].id, task_id);
@@ -663,8 +681,10 @@ mod tests {
         let (conn, project_id) = fixture();
         let (first, _) = agent_on_a_task(&conn, &project_id);
         let (second, other_task) = agent_on_a_task(&conn, &project_id);
+        let db = Mutex::new(conn);
 
-        review_on_idle(&conn, &first, no_steps()).unwrap();
+        review_on_idle(&db, &first, no_steps()).unwrap();
+        let conn = db.into_inner().expect("db mutex");
 
         assert_eq!(
             get(&conn, &other_task).unwrap().status,
@@ -682,9 +702,8 @@ mod tests {
     #[test]
     fn idle_review_on_a_missing_session_moves_nothing() {
         let (conn, _project_id) = fixture();
-        assert!(review_on_idle(&conn, "nope", no_steps())
-            .unwrap()
-            .is_empty());
+        let db = Mutex::new(conn);
+        assert!(review_on_idle(&db, "nope", no_steps()).unwrap().is_empty());
     }
 
     #[test]
@@ -713,8 +732,10 @@ mod tests {
             r#"{"steps":[{"id":"a","title":"Keep me"},{"id":"b","title":"Delete me"}]}"#,
         )
         .unwrap();
+        let db = Mutex::new(conn);
 
-        let moved = review_on_idle(&conn, &session_id, dir.path()).unwrap();
+        let moved = review_on_idle(&db, &session_id, dir.path()).unwrap();
+        let conn = db.into_inner().expect("db mutex");
 
         assert!(moved.is_empty(), "a proposed list still holds the gate");
         let snap = crate::steps::snapshot(&conn, &session_id).unwrap();
@@ -741,8 +762,10 @@ mod tests {
             r#"{"steps":[{"title":"Write the file"}]}"#,
         )
         .unwrap();
+        let db = Mutex::new(conn);
 
-        let moved = review_on_idle(&conn, &session_id, dir.path()).unwrap();
+        let moved = review_on_idle(&db, &session_id, dir.path()).unwrap();
+        let conn = db.into_inner().expect("db mutex");
 
         assert!(moved.is_empty(), "the gate is on disk even if SQLite lags");
         assert_eq!(get(&conn, &task_id).unwrap().status, TaskStatus::InProgress);
