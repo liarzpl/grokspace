@@ -1,4 +1,3 @@
-import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
@@ -28,7 +27,6 @@ interface ProjectState {
 
   loadProjects: () => Promise<void>;
   pickAndOpenProject: () => Promise<Project | null>;
-  openProjectAtPath: (path: string) => Promise<Project | null>;
   selectProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
   setLayout: (id: string, layout: PaneLayout) => Promise<void>;
@@ -67,19 +65,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   pickAndOpenProject: async () => {
-    const selected = await openFolderDialog({
-      directory: true,
-      multiple: false,
-      title: "Open a project folder",
-    });
-    if (typeof selected !== "string") return null;
-    return get().openProjectAtPath(selected);
-  },
-
-  openProjectAtPath: async (path) => {
     set({ isOpening: true, error: null });
     try {
-      const project = await api.openProject(path);
+      const project = await api.openProject();
+      if (!project) {
+        set({ isOpening: false });
+        return null;
+      }
       set((state) => ({
         projects: replaceProject(state.projects, project),
         activeProjectId: project.id,

@@ -37,8 +37,8 @@ export function taskDescriptionPatch(description: string | undefined): string | 
 export const api = {
   listProjects: (): Promise<Project[]> => invoke<Project[]>("list_projects"),
 
-  /** Registers a folder as a project, or refreshes it if already known. */
-  openProject: (path: string): Promise<Project> => invoke<Project>("open_project", { path }),
+  /** Native picker only — the webview cannot supply a path. Cancel is `null`. */
+  openProject: (): Promise<Project | null> => invoke<Project | null>("open_project"),
 
   updateProject: (
     id: string,
