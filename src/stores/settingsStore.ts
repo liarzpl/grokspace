@@ -1,7 +1,13 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { DEFAULT_LAYOUT, type Settings } from "../types";
+import {
+  DEFAULT_DISPATCH,
+  DEFAULT_LAYOUT,
+  DEFAULT_TAB,
+  type SettingValue,
+  type Settings,
+} from "../types";
 
 /**
  * The app's preferences, as opposed to a project's.
@@ -13,8 +19,8 @@ import { DEFAULT_LAYOUT, type Settings } from "../types";
 
 const DEFAULTS: Settings = {
   defaultLayout: DEFAULT_LAYOUT,
-  openingTab: "terminals",
-  defaultDispatch: "pane",
+  openingTab: DEFAULT_TAB,
+  defaultDispatch: DEFAULT_DISPATCH,
 };
 
 interface SettingsState {
@@ -23,7 +29,7 @@ interface SettingsState {
 
   loadSettings: () => Promise<Settings>;
   /** Writes one preference. The backend returns them all, so this takes its word. */
-  setSetting: (key: keyof Settings, value: string) => Promise<void>;
+  setSetting: <K extends keyof Settings>(key: K, value: SettingValue<K>) => Promise<void>;
   clearError: () => void;
 }
 

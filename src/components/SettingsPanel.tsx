@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 
 import { subscribeEscape } from "../lib/shortcuts";
-import { TABS, useUiStore } from "../stores/uiStore";
+import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { PANE_LAYOUTS, type Settings } from "../types";
+import { DISPATCH_TARGETS, PANE_LAYOUTS, WORKSPACE_TABS, type Settings } from "../types";
 import { Choice } from "./ui";
 
 /**
@@ -65,7 +65,7 @@ export default function SettingsPanel() {
           <Choice
             label="Open on"
             hint="Somebody who works from the board should not click past the terminals"
-            options={TABS.map((tab) => tab.id)}
+            options={WORKSPACE_TABS}
             value={settings.openingTab}
             onChoose={(tab) => void setSetting("openingTab", tab)}
           />
@@ -73,7 +73,7 @@ export default function SettingsPanel() {
           <Choice
             label="Dispatch reaches for"
             hint="Which new session is offered first when a task is handed out"
-            options={["pane", "agent"] as const}
+            options={DISPATCH_TARGETS}
             value={settings.defaultDispatch}
             onChoose={(target) => void setSetting("defaultDispatch", target)}
           />

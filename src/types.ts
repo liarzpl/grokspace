@@ -198,6 +198,23 @@ export type DiffState =
   | { state: "changed"; branch: string | null; files: ChangedFile[]; overlaps?: PathOverlap[] };
 
 /**
+ * The panels the workspace switches between while working. Settings' opening tab
+ * is this same list: a preference that named a sixth panel would be a control
+ * that cannot open anything.
+ */
+export const WORKSPACE_TABS = ["terminals", "graph", "tasks", "memory", "diff"] as const;
+export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
+export type OpeningTab = WorkspaceTab;
+
+export const DEFAULT_TAB: OpeningTab = "terminals";
+
+/** Which new session a dispatch reaches for first. */
+export const DISPATCH_TARGETS = ["pane", "agent"] as const;
+export type DispatchTarget = (typeof DISPATCH_TARGETS)[number];
+
+export const DEFAULT_DISPATCH: DispatchTarget = "pane";
+
+/**
  * Preferences that belong to the app rather than to one project. Missing keys read
  * as their defaults, so an older database needs no backfill.
  */
@@ -205,15 +222,18 @@ export interface Settings {
   /** The pane layout a project that has never chosen one gets. */
   defaultLayout: PaneLayout;
   /** The panel the workspace opens on. */
-  openingTab: "terminals" | "graph" | "tasks" | "memory" | "diff";
+  openingTab: OpeningTab;
   /**
    * Which new session a dispatch reaches for first. Only the order of the offer
    * changes, so nothing is chosen on anyone's behalf — but it decides which chip is
    * nearest the pointer, and for someone who always dispatches the same way that is
    * the difference between one click and seven.
    */
-  defaultDispatch: "pane" | "agent";
+  defaultDispatch: DispatchTarget;
 }
+
+/** The value `writeSetting` will accept for a given key. */
+export type SettingValue<K extends keyof Settings> = Settings[K];
 
 /** Whether the skill that teaches `grok` to write graph files is in place. */
 export interface SkillStatus {

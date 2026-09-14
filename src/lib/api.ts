@@ -201,8 +201,10 @@ export const api = {
   readSettings: (): Promise<Settings> => invoke<Settings>("read_settings"),
 
   /** Writes one preference and returns them all, since the backend fills defaults. */
-  writeSetting: (key: string, value: string): Promise<Settings> =>
-    invoke<Settings>("write_setting", { key, value }),
+  writeSetting: <K extends keyof Settings>(
+    key: K,
+    value: Settings[K],
+  ): Promise<Settings> => invoke<Settings>("write_setting", { key, value }),
 
   listMemory: (projectId: string): Promise<MemoryEntry[]> =>
     invoke<MemoryEntry[]>("list_memory", { projectId }),

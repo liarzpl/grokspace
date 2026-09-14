@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useUiStore } from "./uiStore";
+import { WORKSPACE_TABS } from "../types";
+import { TABS, useUiStore } from "./uiStore";
 
 const initial = useUiStore.getState();
 
 beforeEach(() => {
   useUiStore.setState(initial, true);
+});
+
+describe("TABS", () => {
+  it("is a label map over WorkspaceTab, so openingTab cannot name a sixth panel", () => {
+    expect(TABS.map((tab) => tab.id)).toEqual([...WORKSPACE_TABS]);
+  });
 });
 
 describe("togglePalette", () => {
