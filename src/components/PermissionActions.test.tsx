@@ -215,4 +215,30 @@ describe("PermissionActions", () => {
       screen.queryByRole("button", { name: "Also this session: Edit src/**" }),
     ).not.toBeInTheDocument();
   });
+
+  it("shows a Reviewer deny suggestion and does not auto-answer", () => {
+    const onAnswer = vi.fn();
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "s1",
+          paneId: null,
+          kind: "agent",
+          role: "Reviewer",
+          status: "needs_input",
+        }),
+      ],
+    });
+
+    render(<PermissionActions request={request} sessionId="s1" onAnswer={onAnswer} />);
+
+    expect(screen.getByTestId("permission-role-deny")).toHaveTextContent(
+      "Reviewer profile suggests Deny",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Also this session: Edit src/**" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
 });

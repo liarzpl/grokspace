@@ -866,6 +866,22 @@ describe("permission mode", () => {
     expect(matchSessionLease("s1", "Edit src/lib/permissions.ts")?.prefix).toBe("src/");
   });
 
+  it("acceptEdits does not auto-allow a Reviewer project-tree write", () => {
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null, role: "Reviewer" })],
+      permissionModes: { s1: "acceptEdits" },
+    });
+
+    useSessionStore.getState().askPermission("s1", {
+      requestId: 9,
+      summary: "Edit src/auth.ts",
+      options: [once, { optionId: "reject", name: "Reject", kind: "reject_once" }],
+    });
+
+    expect(answerSessionPermission).not.toHaveBeenCalled();
+    expect(useUiStore.getState().permissions["s1"]?.map((item) => item.requestId)).toEqual([9]);
+  });
+
   it("acceptEdits still asks for Bash and Read", () => {
     useSessionStore.setState({
       sessions: [session({ kind: "agent", paneId: null })],

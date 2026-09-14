@@ -8,7 +8,7 @@
  */
 
 import type { PermissionRequest, Session } from "../types";
-import { ALLOW_ONCE } from "./permissions";
+import { ALLOW_ONCE, roleSuggestsDeny } from "./permissions";
 
 /** One lease: this session, this file tool, this path prefix (or exact file). */
 export interface SessionLease {
@@ -38,7 +38,17 @@ export function syncSessionLeases(
   }
 }
 
-export function grantSessionLease(sessionId: string, lease: SessionLease): boolean {
+export function grantSessionLease(
+  sessionId: string,
+  lease: SessionLease,
+  role?: string | null,
+): boolean {
+  if (role !== undefined && role !== null && role !== "") {
+    const sample = lease.prefix.endsWith("/")
+      ? `${lease.tool} ${lease.prefix}file`
+      : `${lease.tool} ${lease.prefix}`;
+    if (roleSuggestsDeny(role, sample)) return false;
+  }
   if (isBashTool(lease.tool) || isTooWide(lease.prefix)) return false;
   if (!FILE_TOOLS.has(lease.tool.toLowerCase())) return false;
   const next: SessionLease = {
@@ -55,7 +65,8 @@ export function grantSessionLease(sessionId: string, lease: SessionLease): boole
  * Scope the human can opt into for this summary, or null when it would be
  * Bash, `*`, or otherwise too wide / not a file path.
  */
-export function proposedLease(summary: string): SessionLease | null {
+export function proposedLease(summary: string, role?: string | null): SessionLease | null {
+  if (roleSuggestsDeny(role, summary)) return null;
   const call = parseCall(summary);
   if (call === null) return null;
   if (isBashTool(call.tool) || !FILE_TOOLS.has(call.tool.toLowerCase())) {
@@ -75,22 +86,29 @@ export function leaseLabel(lease: SessionLease): string {
 export function matchSessionLease(
   sessionId: string,
   summary: string,
-  sessions?: readonly Pick<Session, "id" | "status">[],
+  sessions?: readonly (Pick<Session, "id" | "status"> & { role?: string | null })[],
 ): SessionLease | undefined {
+  let role: string | null | undefined;
   if (sessions !== undefined) {
     const row = sessions.find((session) => session.id === sessionId);
     if (row === undefined || row.status === "stopped") return undefined;
+    role = row.role;
   }
   const held = leases.get(sessionId);
   if (held === undefined) return undefined;
-  return held.find((lease) => leaseMatches(lease, summary));
+  return held.find((lease) => leaseMatches(lease, summary, role));
 }
 
 export function leaseCanAutoAnswer(request: PermissionRequest): boolean {
   return (request.options ?? []).some((option) => option.kind === ALLOW_ONCE);
 }
 
-export function leaseMatches(lease: SessionLease, summary: string): boolean {
+export function leaseMatches(
+  lease: SessionLease,
+  summary: string,
+  role?: string | null,
+): boolean {
+  if (roleSuggestsDeny(role, summary)) return false;
   const call = parseCall(summary);
   if (call === null) return false;
   if (call.tool.toLowerCase() !== lease.tool.toLowerCase()) return false;

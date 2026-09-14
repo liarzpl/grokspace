@@ -98,6 +98,10 @@ replays the last 20). Nothing is uploaded.
   Palette **Continue this job** is Restart-shaped (new GrokSpace id, same
   worktree, new ACP handshake, never `--resume`) with a host brief from the
   previous graph path, step titles, and that same excerpt cap.
+  Each named role has a closed capability profile (Planner/Scout: read plus graph,
+  steps, and memory paths; Coder: worktree write; Reviewer/Tester: read and tests,
+  no merge or project-tree write). The brief states it. A matching permission shows
+  a Deny suggestion; the host does not auto-Deny an ask already on screen.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
   launches, Hand to Coder/Reviewer, Continue this job for a stopped agent, Export pack for a session, project switches, skill installs, Merge for a stopped isolated
   agent, Allow first wait, and Jump to first Needs you from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a

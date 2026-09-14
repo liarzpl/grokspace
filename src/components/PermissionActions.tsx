@@ -9,7 +9,12 @@ import {
   proposedLease,
   syncSessionLeases,
 } from "../lib/permissionLease";
-import { ALLOW_ONCE, REJECT_ONCE, permissionChips } from "../lib/permissions";
+import {
+  ALLOW_ONCE,
+  REJECT_ONCE,
+  permissionChips,
+  roleDenySuggestion,
+} from "../lib/permissions";
 import { loadedOverlapPaths, permissionWhyFrom } from "../lib/permissionWhy";
 import { shortcutLabel } from "../lib/shortcuts";
 import { useDiffStore } from "../stores/diffStore";
@@ -59,13 +64,15 @@ export function PermissionActions({
         );
 
   const canOnce = leaseCanAutoAnswer(request);
+  const role = session?.role ?? null;
+  const denySuggestion = roleDenySuggestion(role, request.summary);
   const matched =
     sessionId !== undefined && canOnce
       ? matchSessionLease(sessionId, request.summary, sessions)
       : undefined;
   const offer =
     sessionId !== undefined && matched === undefined && canOnce
-      ? proposedLease(request.summary)
+      ? proposedLease(request.summary, role)
       : null;
 
   useEffect(() => {
@@ -126,12 +133,20 @@ export function PermissionActions({
             label={`Also this session: ${leaseLabel(offer)}`}
             title="Allow matching prompts this session as Allow once. Stop or Restart ends the lease."
             onClick={() => {
-              grantSessionLease(sessionId, offer);
+              grantSessionLease(sessionId, offer, role);
               onAnswer(true);
             }}
           />
         )}
       </div>
+      {denySuggestion !== null && (
+        <p
+          data-testid="permission-role-deny"
+          className="min-w-0 text-[10px] leading-snug text-ink-faint"
+        >
+          {denySuggestion}
+        </p>
+      )}
       {why !== null && (
         <p data-testid="permission-why" className="min-w-0 text-[10px] leading-snug text-ink-faint">
           {why}

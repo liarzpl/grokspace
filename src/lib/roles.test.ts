@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { BATON_ROLES, batonPrompt, briefPrompt, ROLES, rolesInPlay, sourceGraphFile } from "./roles";
+import {
+  BATON_ROLES,
+  batonPrompt,
+  briefPrompt,
+  capabilityProfileFor,
+  ROLES,
+  rolesInPlay,
+  sourceGraphFile,
+} from "./roles";
 
 describe("the role presets", () => {
   it("are the five the roadmap names", () => {
@@ -59,6 +67,32 @@ describe("briefPrompt", () => {
     const scout = ROLES.find((role) => role.name === "Scout");
     expect(scout).toBeDefined();
     expect(briefPrompt(scout!)).toContain("change nothing");
+  });
+
+  it("appends the closed capability line", () => {
+    const planner = ROLES.find((role) => role.name === "Planner")!;
+    const coder = ROLES.find((role) => role.name === "Coder")!;
+    const reviewer = ROLES.find((role) => role.name === "Reviewer")!;
+    expect(briefPrompt(planner)).toContain("graph, steps, and memory");
+    expect(briefPrompt(coder)).toContain("write in the worktree");
+    expect(briefPrompt(reviewer)).toContain("do not write the project tree");
+  });
+});
+
+describe("capabilityProfileFor", () => {
+  it("closes Planner/Scout on host paths, Coder on worktree write, Reviewer/Tester on review", () => {
+    expect(capabilityProfileFor("Planner")?.kind).toBe("read");
+    expect(capabilityProfileFor("Scout")?.writePrefixes).toEqual([".grokspace/", "$GROKSPACE_"]);
+    expect(capabilityProfileFor("Coder")?.writePrefixes).toBeNull();
+    expect(capabilityProfileFor("Reviewer")?.writePrefixes).toEqual([]);
+    expect(capabilityProfileFor("Tester")?.kind).toBe("review");
+    expect(capabilityProfileFor("Validator")?.kind).toBe("review");
+  });
+
+  it("does not invent a write coordinator", () => {
+    expect(capabilityProfileFor("Coordinator")).toBeUndefined();
+    expect(capabilityProfileFor(null)).toBeUndefined();
+    expect(capabilityProfileFor("")).toBeUndefined();
   });
 });
 
