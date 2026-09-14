@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { briefPrompt, roleByName, ROLES, rolesInPlay } from "./roles";
+import { briefPrompt, ROLES, rolesInPlay } from "./roles";
 
 describe("the role presets", () => {
   it("are the five the roadmap names", () => {
@@ -31,8 +31,8 @@ describe("the role presets", () => {
   });
 
   it("can be found by the name stored on a session", () => {
-    expect(roleByName("Reviewer")?.summary).toContain("change");
-    expect(roleByName("Nonesuch")).toBeUndefined();
+    expect(ROLES.find((role) => role.name === "Reviewer")?.summary).toContain("change");
+    expect(ROLES.find((role) => role.name === "Nonesuch")).toBeUndefined();
   });
 });
 
@@ -55,7 +55,7 @@ describe("briefPrompt", () => {
   });
 
   it("keeps the role's own words", () => {
-    const scout = roleByName("Scout");
+    const scout = ROLES.find((role) => role.name === "Scout");
     expect(scout).toBeDefined();
     expect(briefPrompt(scout!)).toContain("change nothing");
   });

@@ -113,8 +113,3 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
     }
   },
 }));
-
-/** How many files changed, for the header to say without opening the panel. */
-export function changedCount(diff: DiffState): number {
-  return diff.state === "changed" ? diff.files.length : 0;
-}

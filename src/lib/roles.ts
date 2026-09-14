@@ -73,10 +73,6 @@ export const ROLES: readonly Role[] = [
   },
 ];
 
-export function roleByName(name: string): Role | undefined {
-  return ROLES.find((role) => role.name === name);
-}
-
 /**
  * The roles a live session is already covering.
  *
