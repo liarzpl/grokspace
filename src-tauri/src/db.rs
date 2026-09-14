@@ -169,23 +169,138 @@ mod tests {
         names
     }
 
+    fn columns(conn: &Connection, table: &str) -> Vec<String> {
+        let mut stmt = conn
+            .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")
+            .expect("pragma_table_info should be queryable");
+        let names = stmt
+            .query_map([table], |row| row.get::<_, String>(0))
+            .expect("query should run")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("rows should map");
+        names
+    }
+
+    fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
+        columns(conn, table).iter().any(|name| name == column)
+    }
+
+    fn full_table_names() -> Vec<&'static str> {
+        vec![
+            "app_settings",
+            "memory_entries",
+            "projects",
+            "session_permissions",
+            "session_steps",
+            "sessions",
+            "tasks",
+        ]
+    }
+
+    fn blank_db() -> Connection {
+        let conn = Connection::open_in_memory().expect("in-memory database should open");
+        configure(&conn).expect("pragmas should apply");
+        conn
+    }
+
+    /// Apply migrations `1..=k` and freeze `user_version` there, the way a
+    /// real `~/.grokspace/grokspace.db` would look after that release.
+    fn apply_first(conn: &mut Connection, k: usize) {
+        for (index, sql) in MIGRATIONS.iter().enumerate().take(k) {
+            let tx = conn
+                .transaction()
+                .expect("prefix migration should open a transaction");
+            tx.execute_batch(sql)
+                .unwrap_or_else(|error| panic!("migration {} should apply: {error}", index + 1));
+            tx.execute_batch(&format!("PRAGMA user_version = {};", index + 1))
+                .expect("user_version should record the prefix");
+            tx.commit().expect("prefix migration should commit");
+        }
+    }
+
+    fn seed_surviving_rows(conn: &Connection, k: usize) {
+        if k >= 1 {
+            conn.execute(
+                "INSERT INTO projects (id, name, path, created_at)
+                 VALUES ('p1', 'seed', '/tmp/seed', 1)",
+                [],
+            )
+            .expect("a project row at this prefix should insert");
+        }
+        if k >= 4 {
+            conn.execute(
+                "INSERT INTO sessions (id, project_id, status, created_at, updated_at)
+                 VALUES ('s1', 'p1', 'idle', 1, 1)",
+                [],
+            )
+            .expect("a session row at this prefix should insert");
+            conn.execute(
+                "INSERT INTO session_permissions (session_id, request_id, summary)
+                 VALUES ('s1', 1, 'read the repo')",
+                [],
+            )
+            .expect("a permission row at this prefix should insert");
+        }
+    }
+
+    fn assert_prefix_schema(conn: &Connection, k: usize) {
+        assert_eq!(
+            user_version(conn),
+            k as i64,
+            "frozen user_version should be {k}"
+        );
+        let tables = table_names(conn);
+        if k == 0 {
+            assert!(tables.is_empty(), "a blank database has no app tables");
+            return;
+        }
+
+        assert!(tables.contains(&"projects".to_string()));
+        assert!(tables.contains(&"sessions".to_string()));
+        assert_eq!(
+            tables.contains(&"app_settings".to_string()),
+            k >= 3,
+            "app_settings arrives in 0003"
+        );
+        assert_eq!(
+            tables.contains(&"session_permissions".to_string()),
+            k >= 4,
+            "session_permissions arrives in 0004"
+        );
+        assert_eq!(
+            tables.contains(&"session_steps".to_string()),
+            k >= 5,
+            "session_steps arrives in 0005"
+        );
+
+        assert_eq!(has_column(conn, "sessions", "kind"), k >= 2);
+        assert_eq!(has_column(conn, "sessions", "exit_code"), k >= 2);
+        assert_eq!(has_column(conn, "sessions", "steps_phase"), k >= 5);
+        if k >= 4 {
+            assert_eq!(has_column(conn, "session_permissions", "options"), k >= 6);
+        }
+    }
+
+    fn assert_current_schema(conn: &Connection) {
+        assert_eq!(
+            table_names(conn),
+            full_table_names()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(user_version(conn), MIGRATIONS.len() as i64);
+        assert!(has_column(conn, "sessions", "kind"));
+        assert!(has_column(conn, "sessions", "exit_code"));
+        assert!(has_column(conn, "sessions", "steps_phase"));
+        assert!(has_column(conn, "session_permissions", "options"));
+    }
+
     #[test]
     fn migrations_create_the_full_data_model() {
         let conn = open_in_memory().expect("in-memory database should open");
 
-        assert_eq!(
-            table_names(&conn),
-            vec![
-                "app_settings",
-                "memory_entries",
-                "projects",
-                "session_permissions",
-                "session_steps",
-                "sessions",
-                "tasks"
-            ]
-        );
-        assert_eq!(user_version(&conn), MIGRATIONS.len() as i64);
+        assert_current_schema(&conn);
     }
 
     #[test]
@@ -201,6 +316,44 @@ mod tests {
         // failing on `CREATE TABLE projects` already existing.
         let second = open_at(&path).expect("reopening should succeed");
         assert_eq!(user_version(&second), MIGRATIONS.len() as i64);
+    }
+
+    #[test]
+    fn migrate_completes_the_schema_from_each_prefix() {
+        // Fresh-DB tests hide a broken ALTER: they never open a file that stopped
+        // at 0001. For every frozen prefix 0..=k, `migrate()` must apply the rest
+        // and leave today's schema (TEST-009).
+        for k in 0..=MIGRATIONS.len() {
+            let mut conn = blank_db();
+            apply_first(&mut conn, k);
+            assert_prefix_schema(&conn, k);
+            seed_surviving_rows(&conn, k);
+
+            migrate(&mut conn).unwrap_or_else(|error| {
+                panic!("migrate() from user_version={k} should reach the current schema: {error}")
+            });
+
+            assert_current_schema(&conn);
+
+            if k >= 1 {
+                let name: String = conn
+                    .query_row("SELECT name FROM projects WHERE id = 'p1'", [], |row| {
+                        row.get(0)
+                    })
+                    .expect("prefix project rows must survive later ALTER/CREATE");
+                assert_eq!(name, "seed");
+            }
+            if k >= 4 {
+                let options: String = conn
+                    .query_row(
+                        "SELECT options FROM session_permissions WHERE session_id = 's1'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .expect("prefix permission rows must gain the 0006 default");
+                assert_eq!(options, "[]");
+            }
+        }
     }
 
     #[cfg(unix)]
