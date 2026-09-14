@@ -189,7 +189,10 @@ src-tauri/
     db.rs         Database location, pragmas, migration runner
     project.rs    Project model, queries, and Tauri commands
     pty.rs        Pseudo-terminal plumbing; no database, no Tauri
-    session.rs    Session model and the commands that drive a pty or an agent
+    session/      Session model, start path, and worktree commands
+      db.rs       Session row, permissions, status, reconcile
+      start.rs    Resolve program, isolate, spawn pty or ACP
+      worktree_cmds.rs  Close, discard, merge, merge-readiness
     program.rs    Finding `grok` and `git` when PATH is not enough
     acp.rs        Agent Client Protocol: status from JSON-RPC, no Tauri, no database
     task.rs       Task model, the board's queries, and dispatch

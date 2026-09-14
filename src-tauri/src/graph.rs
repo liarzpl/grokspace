@@ -19,7 +19,7 @@ use std::time::UNIX_EPOCH;
 
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::error::{Error, Result};
 use crate::skill::{Skill, SkillFile, SkillStatus};
@@ -313,7 +313,12 @@ impl GraphWatchers {
 
     /// Starts watching a project's graph directory and returns what could be
     /// watched, which is empty when the directory could not be prepared at all.
-    fn watch(&self, app: AppHandle, project_id: &str, project_path: &Path) -> Result<Vec<String>> {
+    fn watch<R: Runtime>(
+        &self,
+        app: AppHandle<R>,
+        project_id: &str,
+        project_path: &Path,
+    ) -> Result<Vec<String>> {
         let existing: Vec<PathBuf> = watched_dirs(project_path)
             .into_iter()
             .filter(|dir| dir.is_dir())
@@ -345,8 +350,8 @@ impl GraphWatchers {
 }
 
 #[tauri::command]
-pub fn watch_project_graphs(
-    app: AppHandle,
+pub fn watch_project_graphs<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     project_id: String,
 ) -> Result<Vec<String>> {

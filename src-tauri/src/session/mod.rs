@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Runtime, State};
 
 use crate::error::{Error, Result};
 use crate::AppState;
@@ -52,8 +52,8 @@ pub struct NewSession {
 }
 
 #[tauri::command]
-pub fn create_session(
-    app: AppHandle,
+pub fn create_session<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     session: NewSession,
 ) -> Result<Session> {
@@ -147,8 +147,8 @@ pub fn stop_session(state: State<'_, AppState>, id: String) -> Result<()> {
 /// row. Killing is asynchronous, so reusing the id would race the old child's
 /// exit handler against the new child's registration.
 #[tauri::command]
-pub fn restart_session(
-    app: AppHandle,
+pub fn restart_session<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     id: String,
     cols: u16,
