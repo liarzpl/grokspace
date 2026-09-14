@@ -26,6 +26,9 @@ mod command_tests;
 mod e2e_smoke;
 
 #[cfg(test)]
+mod ipc_fixtures;
+
+#[cfg(test)]
 thread_local! {
     pub(crate) static TEST_LAUNCH_PROGRAM: std::cell::RefCell<Option<String>> =
         const { std::cell::RefCell::new(None) };
