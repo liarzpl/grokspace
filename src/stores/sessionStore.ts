@@ -66,6 +66,8 @@ interface StartInput {
   role?: string;
   cols: number;
   rows: number;
+  /** Confirm starting an agent on the project tree when isolation skipped. */
+  allowUnisolated?: boolean;
 }
 
 /** A session started for a role has not been measured, so it starts classic. */

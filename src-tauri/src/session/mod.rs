@@ -49,6 +49,9 @@ pub struct NewSession {
     role: Option<String>,
     cols: u16,
     rows: u16,
+    /// Confirm starting an ACP agent on the project tree when isolation skipped.
+    #[serde(default)]
+    allow_unisolated: bool,
 }
 
 #[tauri::command]
@@ -69,6 +72,7 @@ pub fn create_session<R: Runtime>(
             cols: session.cols,
             rows: session.rows,
             reuse_worktree: None,
+            allow_unisolated: session.allow_unisolated,
         },
     )
 }
@@ -177,6 +181,9 @@ pub fn restart_session<R: Runtime>(
             cols,
             rows,
             reuse_worktree: previous.worktree_path.map(PathBuf::from),
+            // A previous skip already ran on the project tree; Restart must not
+            // fail-closed on the same folder the user already confirmed.
+            allow_unisolated: previous.isolation_skip.is_some(),
         },
     )
 }
@@ -935,6 +942,7 @@ mod tests {
             cols: 80,
             rows: 24,
             reuse_worktree: None,
+            allow_unisolated: false,
         };
         assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
     }
@@ -960,6 +968,7 @@ mod tests {
             cols: 80,
             rows: 24,
             reuse_worktree: None,
+            allow_unisolated: false,
         };
         assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
     }
@@ -995,6 +1004,7 @@ mod tests {
             cols: 80,
             rows: 24,
             reuse_worktree: Some(leftover.path().to_path_buf()),
+            allow_unisolated: false,
         };
         assert_eq!(
             isolate_agent(&request, &session, leftover.path()),
@@ -1019,6 +1029,7 @@ mod tests {
             cols: 80,
             rows: 24,
             reuse_worktree: None,
+            allow_unisolated: false,
         };
         assert_eq!(
             isolate_agent(&request, &session, dir.path()),

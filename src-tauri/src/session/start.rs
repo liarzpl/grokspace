@@ -350,14 +350,17 @@ pub(crate) struct StartRequest {
     pub(crate) rows: u16,
     /// Set on Restart so a new row keeps the files the previous run wrote.
     pub(crate) reuse_worktree: Option<PathBuf>,
+    /// When isolation is skipped, start on the project tree only if this is set.
+    /// The default is fail-closed: refuse rather than write on the live tree.
+    pub(crate) allow_unisolated: bool,
 }
 
 /// A clean checkout for an ACP agent, when git will give us one.
 ///
 /// Grok panes and shells stay on the project folder. Missing git, a folder that
-/// is not a repository, or a failed `worktree add` all fall through to that
-/// folder rather than refusing to start. `None` here means "not an agent"; a
-/// skip is `Some(Skipped(...))`, which is what the UI needs to tell apart from
+/// is not a repository, or a failed `worktree add` is a skip. `start` refuses
+/// that skip unless `allow_unisolated` is set. `None` here means "not an agent";
+/// a skip is `Some(Skipped(...))`, which is what the UI needs to tell apart from
 /// a grok pane that was never meant to isolate.
 pub(crate) fn isolate_agent(
     request: &StartRequest,
@@ -427,8 +430,24 @@ pub(crate) fn start<R: Runtime>(
     let project_path = PathBuf::from(project_path);
     let isolation = isolate_agent(&request, &session, &project_path);
     if let Some(worktree::Isolation::Skipped(skip)) = &isolation {
-        // The row still starts. The event is how the live UI learns why;
-        // isolation_skip is how a reload keeps the same sentence.
+        if !request.allow_unisolated {
+            // Fail-closed: do not write on the project tree unless the caller
+            // confirmed. Drop the row (and any leftover dest) so a refused
+            // start looks like it never happened.
+            let dest = worktree::path_for(&project_path, &session.id);
+            if dest.exists() {
+                let _ = worktree::remove(&project_path, &dest, true);
+            }
+            if let Ok(conn) = state.db.lock() {
+                let _ = delete(&conn, &session.id);
+            }
+            return Err(Error::Invalid(format!(
+                "isolation did not happen ({}); confirm to start on the project tree",
+                skip.as_str()
+            )));
+        }
+        // Confirmed. The event is how the live UI learns why; isolation_skip
+        // is how a reload keeps the same sentence.
         let _ = app.emit(
             ISOLATION_EVENT,
             IsolationFailed {

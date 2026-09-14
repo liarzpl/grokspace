@@ -133,12 +133,22 @@ impl CommandApp {
 }
 
 fn new_session(project_id: &str, kind: &str, pane_id: Option<&str>) -> NewSession {
+    session_request(project_id, kind, pane_id, false)
+}
+
+fn session_request(
+    project_id: &str,
+    kind: &str,
+    pane_id: Option<&str>,
+    allow_unisolated: bool,
+) -> NewSession {
     serde_json::from_value(serde_json::json!({
         "projectId": project_id,
         "paneId": pane_id,
         "kind": kind,
         "cols": 80,
         "rows": 24,
+        "allowUnisolated": allow_unisolated,
     }))
     .expect("NewSession fixture")
 }
@@ -202,12 +212,45 @@ fn create_session_starts_a_shell_and_keeps_the_row() {
 }
 
 #[test]
+fn create_session_refuses_an_unisolated_agent_without_confirm() {
+    let app = CommandApp::new();
+    // command_for runs before isolate. A missing program still resolves so
+    // the skip is what we refuse, not PATH.
+    let _override = OverrideLaunch::missing();
+
+    let error = app
+        .create(new_session(&app.project_id, "agent", None))
+        .expect_err("isolation skip must not start on the project tree");
+
+    assert!(
+        error.to_string().contains("isolation did not happen"),
+        "fail-closed, not spawn: {error}"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("this folder is not a git repository"),
+        "{error}"
+    );
+    assert!(
+        listed(&app).is_empty(),
+        "a refused start must delete the row"
+    );
+    assert!(
+        !app.drain()
+            .iter()
+            .any(|event| event.name == "session-isolation"),
+        "no live session, so no isolation banner"
+    );
+}
+
+#[test]
 fn create_session_spawn_failure_emits_isolation_and_deletes_the_row() {
     let app = CommandApp::new();
     let _override = OverrideLaunch::missing();
 
     let error = app
-        .create(new_session(&app.project_id, "agent", None))
+        .create(session_request(&app.project_id, "agent", None, true))
         .expect_err("a missing program must not leave a live session");
 
     assert!(
