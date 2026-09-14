@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PermissionOption, PermissionRequest, Task } from "../types";
-import { orphanedPermissions, permissionChips } from "./permissions";
+import { orphanedPermissionAlert, orphanedPermissions, permissionChips } from "./permissions";
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -113,5 +113,23 @@ describe("permissionChips", () => {
 
     expect(chips.find((chip) => chip.key === "allow_once")?.label).toBe("Allow this run");
     expect(chips.find((chip) => chip.key === "reject_once")?.label).toBe("No");
+  });
+});
+
+describe("orphanedPermissionAlert", () => {
+  it("names the waiting agent so a live region is not anonymous", () => {
+    expect(orphanedPermissionAlert(["Planner"])).toBe("Planner needs permission");
+    expect(orphanedPermissionAlert(["Planner", "Reviewer"])).toBe(
+      "Planner and Reviewer need permission",
+    );
+    expect(orphanedPermissionAlert(["Planner", "Reviewer", "Scout"])).toBe(
+      "Planner, Reviewer, and Scout need permission",
+    );
+  });
+
+  it("falls back when titles are missing and de-duplicates repeats", () => {
+    expect(orphanedPermissionAlert([])).toBe("An agent needs permission");
+    expect(orphanedPermissionAlert(["", "  "])).toBe("An agent needs permission");
+    expect(orphanedPermissionAlert(["Planner", "Planner"])).toBe("Planner needs permission");
   });
 });

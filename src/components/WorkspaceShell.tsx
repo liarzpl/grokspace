@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
-import { orphanedPermissions } from "../lib/permissions";
+import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions";
 import {
   scheduleIdle,
   sessionIdKey,
@@ -224,8 +224,16 @@ function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
   );
   if (orphaned.length === 0) return null;
 
+  const titles = orphaned.map(
+    ({ sessionId }) => sessions.find((session) => session.id === sessionId)?.title ?? "Agent",
+  );
+
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 border-b border-line bg-elevated px-4 py-2">
+    <div
+      role="alert"
+      aria-label={orphanedPermissionAlert(titles)}
+      className="flex shrink-0 flex-col gap-1.5 border-b border-line bg-elevated px-4 py-2"
+    >
       {orphaned.flatMap(({ sessionId, requests }) => {
         const title =
           sessions.find((session) => session.id === sessionId)?.title ?? "Agent";
