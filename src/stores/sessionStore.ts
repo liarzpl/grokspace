@@ -119,7 +119,7 @@ function isolationFrom(
 }
 
 /** A pane shows its terminal, the graph the session is reporting, or its steps. */
-export type PaneView = "terminal" | "graph" | "tasks";
+export type PaneView = "terminal" | "graph" | "steps";
 
 interface SessionState {
   sessions: Session[];
