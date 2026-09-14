@@ -763,7 +763,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return null;
     }
     const stored = useGraphStore.getState().bySession[sessionId]?.graph;
-    const forked = stored === undefined ? null : forkGraphFromNode(stored, nodeId);
+    if (stored === undefined || stored === null) {
+      set({ error: "That graph node cannot be forked." });
+      return null;
+    }
+    const forked = forkGraphFromNode(stored, nodeId);
     if (forked === null) {
       set({ error: "That graph node cannot be forked." });
       return null;

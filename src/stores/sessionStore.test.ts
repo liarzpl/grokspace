@@ -1401,8 +1401,12 @@ describe("forkFromNode", () => {
     expect(useGraphStore.getState().bySession.old?.graph).toEqual(plan);
   });
 
-  it("does not start when the node is missing", async () => {
+  it("does not start when the graph is missing or the node is", async () => {
     useSessionStore.setState({ sessions: [parent()] });
+    useGraphStore.setState({ bySession: { old: graphEntry() } });
+    expect(await useSessionStore.getState().forkFromNode("old", "a")).toBeNull();
+    expect(createSession).not.toHaveBeenCalled();
+
     useGraphStore.setState({ bySession: { old: { ...graphEntry(), graph: plan } } });
     expect(await useSessionStore.getState().forkFromNode("old", "missing")).toBeNull();
     expect(createSession).not.toHaveBeenCalled();

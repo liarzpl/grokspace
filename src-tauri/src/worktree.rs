@@ -1149,7 +1149,10 @@ mod tests {
         assert_ne!(parent, child);
         assert!(parent.join("wip.rs").is_file());
         assert!(!child.join("wip.rs").exists());
-        assert_eq!(fs::read_to_string(child.join("README.md")).unwrap(), "hello\n");
+        assert_eq!(
+            fs::read_to_string(child.join("README.md")).unwrap(),
+            "hello\n"
+        );
         assert!(!is_dirty(&child).unwrap());
     }
 

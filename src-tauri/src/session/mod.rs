@@ -292,7 +292,8 @@ mod tests {
         set_worktree_path,
     };
     use super::start::{
-        command_for, env_to_unset, isolate_agent, role_env, session_env, write_session_seeds, Launch,
+        command_for, env_to_unset, isolate_agent, role_env, session_env, write_session_seeds,
+        Launch,
     };
     use super::*;
     use crate::acp;
@@ -1143,7 +1144,10 @@ mod tests {
                 .unwrap(),
             r#"{"steps":[{"title":"Ship it","status":"pending"}]}"#
         );
-        assert_eq!(std::fs::read_to_string(&parent).unwrap(), r#"{"id":"parent"}"#);
+        assert_eq!(
+            std::fs::read_to_string(&parent).unwrap(),
+            r#"{"id":"parent"}"#
+        );
     }
 
     #[test]
