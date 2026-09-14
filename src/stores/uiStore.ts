@@ -9,11 +9,14 @@ import { DEFAULT_TAB, WORKSPACE_TABS, type WorkspaceTab } from "../types";
  * while it was the only thing that switched it. The command palette can switch it
  * too, and two components cannot share a `useState`.
  *
- * Deliberately small. Pane views, which pane is maximised, and which graph is
- * selected all stay where they are: nothing outside their own component asks.
+ * Pane faces and which pane is maximised live here with the tab: they are chrome,
+ * not process state. The session store keeps the live sessions themselves.
  */
 
 export type { WorkspaceTab };
+
+/** A pane shows its terminal, the graph the session is reporting, or its steps. */
+export type PaneView = "terminal" | "graph" | "steps";
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
   terminals: "Terminals",
@@ -38,8 +41,15 @@ interface UiState {
    */
   isSettingsOpen: boolean;
   isPaletteOpen: boolean;
+  /** Which of its faces each pane is showing; panes default to terminal. */
+  paneViews: Record<string, PaneView>;
+  maximizedPane: string | null;
 
   setTab: (tab: WorkspaceTab) => void;
+  setPaneView: (paneId: string, view: PaneView) => void;
+  toggleMaximized: (paneId: string) => void;
+  /** Project switch and forget drop chrome that is keyed by reused pane ids. */
+  resetPaneChrome: () => void;
   /**
    * Applies the saved opening tab once, and only while the workspace is still
    * on the default. A click or palette command that already left Terminals
@@ -57,10 +67,17 @@ export const useUiStore = create<UiState>((set) => ({
   tab: DEFAULT_TAB,
   isSettingsOpen: false,
   isPaletteOpen: false,
+  paneViews: {},
+  maximizedPane: null,
 
   // Closing the palette on its way out of every command, so a command that changes
   // the tab does not leave the palette sitting over the thing it just revealed.
   setTab: (tab) => set({ tab, isPaletteOpen: false }),
+  setPaneView: (paneId, view) =>
+    set((state) => ({ paneViews: { ...state.paneViews, [paneId]: view } })),
+  toggleMaximized: (paneId) =>
+    set((state) => ({ maximizedPane: state.maximizedPane === paneId ? null : paneId })),
+  resetPaneChrome: () => set({ paneViews: {}, maximizedPane: null }),
   applyOpeningTab: (tab) =>
     set((state) => {
       if (state.tab !== "terminals") return state;

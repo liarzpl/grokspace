@@ -39,6 +39,34 @@ describe("applyOpeningTab", () => {
   });
 });
 
+describe("pane chrome", () => {
+  it("switches one pane to its steps face without touching the others", () => {
+    useUiStore.getState().setPaneView("1", "steps");
+
+    const { paneViews } = useUiStore.getState();
+    expect(paneViews["1"]).toBe("steps");
+    expect(paneViews["0"]).toBeUndefined();
+  });
+
+  it("expands a pane and restores it on a second toggle", () => {
+    useUiStore.getState().toggleMaximized("2");
+    expect(useUiStore.getState().maximizedPane).toBe("2");
+
+    useUiStore.getState().toggleMaximized("2");
+    expect(useUiStore.getState().maximizedPane).toBeNull();
+  });
+
+  it("resetPaneChrome drops faces and the maximised pane together", () => {
+    useUiStore.getState().setPaneView("1", "graph");
+    useUiStore.getState().toggleMaximized("1");
+
+    useUiStore.getState().resetPaneChrome();
+
+    expect(useUiStore.getState().paneViews).toEqual({});
+    expect(useUiStore.getState().maximizedPane).toBeNull();
+  });
+});
+
 describe("togglePalette", () => {
   it("closes settings when the palette opens, so the two overlays cannot stack", () => {
     useUiStore.setState({ isSettingsOpen: true, isPaletteOpen: false });

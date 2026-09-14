@@ -52,6 +52,7 @@ const {
 } = await import("./sessionStore");
 const { useGraphStore } = await import("./graphStore");
 const { useStepStore } = await import("./stepStore");
+const { useUiStore } = await import("./uiStore");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -107,24 +108,26 @@ function stepEntry() {
 const initialState = useSessionStore.getState();
 const initialGraphState = useGraphStore.getState();
 const initialStepState = useStepStore.getState();
+const initialUiState = useUiStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useSessionStore.setState(initialState, true);
   useGraphStore.setState(initialGraphState, true);
   useStepStore.setState(initialStepState, true);
+  useUiStore.setState(initialUiState, true);
 });
 
 describe("loadSessions", () => {
   it("replaces the list and drops any maximized pane from the last project", async () => {
-    useSessionStore.setState({ maximizedPane: "2" });
+    useUiStore.setState({ maximizedPane: "2" });
     listSessions.mockResolvedValue([session()]);
 
     await useSessionStore.getState().loadSessions("p1");
 
     const state = useSessionStore.getState();
     expect(state.sessions).toHaveLength(1);
-    expect(state.maximizedPane).toBeNull();
+    expect(useUiStore.getState().maximizedPane).toBeNull();
     expect(state.isLoading).toBe(false);
   });
 
@@ -306,14 +309,14 @@ describe("startSession", () => {
   });
 
   it("greets a new session with the terminal, not the last one's graph", async () => {
-    useSessionStore.setState({ paneViews: { "0": "graph" } });
+    useUiStore.setState({ paneViews: { "0": "graph" } });
     createSession.mockResolvedValue(session());
 
     await useSessionStore
       .getState()
       .startSession({ projectId: "p1", paneId: "0", kind: "grok", cols: 80, rows: 24 });
 
-    expect(useSessionStore.getState().paneViews["0"]).toBe("terminal");
+    expect(useUiStore.getState().paneViews["0"]).toBe("terminal");
   });
 
   it("keeps at most one session per pane", async () => {
@@ -561,7 +564,7 @@ describe("startSession", () => {
 
     const state = useSessionStore.getState();
     expect(state.busyPanes).toEqual({});
-    expect(state.paneViews).toEqual({});
+    expect(useUiStore.getState().paneViews).toEqual({});
   });
 
   it("lets two agents coexist rather than displacing each other", async () => {
@@ -917,36 +920,14 @@ describe("inspectMerge", () => {
   });
 });
 
-describe("toggleMaximized", () => {
-  it("expands a pane and restores it on a second toggle", () => {
-    const { toggleMaximized } = useSessionStore.getState();
-
-    toggleMaximized("2");
-    expect(useSessionStore.getState().maximizedPane).toBe("2");
-
-    toggleMaximized("2");
-    expect(useSessionStore.getState().maximizedPane).toBeNull();
-  });
-});
-
 describe("setPaneView", () => {
-  it("switches one pane to its steps face without touching the others", () => {
-    const { setPaneView } = useSessionStore.getState();
-
-    setPaneView("1", "steps");
-
-    const { paneViews } = useSessionStore.getState();
-    expect(paneViews["1"]).toBe("steps");
-    expect(paneViews["0"]).toBeUndefined();
-  });
-
   it("is forgotten when another project is loaded", async () => {
-    useSessionStore.getState().setPaneView("1", "graph");
+    useUiStore.getState().setPaneView("1", "graph");
     listSessions.mockResolvedValue([]);
 
     await useSessionStore.getState().loadSessions("p2");
 
-    expect(useSessionStore.getState().paneViews).toEqual({});
+    expect(useUiStore.getState().paneViews).toEqual({});
   });
 });
 
