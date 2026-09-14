@@ -342,18 +342,22 @@ Migrations are an append-only list in
 `src-tauri/migrations/` and append it to `MIGRATIONS` — never edit a migration
 that has already shipped.
 
-Migration `0001` creates `projects`, `tasks`, `sessions`, and `memory_entries`.
-Phases 1 to 3 needed no schema change at all: `tasks` and a third `sessions.kind` in
-Phase 2, `memory_entries` and `sessions.role` in Phase 3, all of it already reserved.
-Phase 4 ends that streak with `0003`, because a preference belonging to the app rather
-than to a project had no reserved home. It is key-value rather than a column per
-setting, which is the same lesson read backwards: a shape decided now is a shape a
-later phase has to migrate, so the typed surface lives in Rust where changing it is
-free.
+There are six shipped migrations. `0001` creates `projects`, `tasks`, `sessions`,
+and `memory_entries`. It reserves `sessions.role` and `sessions.worktree_path`.
+It does **not** create `sessions.kind` — that arrives in `0002`. The `0001` file
+header still says later phases "only add rows and queries"; that is stale.
+
+| File | What it added |
+| --- | --- |
+| `0001_initial.sql` | `projects`, `tasks`, `sessions`, `memory_entries` |
+| `0002_session_command.sql` | `sessions.kind` (default `grok`) and `sessions.exit_code`. The filename says "command"; the SQL does not add a command column. The name is left as-is so the `include_str!` path in `db.rs` stays stable. |
+| `0003_app_settings.sql` | `app_settings` key-value table. Preferences belong to the app, not a project; a new preference is a new key, and the typed surface lives in Rust. |
+| `0004_session_permissions.sql` | `session_permissions`, so a pending ACP prompt survives a webview reload |
+| `0005_session_steps.sql` | `session_steps` and `sessions.steps_phase` (`none` / `proposed` / `approved`) |
+| `0006_permission_options.sql` | `options` JSON on `session_permissions`, so Allow can stay `allow_once` and Always-allow is a named chip |
 
 `sessions.worktree_path` was reserved in `0001` and is written when an ACP agent
-isolates. No new migration: filling a nullable column that already exists is what
-the reservation was for.
+isolates. Filling a nullable column that already exists needed no new migration.
 
 ## Roadmap
 
