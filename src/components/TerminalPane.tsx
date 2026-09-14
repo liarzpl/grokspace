@@ -164,6 +164,7 @@ function TerminalSurface({ session }: { session: Session }) {
   return (
     <div
       ref={host}
+      data-testid="terminal-surface"
       onMouseDown={() => focusTerminal(session.id)}
       className="min-h-0 flex-1 overflow-hidden px-2 pb-1"
     />
