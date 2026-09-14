@@ -14,6 +14,7 @@ const discardSessionWorktree = vi.fn();
 const answerSessionPermission = vi.fn();
 const promptSession = vi.fn();
 const cancelSession = vi.fn();
+const reopenSessionSteps = vi.fn();
 const disposeTerminal = vi.fn();
 const detachTerminal = vi.fn();
 
@@ -38,6 +39,7 @@ vi.mock("../lib/api", async () => {
       answerSessionPermission,
       promptSession,
       cancelSession,
+      reopenSessionSteps,
     },
   };
 });
@@ -45,7 +47,10 @@ vi.mock("../lib/api", async () => {
 const {
   isolationNotice,
   isIsolationConfirmError,
+  isPermissionMode,
   isUnisolatedAgent,
+  PERMISSION_MODES,
+  permissionModeFor,
   sessionForPane,
   sessionsForProject,
   UNISOLATED_REASON,
@@ -59,6 +64,7 @@ const { useStepStore } = await import("./stepStore");
 const { useUiStore } = await import("./uiStore");
 const { BATON_ROLES, rolesInPlay } = await import("../lib/roles");
 const { BATON_EXCERPT_BYTES } = await import("../lib/talkToSession");
+const { matchSessionLease, resetSessionLeases } = await import("../lib/permissionLease");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -125,6 +131,7 @@ beforeEach(() => {
   useGraphStore.setState(initialGraphState, true);
   useStepStore.setState(initialStepState, true);
   useUiStore.setState(initialUiState, true);
+  resetSessionLeases();
 });
 
 describe("loadSessions", () => {
@@ -652,6 +659,133 @@ describe("permissions", () => {
     useSessionStore.getState().askPermission("gone", asked);
 
     expect(useSessionStore.getState().permissions["gone"]).toBeUndefined();
+  });
+});
+
+describe("permission mode", () => {
+  const once = {
+    optionId: "allow-once",
+    name: "Allow once",
+    kind: "allow_once" as const,
+  };
+
+  it("is plan | ask | acceptEdits, with no yolo", () => {
+    expect(PERMISSION_MODES).toEqual(["plan", "ask", "acceptEdits"]);
+    expect(isPermissionMode("yolo")).toBe(false);
+    expect(isPermissionMode("bypassPermissions")).toBe(false);
+    expect(isPermissionMode("plan")).toBe(true);
+  });
+
+  it("maps Spec (proposed) to plan and other phases to ask", () => {
+    expect(permissionModeFor("proposed", undefined)).toBe("plan");
+    expect(permissionModeFor("approved", undefined)).toBe("ask");
+    expect(permissionModeFor("none", undefined)).toBe("ask");
+    expect(permissionModeFor("proposed", "ask")).toBe("ask");
+    expect(permissionModeFor("none", "acceptEdits")).toBe("acceptEdits");
+  });
+
+  it("rejects yolo and does not record it", async () => {
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
+
+    await useSessionStore.getState().setPermissionMode("s1", "yolo" as never);
+
+    expect(useSessionStore.getState().permissionModes["s1"]).toBeUndefined();
+  });
+
+  it("plan reopens an approved list (Spec)", async () => {
+    useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
+    useStepStore.setState({
+      bySession: { s1: { ...stepEntry(), phase: "approved" } },
+    });
+    reopenSessionSteps.mockResolvedValue({
+      sessionId: "s1",
+      phase: "proposed",
+      steps: stepEntry().steps,
+    });
+
+    await useSessionStore.getState().setPermissionMode("s1", "plan");
+
+    expect(useSessionStore.getState().permissionModes["s1"]).toBe("plan");
+    expect(reopenSessionSteps).toHaveBeenCalledWith("s1");
+    expect(useStepStore.getState().bySession["s1"]?.phase).toBe("proposed");
+  });
+
+  it("acceptEdits auto-answers edit-class as allow_once and grants a lease", async () => {
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null })],
+      permissionModes: { s1: "acceptEdits" },
+    });
+    answerSessionPermission.mockResolvedValue(undefined);
+
+    useSessionStore.getState().askPermission("s1", {
+      requestId: 9,
+      summary: "Edit src/auth.ts",
+      options: [once, { optionId: "reject", name: "Reject", kind: "reject_once" }],
+    });
+
+    await vi.waitFor(() => {
+      expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true);
+    });
+    expect(answerSessionPermission.mock.calls[0]?.[3]).toBeUndefined();
+    expect(useSessionStore.getState().permissions["s1"]).toBeUndefined();
+    expect(matchSessionLease("s1", "Edit src/lib/permissions.ts")?.prefix).toBe("src/");
+  });
+
+  it("acceptEdits still asks for Bash and Read", () => {
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null })],
+      permissionModes: { s1: "acceptEdits" },
+    });
+
+    useSessionStore.getState().askPermission("s1", {
+      requestId: 9,
+      summary: "Bash npm test",
+      options: [once],
+    });
+    useSessionStore.getState().askPermission("s1", {
+      requestId: 10,
+      summary: "Read src/auth.ts",
+      options: [once],
+    });
+
+    expect(answerSessionPermission).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().permissions["s1"]?.map((item) => item.requestId)).toEqual([
+      9, 10,
+    ]);
+  });
+
+  it("does not pass the mode into createSession", async () => {
+    createSession.mockResolvedValue(session({ kind: "agent", paneId: null }));
+
+    await useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: null,
+      kind: "agent",
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("permissionMode");
+  });
+
+  it("drops the mode on Stop and Restart (new id)", async () => {
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null })],
+      permissionModes: { s1: "acceptEdits" },
+    });
+
+    useSessionStore.getState().markExited("s1", null);
+    expect(useSessionStore.getState().permissionModes["s1"]).toBeUndefined();
+
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null })],
+      permissionModes: { s1: "acceptEdits" },
+    });
+    restartSession.mockResolvedValue(session({ id: "s2", kind: "agent", paneId: null }));
+
+    await useSessionStore.getState().restartSession("s1", 80, 24);
+
+    expect(useSessionStore.getState().permissionModes).toEqual({});
   });
 });
 

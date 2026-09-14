@@ -45,10 +45,14 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   `doing` step, the worktree path, and overlapping diff paths are listed when
   those are already known — missing pieces are omitted, not invented. Allow is `allow_once` only; `allow_always` and
   `reject_always` are separate chips using the name the agent sent, so Allow can
-  never silently become always-approve. After Allow, **Also this session:
+  never silently become always-approve.   After Allow, **Also this session:
   `Edit src/**`** opts into matching file-tool prompts in that session, still
   answered as Allow once. `*` and any Bash are refused. The lease dies on Stop
-  or Restart (a new id) and is never persisted as `allow_always`. Deny is a reject-once chip. Its words, thoughts, tools,
+  or Restart (a new id) and is never persisted as `allow_always`. A pane chip
+  **plan | ask | acceptEdits** records host intent: plan is Spec, ask is today's
+  chips, acceptEdits auto-grants that edit-class lease (still `allow_once`).
+  There is no yolo chip, and the mode is not passed to `session/new` or
+  `grok agent --permission-mode`. Deny is a reject-once chip. Its words, thoughts, tools,
   and plans surface as a transcript on the Graph tab and the Tasks rail, with
   Cancel while it is working and a follow-up field while it is idle. Five
   identical tool calls in a row (same text — different args do not count)
