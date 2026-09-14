@@ -1,12 +1,9 @@
 /**
  * Asking a session to write its graph file.
- *
- * A terminal Grok is typed at; an ACP agent is prompted. The two cannot share a
- * write path: `writeSession` is a pty, and a pane-less agent has none.
  */
 
-import { api } from "./api";
 import type { Session } from "../types";
+import { talkToSession } from "./talkToSession";
 
 export const GRAPH_REQUEST =
   "Write your plan for this work as a graph to $GROKSPACE_GRAPH_FILE now, " +
@@ -21,9 +18,5 @@ export function canAskForGraph(session: Session): boolean {
 }
 
 export async function askForGraph(session: Session): Promise<void> {
-  if (session.kind === "agent") {
-    await api.promptSession(session.id, GRAPH_REQUEST);
-    return;
-  }
-  await api.writeSession(session.id, `${GRAPH_REQUEST}\r`);
+  await talkToSession(session, GRAPH_REQUEST);
 }
