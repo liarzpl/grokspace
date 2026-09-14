@@ -22,7 +22,9 @@ pub enum SessionStatus {
 }
 
 impl SessionStatus {
-    fn as_str(self) -> &'static str {
+    pub(crate) const ALL: [Self; 4] = [Self::Idle, Self::Running, Self::NeedsInput, Self::Stopped];
+
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Idle => "idle",
             Self::Running => "running",
@@ -32,12 +34,10 @@ impl SessionStatus {
     }
 
     fn parse(value: &str) -> Self {
-        match value {
-            "idle" => Self::Idle,
-            "running" => Self::Running,
-            "needs_input" => Self::NeedsInput,
-            _ => Self::Stopped,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::Stopped)
     }
 }
 
@@ -57,7 +57,9 @@ pub enum SessionKind {
 }
 
 impl SessionKind {
-    fn as_str(self) -> &'static str {
+    pub(crate) const ALL: [Self; 3] = [Self::Grok, Self::Shell, Self::Agent];
+
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Grok => "grok",
             Self::Shell => "shell",
@@ -66,11 +68,10 @@ impl SessionKind {
     }
 
     fn parse(value: &str) -> Self {
-        match value {
-            "shell" => Self::Shell,
-            "agent" => Self::Agent,
-            _ => Self::Grok,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::Grok)
     }
 
     pub(crate) fn default_title(self) -> &'static str {

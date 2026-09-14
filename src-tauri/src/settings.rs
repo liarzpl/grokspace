@@ -18,18 +18,105 @@ use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::AppState;
 
-const DEFAULT_LAYOUT: &str = "2x2";
-pub(crate) const LAYOUTS: [&str; 4] = ["1x1", "2x1", "2x2", "3x2"];
-
-pub(crate) fn is_pane_layout(value: &str) -> bool {
-    LAYOUTS.contains(&value)
+/// Grid presets, named columns-by-rows. Freeform splits are a later phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PaneLayout {
+    #[serde(rename = "1x1")]
+    OneByOne,
+    #[serde(rename = "2x1")]
+    TwoByOne,
+    #[serde(rename = "2x2")]
+    TwoByTwo,
+    #[serde(rename = "3x2")]
+    ThreeByTwo,
 }
 
-const DEFAULT_TAB: &str = "terminals";
-const TABS: [&str; 5] = ["terminals", "graph", "tasks", "memory", "diff"];
+impl PaneLayout {
+    pub const DEFAULT: Self = Self::TwoByTwo;
+    pub const ALL: [Self; 4] = [
+        Self::OneByOne,
+        Self::TwoByOne,
+        Self::TwoByTwo,
+        Self::ThreeByTwo,
+    ];
 
-const DEFAULT_DISPATCH: &str = "pane";
-const DISPATCH: [&str; 2] = ["pane", "agent"];
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::OneByOne => "1x1",
+            Self::TwoByOne => "2x1",
+            Self::TwoByTwo => "2x2",
+            Self::ThreeByTwo => "3x2",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|item| item.as_str() == value)
+    }
+}
+
+pub(crate) fn is_pane_layout(value: &str) -> bool {
+    PaneLayout::from_str(value).is_some()
+}
+
+/// The panels the workspace switches between. Settings' opening tab is this list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceTab {
+    Terminals,
+    Graph,
+    Tasks,
+    Memory,
+    Diff,
+}
+
+impl WorkspaceTab {
+    pub const DEFAULT: Self = Self::Terminals;
+    pub const ALL: [Self; 5] = [
+        Self::Terminals,
+        Self::Graph,
+        Self::Tasks,
+        Self::Memory,
+        Self::Diff,
+    ];
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Terminals => "terminals",
+            Self::Graph => "graph",
+            Self::Tasks => "tasks",
+            Self::Memory => "memory",
+            Self::Diff => "diff",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|item| item.as_str() == value)
+    }
+}
+
+/// Which new session a dispatch reaches for first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DispatchTarget {
+    Pane,
+    Agent,
+}
+
+impl DispatchTarget {
+    pub const DEFAULT: Self = Self::Pane;
+    pub const ALL: [Self; 2] = [Self::Pane, Self::Agent];
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Pane => "pane",
+            Self::Agent => "agent",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|item| item.as_str() == value)
+    }
+}
 
 /// Every preference, with the defaults filled in.
 ///
@@ -39,33 +126,42 @@ const DISPATCH: [&str; 2] = ["pane", "agent"];
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     /// The pane layout a project that has never chosen one gets.
-    pub default_layout: String,
+    pub default_layout: PaneLayout,
     /// The panel the workspace opens on. Somebody who works from the board should
     /// not have to click past the terminals every time.
-    pub opening_tab: String,
+    pub opening_tab: WorkspaceTab,
     /// Which new session a dispatch reaches for first: a Grok terminal in a free pane,
     /// or a paneless agent. Only the ordering of the offer changes — nothing is chosen
     /// on the user's behalf — but it decides which chip is nearest the pointer.
-    pub default_dispatch: String,
+    pub default_dispatch: DispatchTarget,
 }
 
 impl Settings {
     fn from_rows(rows: &HashMap<String, String>) -> Self {
         Self {
-            default_layout: one_of(rows.get("defaultLayout"), &LAYOUTS, DEFAULT_LAYOUT),
-            opening_tab: one_of(rows.get("openingTab"), &TABS, DEFAULT_TAB),
-            default_dispatch: one_of(rows.get("defaultDispatch"), &DISPATCH, DEFAULT_DISPATCH),
+            default_layout: one_of(
+                rows.get("defaultLayout"),
+                PaneLayout::from_str,
+                PaneLayout::DEFAULT,
+            ),
+            opening_tab: one_of(
+                rows.get("openingTab"),
+                WorkspaceTab::from_str,
+                WorkspaceTab::DEFAULT,
+            ),
+            default_dispatch: one_of(
+                rows.get("defaultDispatch"),
+                DispatchTarget::from_str,
+                DispatchTarget::DEFAULT,
+            ),
         }
     }
 }
 
 /// The stored value when it is one of the ones this build knows, and the default
 /// otherwise.
-fn one_of(stored: Option<&String>, allowed: &[&str], fallback: &str) -> String {
-    match stored {
-        Some(value) if allowed.contains(&value.as_str()) => value.clone(),
-        _ => fallback.to_string(),
-    }
+fn one_of<T>(stored: Option<&String>, parse: fn(&str) -> Option<T>, fallback: T) -> T {
+    stored.and_then(|value| parse(value)).unwrap_or(fallback)
 }
 
 fn rows(conn: &Connection) -> Result<HashMap<String, String>> {
@@ -88,13 +184,13 @@ pub fn get(conn: &Connection) -> Result<Settings> {
 /// become a row that reads back as the default forever, which looks exactly like the
 /// setting not working.
 pub fn put(conn: &Connection, key: &str, value: &str) -> Result<Settings> {
-    let allowed: &[&str] = match key {
-        "defaultLayout" => &LAYOUTS,
-        "openingTab" => &TABS,
-        "defaultDispatch" => &DISPATCH,
+    let known = match key {
+        "defaultLayout" => PaneLayout::from_str(value).is_some(),
+        "openingTab" => WorkspaceTab::from_str(value).is_some(),
+        "defaultDispatch" => DispatchTarget::from_str(value).is_some(),
         _ => return Err(Error::Invalid(format!("`{key}` is not a setting"))),
     };
-    if !allowed.contains(&value) {
+    if !known {
         return Err(Error::Invalid(format!(
             "`{value}` is not one of the values `{key}` can take"
         )));
@@ -134,9 +230,9 @@ mod tests {
 
         let settings = get(&conn).unwrap();
 
-        assert_eq!(settings.default_layout, "2x2");
-        assert_eq!(settings.opening_tab, "terminals");
-        assert_eq!(settings.default_dispatch, "pane");
+        assert_eq!(settings.default_layout, PaneLayout::DEFAULT);
+        assert_eq!(settings.opening_tab, WorkspaceTab::DEFAULT);
+        assert_eq!(settings.default_dispatch, DispatchTarget::DEFAULT);
     }
 
     #[test]
@@ -145,9 +241,9 @@ mod tests {
 
         let after = put(&conn, "openingTab", "tasks").unwrap();
 
-        assert_eq!(after.opening_tab, "tasks");
-        assert_eq!(after.default_layout, "2x2");
-        assert_eq!(after.default_dispatch, "pane");
+        assert_eq!(after.opening_tab, WorkspaceTab::Tasks);
+        assert_eq!(after.default_layout, PaneLayout::DEFAULT);
+        assert_eq!(after.default_dispatch, DispatchTarget::DEFAULT);
     }
 
     #[test]
@@ -157,7 +253,7 @@ mod tests {
         put(&conn, "defaultLayout", "3x2").unwrap();
         let after = put(&conn, "defaultLayout", "1x1").unwrap();
 
-        assert_eq!(after.default_layout, "1x1");
+        assert_eq!(after.default_layout, PaneLayout::OneByOne);
         let stored: i64 = conn
             .query_row("SELECT COUNT(*) FROM app_settings", [], |row| row.get(0))
             .unwrap();
@@ -192,8 +288,8 @@ mod tests {
 
         let after = put(&conn, "openingTab", "diff").unwrap();
 
-        assert_eq!(after.opening_tab, "diff");
-        assert_eq!(get(&conn).unwrap().opening_tab, "diff");
+        assert_eq!(after.opening_tab, WorkspaceTab::Diff);
+        assert_eq!(get(&conn).unwrap().opening_tab, WorkspaceTab::Diff);
     }
 
     #[test]
@@ -207,6 +303,6 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(get(&conn).unwrap().default_layout, "2x2");
+        assert_eq!(get(&conn).unwrap().default_layout, PaneLayout::DEFAULT);
     }
 }

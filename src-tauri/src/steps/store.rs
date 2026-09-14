@@ -28,6 +28,8 @@ pub enum StepsPhase {
 }
 
 impl StepsPhase {
+    pub(crate) const ALL: [Self; 3] = [Self::None, Self::Proposed, Self::Approved];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -37,11 +39,10 @@ impl StepsPhase {
     }
 
     pub(crate) fn parse(value: &str) -> Self {
-        match value {
-            "proposed" => Self::Proposed,
-            "approved" => Self::Approved,
-            _ => Self::None,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::None)
     }
 }
 
@@ -55,6 +56,8 @@ pub enum StepStatus {
 }
 
 impl StepStatus {
+    pub(crate) const ALL: [Self; 4] = [Self::Pending, Self::Doing, Self::Done, Self::Skipped];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Pending => "pending",
@@ -65,12 +68,10 @@ impl StepStatus {
     }
 
     pub(crate) fn parse(value: &str) -> Self {
-        match value {
-            "doing" => Self::Doing,
-            "done" => Self::Done,
-            "skipped" => Self::Skipped,
-            _ => Self::Pending,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::Pending)
     }
 }
 
@@ -82,6 +83,8 @@ pub enum StepOrigin {
 }
 
 impl StepOrigin {
+    pub(crate) const ALL: [Self; 2] = [Self::Agent, Self::User];
+
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Agent => "agent",
@@ -90,11 +93,10 @@ impl StepOrigin {
     }
 
     pub(crate) fn parse(value: &str) -> Self {
-        if value == "user" {
-            Self::User
-        } else {
-            Self::Agent
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::Agent)
     }
 }
 

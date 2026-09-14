@@ -179,6 +179,7 @@ src/
                   paths, the ACP transcript folder, and graph ask/artifact helpers
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
+  generated/      Domain enum lists emitted from src-tauri/src/domain.rs
 scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
                   the release-*.sh pair holds the release workflow's decisions so
                   they can be tested
@@ -208,6 +209,7 @@ src-tauri/
     worktree.rs   Git worktrees for ACP agents; no Tauri needed to test
     diff.rs       What changed, read out of git, optionally in one session's tree
     settings.rs   App preferences: key-value in SQLite, typed on the way out
+    domain.rs     Shared enum lists; emits src/generated/domain.ts
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
 ```
