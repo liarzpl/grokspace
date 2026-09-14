@@ -48,8 +48,9 @@ telemetry; workspace state lives in `~/.grokspace`.
   only ever report `running` or `stopped`, because a pty carries pixels.
 - **Live graphs, one per session** — every session has its own graph file, and
   the panel redraws the moment an agent writes to it. Watch a plan from the Graph
-  tab, or flip a single pane from `term` to `graph` and keep working in the
-  others.
+  tab, or flip a single pane from `term` to `graph` or `steps` and keep working
+  in the others. The workspace **Tasks** tab is the Kanban board; the pane face
+  is this session's step list.
 - **Task board** — a Kanban board per project, in the columns `backlog`,
   `in_progress`, `review`, and `done`. Cards can be dragged between columns or
   moved with the arrows on the card, and each card can be handed to an agent:

@@ -23,10 +23,10 @@ import { QuietButton, StatusDot } from "./ui";
 const RESIZE_DEBOUNCE_MS = 80;
 
 /**
- * Flips a pane between its terminal and the graph its session is reporting, so a
- * plan can be watched in one pane while the others keep working. The terminal is
- * not stopped by this: lib/terminals.ts keeps the instance and its pty alive while
- * the graph has the pane.
+ * Flips a pane between its terminal, the graph its session is reporting, and
+ * that session's steps. The workspace Tasks tab is the Kanban board; this face
+ * is not. The terminal is not stopped by this: lib/terminals.ts keeps the
+ * instance and its pty alive while another face has the pane.
  */
 function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
   const view = useSessionStore((state) => state.paneViews[paneId] ?? "terminal");
@@ -41,7 +41,7 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
   const options =
     session.kind === "shell"
       ? (["terminal", "graph"] as const)
-      : (["terminal", "graph", "tasks"] as const);
+      : (["terminal", "graph", "steps"] as const);
 
   return (
     <div className="flex shrink-0 items-center gap-0.5 rounded-sm border border-line px-0.5">
@@ -53,7 +53,7 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
           title={
             option === "graph" && !hasGraph
               ? "This session has not reported a graph yet"
-              : option === "tasks" && !hasSteps
+              : option === "steps" && !hasSteps
                 ? "This session has not proposed steps yet"
                 : undefined
           }
@@ -61,11 +61,11 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
             view === option ? "bg-accent-soft text-ink" : "text-ink-faint hover:text-ink-muted"
           }`}
         >
-          {option === "terminal" ? "term" : option === "graph" ? "graph" : "tasks"}
+          {option === "terminal" ? "term" : option === "graph" ? "graph" : "steps"}
           {option === "graph" && hasGraph && (
             <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
           )}
-          {option === "tasks" && hasSteps && (
+          {option === "steps" && hasSteps && (
             <span className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
           )}
         </button>
@@ -191,7 +191,7 @@ export default function TerminalPane({
   const isMaximized = maximizedPane === paneId;
   const running = session?.status === "running";
   const view =
-    paneView === "tasks" && session?.kind === "shell" ? "terminal" : paneView;
+    paneView === "steps" && session?.kind === "shell" ? "terminal" : paneView;
 
   const restart = () => {
     if (!session) return;
@@ -269,7 +269,7 @@ export default function TerminalPane({
       {session ? (
         view === "graph" ? (
           <GraphVisualizer session={session} compact />
-        ) : view === "tasks" ? (
+        ) : view === "steps" ? (
           <SessionSteps session={session} compact />
         ) : (
           <TerminalSurface session={session} />

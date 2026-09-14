@@ -900,13 +900,13 @@ describe("toggleMaximized", () => {
 });
 
 describe("setPaneView", () => {
-  it("switches one pane to its tasks face without touching the others", () => {
+  it("switches one pane to its steps face without touching the others", () => {
     const { setPaneView } = useSessionStore.getState();
 
-    setPaneView("1", "tasks");
+    setPaneView("1", "steps");
 
     const { paneViews } = useSessionStore.getState();
-    expect(paneViews["1"]).toBe("tasks");
+    expect(paneViews["1"]).toBe("steps");
     expect(paneViews["0"]).toBeUndefined();
   });
 
