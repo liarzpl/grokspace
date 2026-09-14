@@ -93,3 +93,17 @@ export function orphanedPermissions(
     )
     .map(([sessionId, requests]) => ({ sessionId, requests }));
 }
+
+/**
+ * Accessible name for the orphaned-permission strip. Isolation already uses
+ * `role="status"`; this prompt is the one that blocks an agent, so the name
+ * has to include who is waiting.
+ */
+export function orphanedPermissionAlert(titles: readonly string[]): string {
+  const unique = [...new Set(titles.map((title) => title.trim()).filter(Boolean))];
+  if (unique.length === 0) return "An agent needs permission";
+  if (unique.length === 1) return `${unique[0]} needs permission`;
+  if (unique.length === 2) return `${unique[0]} and ${unique[1]} need permission`;
+  const last = unique[unique.length - 1];
+  return `${unique.slice(0, -1).join(", ")}, and ${last} need permission`;
+}
