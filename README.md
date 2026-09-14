@@ -40,7 +40,9 @@ telemetry; workspace state lives in `~/.grokspace`.
 - **Agents that report themselves** — a session can be a Grok agent driven over
   ACP instead of a terminal. It holds no pane, and in exchange it says whether it
   is `running`, `idle`, or `needs_input`; a permission it is blocked on appears on
-  the card of the task it concerns, with Allow and Deny. Its words, thoughts, tools,
+  the card of the task it concerns. Allow is `allow_once` only; `allow_always` and
+  `reject_always` are separate chips using the name the agent sent, so Allow can
+  never silently become always-approve. Deny is a reject-once chip. Its words, thoughts, tools,
   and plans surface as a transcript on the Graph tab and the Tasks rail, with
   Cancel while it is working and a follow-up field while it is idle. A terminal can
   only ever report `running` or `stopped`, because a pty carries pixels.
@@ -68,8 +70,10 @@ telemetry; workspace state lives in `~/.grokspace`.
   named rather than losing the rest.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
   launches, project switches, and skill installs from one place, and it opens over a
-  focused terminal rather than being swallowed by it. Search matches a subsequence, so
-  `sgr` finds "Start Grok in the first free pane".
+  focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
+  project folder. "Install or refresh GrokSpace skills" writes graph, memory, and
+  steps in that order; the Graph empty-state button still installs graph alone.
+  Search matches a subsequence, so `sgr` finds "Start Grok in the first free pane".
 - **Settings** — a default pane layout for projects that have never chosen one, which
   panel the workspace opens on, and which new session a dispatch reaches for first.
   Shared by every project, and refused rather than stored when a value is not one this
@@ -80,14 +84,24 @@ telemetry; workspace state lives in `~/.grokspace`.
   project's tree. An ACP agent that isolated into a worktree appears as a chip, and
   picking it reads that checkout. Modified, new, deleted and renamed files, with each
   file's diff against `HEAD`; a file git has never seen is shown as all additions
-  rather than skipped. Discard throws away a stopped agent's worktree so Close can
-  proceed; Merge, on a stopped agent, lands that branch on the project.
+  rather than skipped. Paths another worktree (or the project) also touched are
+  marked; lockfiles and migrations get a louder hotspot strip. That strip warns —
+  it does not lock Merge. A stopped agent's Merge refusal (dirty project, nothing
+  to merge, missing git) is shown before you click. Discard throws away a stopped
+  agent's worktree so Close can proceed; Merge, on a stopped agent, lands that
+  branch on the project.
 - **Per-agent worktrees** — an ACP agent starts in a clean checkout of `HEAD` at
   `<project>/.grokspace/worktrees/<session-id>/`, on a branch named
   `grokspace/<short-id>`. Grok panes and shells stay on the project folder. Graphs,
   steps, and memory still live under the project, via absolute environment variables.
-  Close refuses while that tree is dirty; Discard force-removes it. Merge, on a
+  If isolation is skipped, a banner says the agent is on the project tree. Close
+  refuses while that tree is dirty; Discard force-removes it. Merge, on a
   stopped agent, commits leftover files and lands the branch on the project.
+- **Dock attention** — an unfocused window with an ACP agent waiting on
+  `needs_input` shows a badge count and one Informational bounce. A focused
+  window already has Allow/Deny, so it does not bounce. A second permission on
+  the same session does not bounce again until that session has left
+  `needs_input`.
 - **Local persistence** — projects, sessions, tasks, memory, and settings live in
   SQLite at `~/.grokspace/grokspace.db`.
 
@@ -153,14 +167,16 @@ src/
   components/     TitleBar, ProjectSidebar, WorkspaceShell, EmptyState, PaneGrid,
                   TerminalPane, GraphVisualizer, TaskBoard, MemoryPanel,
                   CommandPalette, SettingsPanel, DiffPanel, AgentTranscript,
-                  SessionSteps, graph/
+                  SessionSteps, ErrorBoundary, PermissionActions, graph/
   stores/         Zustand stores (projectStore, sessionStore, graphStore,
                   taskStore, memoryStore, settingsStore, diffStore, stepStore,
                   uiStore)
   lib/            Typed `invoke` wrappers (api.ts), the terminal registry,
                   the graph document parser, the role presets, the shortcut
-                  table, the palette's commands, the dispatch targets, and
-                  the theme reader
+                  table, the palette's commands, the dispatch targets, the
+                  theme reader, dock attention, worktree overlap, permission
+                  chips, session steps, hunk prompts, window drag, home-relative
+                  paths, the ACP transcript folder, and graph ask/artifact helpers
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
 scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
@@ -168,8 +184,7 @@ scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
                   they can be tested
 src-tauri/
   migrations/     Append-only SQL migrations
-  skills/         The Grok skills GrokSpace installs on request; grokspace-graph
-                  is a runbook plus two references read on demand
+  skills/         The three Grok skills GrokSpace installs on request (see below)
   src/
     db.rs         Database location, pragmas, migration runner
     project.rs    Project model, queries, and Tauri commands
@@ -188,6 +203,15 @@ src-tauri/
     error.rs      Error type; serializes to a plain string for the frontend
   icons/source/   Icon artwork and how to regenerate it
 ```
+
+Three bundled skills. Source directory, install directory, and frontmatter
+`name` are not always the same word — the memory skill is the one that differs:
+
+| Skill | Source | Installs to | Frontmatter `name` |
+| --- | --- | --- | --- |
+| Graph | `src-tauri/skills/grokspace-graph/` | `~/.grok/skills/grokspace-graph/` | `grokspace-graph` |
+| Memory | `src-tauri/skills/project-memory/` | `~/.grok/skills/grokspace-memory/` | `grokspace-memory` |
+| Steps | `src-tauri/skills/grokspace-steps/` | `~/.grok/skills/grokspace-steps/` | `grokspace-steps` |
 
 The frontend never spells out raw command names: every backend call goes
 through a typed wrapper in [`src/lib/api.ts`](src/lib/api.ts).
@@ -244,8 +268,9 @@ reports which session's file moved; the panel re-reads that one file, which is
 what makes the graphs live rather than a snapshot.
 
 What makes `grok` write one is a bundled skill, installed to `~/.grok/skills/`
-from the button in the Graph panel's empty state. That empty state also names the
-directory installing writes to, and can ask a running agent for a graph directly.
+from the button in the Graph panel's empty state, or together with memory and
+steps from the palette. That empty state also names the directory installing
+writes to, and can ask a running agent for a graph directly.
 
 The skill is three files: a short runbook, a catalogue of topologies for deciding
 whether the work deserves a graph at all, and the file contract. It carries no node
@@ -307,9 +332,10 @@ Putting trees under `~/.grokspace` would not.
 GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
 every extra flag is a way for a session to fail to start, which is the same
 reason graphs, memory, and roles stay out of flags. Missing git, a folder that
-is not a repository, or a failed `worktree add` all mean the agent starts in the
-project folder with no `worktree_path`, rather than refusing to start. The UI
-says so: isolation did not happen, and the agent is on the project tree.
+  is not a repository, or a failed `worktree add` all mean the agent starts in the
+  project folder with no `worktree_path`, rather than refusing to start. The UI
+  says so in an isolation banner (and on the session chip): isolation did not
+  happen, and the agent is on the project tree.
 
 `GROKSPACE_PROJECT_DIR`, `GROKSPACE_GRAPH_FILE`, `GROKSPACE_STEPS_FILE`, and
 `GROKSPACE_MEMORY_FILE` stay pointed at the **project**. `GROKSPACE_WORKTREE` is
