@@ -7,6 +7,7 @@ import { sessionCanTakeWork } from "../lib/dispatch";
 import { inboxItems } from "../lib/inboxItems";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import type { PermissionRequest, Session, Settings, Task, TaskStatus } from "../types";
+import { isolationMapHasOverlap, useDiffStore } from "./diffStore";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
 import { useStepStore } from "./stepStore";
@@ -94,6 +95,99 @@ function refuseInboxZero(projectId: string, tasks: Task[], anyway: boolean): str
   );
 }
 
+/** Coder or unnamed. Scout / Planner / Reviewer / Tester skip the offer. */
+export function coderishRole(role: string | null | undefined): boolean {
+  const name = role?.trim() ?? "";
+  return name === "" || name === "Coder";
+}
+
+/** Overlap on a Coder-ish target. The isolation map is the last Diff snapshot. */
+export function scoutTripwireOffer(role: string | null | undefined, hasOverlap: boolean): boolean {
+  return hasOverlap && coderishRole(role);
+}
+
+export type ScoutTripwireChoice = "scout" | "spec" | "anyway";
+
+export type ScoutTripwirePending = {
+  taskId: string;
+};
+
+let tripwireGate: {
+  promise: Promise<ScoutTripwireChoice | null>;
+  resolve: (choice: ScoutTripwireChoice | null) => void;
+} | null = null;
+
+function askScoutTripwire(
+  set: (partial: { scoutTripwire: ScoutTripwirePending | null }) => void,
+  pending: ScoutTripwirePending,
+): Promise<ScoutTripwireChoice | null> {
+  if (tripwireGate !== null) return Promise.resolve(null);
+  let resolve!: (choice: ScoutTripwireChoice | null) => void;
+  const promise = new Promise<ScoutTripwireChoice | null>((settle) => {
+    resolve = settle;
+  });
+  tripwireGate = { promise, resolve };
+  set({ scoutTripwire: pending });
+  return promise;
+}
+
+function settleScoutTripwire(
+  set: (partial: { scoutTripwire: ScoutTripwirePending | null }) => void,
+  choice: ScoutTripwireChoice | null,
+): void {
+  const gate = tripwireGate;
+  tripwireGate = null;
+  set({ scoutTripwire: null });
+  gate?.resolve(choice);
+}
+
+type TripwireDecision = "pass" | "spec" | "scout" | "ask" | "cancel";
+
+function tripwireDecision(
+  role: string | null,
+  resolved?: ScoutTripwireChoice,
+): TripwireDecision {
+  if (resolved === "anyway") return "pass";
+  if (resolved === "spec" || resolved === "scout") return resolved;
+  if (!scoutTripwireOffer(role, isolationMapHasOverlap(useDiffStore.getState().diff))) {
+    return "pass";
+  }
+  return "ask";
+}
+
+async function askTripwireChoice(
+  set: (partial: { scoutTripwire: ScoutTripwirePending | null }) => void,
+  taskId: string,
+): Promise<TripwireDecision> {
+  const choice = await askScoutTripwire(set, { taskId });
+  if (choice === null) return "cancel";
+  return choice === "anyway" ? "pass" : choice;
+}
+
+/** Idle Scout on this project, or a new ACP Scout. Failures stay on sessionStore. */
+async function ensureScoutSession(projectId: string): Promise<string | null> {
+  const ready = useSessionStore
+    .getState()
+    .sessions.filter(
+      (session) =>
+        session.projectId === projectId &&
+        session.role === "Scout" &&
+        sessionCanTakeWork(session),
+    );
+  const idle = ready.find((session) => session.status === "idle");
+  const existing = idle ?? ready[0];
+  if (existing !== undefined) return existing.id;
+
+  const session = await useSessionStore.getState().startSession({
+    projectId,
+    paneId: null,
+    kind: "agent",
+    role: "Scout",
+    ...FALLBACK_PTY_SIZE,
+  });
+  return session?.id ?? null;
+}
+
 /** Newest tasks last within a column, matching the backend's ordering. */
 function replaceTask(tasks: Task[], next: Task): Task[] {
   return tasks.map((task) => (task.id === next.id ? next : task));
@@ -115,6 +209,8 @@ interface TaskState {
   /** Tasks with a dispatch in flight, so a card can show it is going somewhere. */
   dispatching: Record<string, boolean>;
   error: string | null;
+  /** Open Scout-first offer. Null when nobody is choosing. */
+  scoutTripwire: ScoutTripwirePending | null;
 
   loadTasks: (projectId: string) => Promise<void>;
   createTask: (projectId: string, title: string, description?: string) => Promise<Task | null>;
@@ -128,7 +224,7 @@ interface TaskState {
   dispatch: (
     taskId: string,
     sessionId: string,
-    options?: { anyway?: boolean },
+    options?: { anyway?: boolean; tripwire?: ScoutTripwireChoice },
   ) => Promise<boolean>;
   /**
    * Starts something to do the work and sends the task to it. A `paneId` starts a
@@ -139,8 +235,10 @@ interface TaskState {
     taskId: string,
     projectId: string,
     paneId: string | null,
-    options?: { anyway?: boolean },
+    options?: { anyway?: boolean; tripwire?: ScoutTripwireChoice },
   ) => Promise<boolean>;
+  resolveScoutTripwire: (choice: ScoutTripwireChoice) => void;
+  cancelScoutTripwire: () => void;
   clearError: () => void;
 }
 
@@ -150,8 +248,11 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   isLoading: false,
   dispatching: {},
   error: null,
+  scoutTripwire: null,
 
   clearError: () => set({ error: null }),
+  resolveScoutTripwire: (choice) => settleScoutTripwire(set, choice),
+  cancelScoutTripwire: () => settleScoutTripwire(set, null),
 
   loadTasks: async (projectId) => {
     const generation = ++loadGeneration;
@@ -251,6 +352,20 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       return false;
     }
 
+    let decision: TripwireDecision = tripwireDecision(session.role, options?.tripwire);
+    if (decision === "ask") {
+      decision = await askTripwireChoice(set, taskId);
+    }
+    if (decision === "cancel") return false;
+    if (decision === "scout") {
+      const scoutId = await ensureScoutSession(origin);
+      if (scoutId === null) return false;
+      return get().dispatch(taskId, scoutId, { ...options, tripwire: "anyway" });
+    }
+    if (decision === "spec") {
+      await useSessionStore.getState().setPermissionMode(sessionId, "plan");
+    }
+
     set((state) => ({ dispatching: { ...state.dispatching, [taskId]: true }, error: null }));
     let assigned = false;
     try {
@@ -294,6 +409,18 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       set({ error: blocked });
       return false;
     }
+    // New sessions have no role yet, so they are Coder-ish. Ask before spawn so
+    // Scout can start instead of a tree we would then abandon.
+    let decision: TripwireDecision = tripwireDecision(null, options?.tripwire);
+    if (decision === "ask") {
+      decision = await askTripwireChoice(set, taskId);
+    }
+    if (decision === "cancel") return false;
+    if (decision === "scout") {
+      const scoutId = await ensureScoutSession(projectId);
+      if (scoutId === null) return false;
+      return get().dispatch(taskId, scoutId, { ...options, tripwire: "anyway" });
+    }
     const session = await useSessionStore.getState().startSession({
       projectId,
       paneId,
@@ -303,7 +430,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // startSession has already put its own failure on the session store's error,
     // which the shell surfaces; repeating it here would show it twice.
     if (!session) return false;
-    return get().dispatch(taskId, session.id, options);
+    return get().dispatch(taskId, session.id, {
+      ...options,
+      tripwire: decision === "spec" ? "spec" : "anyway",
+    });
   },
 
   editTask: (id, changes) => get().updateTask(id, changes),

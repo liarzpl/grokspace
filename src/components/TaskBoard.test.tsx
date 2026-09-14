@@ -37,6 +37,8 @@ vi.mock("../lib/api", async () => {
 
 const { default: TaskBoard } = await import("./TaskBoard");
 const { default: IsolationConfirm } = await import("./IsolationConfirm");
+const { default: ScoutTripwireConfirm } = await import("./ScoutTripwireConfirm");
+const { useDiffStore } = await import("../stores/diffStore");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useSettingsStore } = await import("../stores/settingsStore");
 const { useTaskStore } = await import("../stores/taskStore");
@@ -49,6 +51,24 @@ const initialTasks = useTaskStore.getState();
 const initialSessions = useSessionStore.getState();
 const initialSettings = useSettingsStore.getState();
 const initialUi = useUiStore.getState();
+const initialDiff = useDiffStore.getState();
+
+function overlapDiff() {
+  useDiffStore.setState({
+    diff: {
+      state: "changed",
+      branch: "main",
+      files: [{ path: "src/a.ts", change: "modified" }],
+      overlaps: [
+        {
+          path: "src/a.ts",
+          hotspot: false,
+          peers: [{ sessionId: "peer", title: "Coder" }],
+        },
+      ],
+    },
+  });
+}
 
 /** jsdom will not invent a DataTransfer; the card writes the id even though drop reads React state. */
 function transfer(): DataTransfer {
@@ -76,10 +96,12 @@ describe("TaskBoard drag and drop", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSessionStore.getState().cancelUnisolatedStart();
+    useTaskStore.getState().cancelScoutTripwire();
     useTaskStore.setState(initialTasks, true);
     useSessionStore.setState(initialSessions, true);
     useSettingsStore.setState(initialSettings, true);
     useUiStore.setState(initialUi, true);
+    useDiffStore.setState(initialDiff, true);
     updateTask.mockImplementation(async (id: string, changes: { status?: string }) => {
       const current = useTaskStore.getState().tasks.find((row) => row.id === id);
       if (current === undefined) throw new Error(`missing task ${id}`);
@@ -136,10 +158,12 @@ describe("TaskBoard swarm isolation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSessionStore.getState().cancelUnisolatedStart();
+    useTaskStore.getState().cancelScoutTripwire();
     useTaskStore.setState(initialTasks, true);
     useSessionStore.setState(initialSessions, true);
     useSettingsStore.setState(initialSettings, true);
     useUiStore.setState(initialUi, true);
+    useDiffStore.setState(initialDiff, true);
   });
 
   it("opens a confirm dialog instead of a raw isolation banner", async () => {
@@ -168,10 +192,12 @@ describe("TaskBoard inbox-zero gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSessionStore.getState().cancelUnisolatedStart();
+    useTaskStore.getState().cancelScoutTripwire();
     useTaskStore.setState(initialTasks, true);
     useSessionStore.setState(initialSessions, true);
     useSettingsStore.setState(initialSettings, true);
     useUiStore.setState(initialUi, true);
+    useDiffStore.setState(initialDiff, true);
     dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
     promptSession.mockResolvedValue(undefined);
     createSession.mockResolvedValue(
@@ -213,6 +239,32 @@ describe("TaskBoard inbox-zero gate", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Dispatch" }));
     fireEvent.click(screen.getByRole("button", { name: "New agent" }));
+
+    await waitFor(() => {
+      expect(dispatchTask).toHaveBeenCalledWith("t1", "a1");
+    });
+    expect(createSession).toHaveBeenCalled();
+  });
+
+  it("offers Scout, Spec, and Dispatch anyway when the isolation map overlaps", async () => {
+    overlapDiff();
+    useTaskStore.setState({ tasks: [task()] });
+    render(
+      <>
+        <TaskBoard project={project()} />
+        <ScoutTripwireConfirm />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Dispatch" }));
+    fireEvent.click(screen.getByRole("button", { name: "New agent" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Scout or Spec first?" })).toBeInTheDocument(),
+    );
+    expect(createSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Dispatch anyway" }));
 
     await waitFor(() => {
       expect(dispatchTask).toHaveBeenCalledWith("t1", "a1");

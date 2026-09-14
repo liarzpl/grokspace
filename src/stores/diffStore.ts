@@ -2,7 +2,16 @@ import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
 import type { DiffComment } from "../lib/diffPrompt";
+import { overlapsOf } from "../lib/overlap";
 import type { ChangedFile, DiffState } from "../types";
+
+/**
+ * Whether the last-loaded isolation map lists a path another live tree also
+ * touched. Git-missing / not-a-repo / an unread clean snapshot are not an offer.
+ */
+export function isolationMapHasOverlap(diff: DiffState): boolean {
+  return overlapsOf(diff).length > 0;
+}
 
 /**
  * What the agents have changed, as git sees it.

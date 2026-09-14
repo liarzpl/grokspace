@@ -10,7 +10,7 @@ vi.mock("../lib/api", async () => {
   return { errorMessage: actual.errorMessage, api: { projectDiff, fileDiff } };
 });
 
-const { useDiffStore } = await import("./diffStore");
+const { isolationMapHasOverlap, useDiffStore } = await import("./diffStore");
 
 const changed = (files: ChangedFile[]): DiffState => ({
   state: "changed",
@@ -393,6 +393,20 @@ describe("openPath", () => {
     expect(fileDiff).not.toHaveBeenCalledWith("p1", "target.rs", false, "agent-1");
     expect(useDiffStore.getState().selected).toBeNull();
     expect(useDiffStore.getState().body).toBe("");
+  });
+});
+
+describe("isolationMapHasOverlap", () => {
+  it("is true only when the isolation map lists a shared path", () => {
+    expect(isolationMapHasOverlap({ state: "clean", branch: "main", overlaps: [] })).toBe(false);
+    expect(isolationMapHasOverlap({ state: "gitMissing" })).toBe(false);
+    expect(
+      isolationMapHasOverlap({
+        state: "clean",
+        branch: "main",
+        overlaps: [{ path: "src/a.ts", hotspot: false, peers: [{ sessionId: "peer", title: "Coder" }] }],
+      }),
+    ).toBe(true);
   });
 });
 
