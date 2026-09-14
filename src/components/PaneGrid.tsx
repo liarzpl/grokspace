@@ -1,6 +1,8 @@
+import { memo } from "react";
+
 import { moveSegmented } from "../lib/segmented";
 import { layoutOf, useProjectStore } from "../stores/projectStore";
-import { sessionForPane, useSessionsForProject } from "../stores/sessionStore";
+import { useSessionForPane, useSessionStore } from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import { PANE_LAYOUTS, paneCount, type PaneLayout, type Project } from "../types";
 import TerminalPane from "./TerminalPane";
@@ -55,12 +57,13 @@ export function LayoutPicker({ project }: { project: Project }) {
   );
 }
 
-export default function PaneGrid({ project }: { project: Project }) {
+function PaneSlot({ projectId, paneId }: { projectId: string; paneId: string }) {
+  const session = useSessionForPane(projectId, paneId);
+  return <TerminalPane paneId={paneId} projectId={projectId} session={session} />;
+}
+
+function PaneGrid({ project }: { project: Project }) {
   const layout = layoutOf(project);
-  // Filtered rather than taken whole: the store still holds the previous
-  // project's sessions until `loadSessions` returns, and drawing those here is
-  // the bug where Grok stays on screen after a sidebar click.
-  const sessions = useSessionsForProject(project.id);
   const maximizedPane = useUiStore((state) => state.maximizedPane);
 
   const panes = Array.from({ length: paneCount(layout) }, (_, index) => String(index));
@@ -68,10 +71,16 @@ export default function PaneGrid({ project }: { project: Project }) {
   const visible = isMaximized ? [maximizedPane] : panes;
 
   // Shrinking the layout does not stop the sessions it covers up, so say so
-  // rather than letting them look as though they vanished.
-  const hidden = sessions.filter(
-    (session) => session.paneId !== null && !panes.includes(session.paneId),
-  ).length;
+  // rather than letting them look as though they vanished. Count only: a
+  // status tick on a visible pane must not rebuild the grid.
+  const hidden = useSessionStore((state) =>
+    state.sessions.filter(
+      (session) =>
+        session.projectId === project.id &&
+        session.paneId !== null &&
+        !panes.includes(session.paneId),
+    ).length,
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -81,12 +90,7 @@ export default function PaneGrid({ project }: { project: Project }) {
         }`}
       >
         {visible.map((paneId) => (
-          <TerminalPane
-            key={`${project.id}:${paneId}`}
-            paneId={paneId}
-            projectId={project.id}
-            session={sessionForPane(sessions, paneId)}
-          />
+          <PaneSlot key={`${project.id}:${paneId}`} projectId={project.id} paneId={paneId} />
         ))}
       </div>
 
@@ -99,4 +103,5 @@ export default function PaneGrid({ project }: { project: Project }) {
   );
 }
 
+export default memo(PaneGrid);
 export { PaneGrid };

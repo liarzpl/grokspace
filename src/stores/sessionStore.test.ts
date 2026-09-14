@@ -965,6 +965,18 @@ describe("sessionForPane", () => {
     expect(sessionForPane(sessions, "3")?.id).toBe("b");
     expect(sessionForPane(sessions, "1")).toBeUndefined();
   });
+
+  it("keeps other pane session objects when one status changes", () => {
+    const first = session({ id: "a", paneId: "0" });
+    const second = session({ id: "b", paneId: "1" });
+    useSessionStore.setState({ sessions: [first, second] });
+
+    useSessionStore.getState().markStatus("a", "idle");
+
+    const next = useSessionStore.getState().sessions;
+    expect(next.find((item) => item.id === "b")).toBe(second);
+    expect(next.find((item) => item.id === "a")).not.toBe(first);
+  });
 });
 
 describe("isUnisolatedAgent", () => {
