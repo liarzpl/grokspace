@@ -173,7 +173,9 @@ describe("bundled skills", () => {
     expect(graphSkill).toContain("GROKSPACE_GRAPH_FILE");
     expect(graphSkill).toContain("Spec");
     expect(graphSkill).toContain("Build");
+    expect(graphSkill).toMatch(/status only/);
     expect(graphSkill).not.toMatch(/--plan\b|permission-mode/);
+    expect(graphSkill).not.toMatch(/plan\.md/);
   });
 });
 

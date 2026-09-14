@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { errorMessage } from "../lib/api";
+import { lockGraphTitles, unlockGraphTitles } from "../lib/graph";
 import { isKeyboardClick } from "../lib/keyboardClick";
 import { moveSegmented } from "../lib/segmented";
 import {
@@ -16,6 +17,7 @@ import {
 } from "../lib/steps";
 import { sessionStatusPhrase } from "../lib/statusText";
 import { choiceOptionClass } from "../lib/ui";
+import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
@@ -303,8 +305,10 @@ export default function SessionSteps({
     try {
       const frozen = await approve(live.id);
       if (frozen === null) return;
+      lockGraphTitles(live.id, graphFor(useGraphStore.getState().bySession, live.id).graph);
       await sendApproval(live, frozen.steps);
     } catch (error) {
+      unlockGraphTitles(live.id);
       await useStepStore.getState().reopen(live.id);
       useStepStore.getState().setError(errorMessage(error));
     } finally {
@@ -317,6 +321,7 @@ export default function SessionSteps({
     const latest = stepsFor(useStepStore.getState().bySession, live.id);
     if (stepsMode(latest.phase) !== "build") return;
     await useStepStore.getState().reopen(live.id);
+    unlockGraphTitles(live.id);
   };
 
   return (
