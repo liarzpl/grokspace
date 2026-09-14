@@ -105,7 +105,7 @@ telemetry; workspace state lives in `~/.grokspace`.
 
 **Requirements**
 
-- Node.js 20+ and npm
+- Node.js 20.19+ or 22.12+ and npm (`package.json` `engines` matches Vite)
 - Rust 1.88+ (`rustup toolchain install 1.88`; `rust-toolchain.toml` pins this channel)
 - On macOS: Xcode Command Line Tools (`xcode-select --install`)
 - The [`grok` CLI](https://docs.x.ai/build) — not needed to compile or run the
