@@ -12,6 +12,7 @@ import {
   PERMISSION_POLICY_ACTIONS,
   WORKSPACE_TABS,
   WORKTREE_SETUP,
+  type PermissionLedgerEntry,
   type PermissionPolicy,
   type PermissionPolicyAction,
   type PermissionPolicyRule,
@@ -114,6 +115,8 @@ export default function SettingsPanel() {
           <PermissionPolicyEditor />
 
           <WorktreeGcEditor />
+
+          <PermissionLedgerReplay />
 
           <p className="text-[10px] leading-relaxed text-ink-faint">
             Changing the default layout does not move a project that has already picked
@@ -287,6 +290,66 @@ function WorktreeGcEditor() {
           onClick={() => run("remove")}
         />
       </div>
+      {error !== null && (
+        <p role="alert" className="text-[10px] text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PermissionLedgerReplay() {
+  const projectId = useProjectStore((state) => state.activeProjectId);
+  const [entries, setEntries] = useState<PermissionLedgerEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!projectId) {
+      setEntries([]);
+      setError(null);
+      return;
+    }
+    void api
+      .listPermissionLedger(projectId, 20)
+      .then((next) => {
+        setEntries(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)));
+  }, [projectId]);
+
+  const empty = !projectId
+    ? "Open a project to replay its permission ledger."
+    : entries.length === 0 && !error
+      ? "No permission answers recorded yet."
+      : null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <h3 className="text-[12px] font-medium text-ink">
+        Permission ledger{" "}
+        <span className="font-normal text-[10px] text-ink-faint">
+          ~/.grokspace/ledgers · last 20
+        </span>
+      </h3>
+      {empty ? (
+        <p className="text-[11px] text-ink-faint">{empty}</p>
+      ) : (
+        <ol aria-label="Permission ledger" className="flex flex-col gap-0.5">
+          {[...entries].reverse().map((entry) => (
+            <li
+              key={`${entry.sessionId}:${entry.requestId}:${entry.time}`}
+              className="flex min-w-0 gap-1.5 text-[11px]"
+            >
+              <span className="shrink-0 font-mono text-[10px] text-ink-faint">{entry.chip}</span>
+              <span className="min-w-0 truncate" title={entry.summary}>
+                {entry.summary}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
       {error !== null && (
         <p role="alert" className="text-[10px] text-danger">
           {error}

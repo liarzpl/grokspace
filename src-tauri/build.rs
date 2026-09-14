@@ -47,6 +47,7 @@ const APP_COMMANDS: &[&str] = &[
     "write_setting",
     "read_permission_policy",
     "write_permission_policy",
+    "list_permission_ledger",
     "read_session_graph",
     "list_session_graphs",
     "watch_project_graphs",

@@ -7,6 +7,7 @@ mod edges;
 mod error;
 mod graph;
 mod handoff;
+mod ledger;
 mod log;
 mod memory;
 mod policy;
@@ -136,6 +137,7 @@ pub fn run() {
             settings::write_setting,
             policy::read_permission_policy,
             policy::write_permission_policy,
+            ledger::list_permission_ledger,
             graph::read_session_graph,
             graph::list_session_graphs,
             graph::watch_project_graphs,

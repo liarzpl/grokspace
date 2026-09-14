@@ -130,6 +130,16 @@ export interface WorktreeGcEntry {
   skipReason?: string | null;
 }
 
+/** One answered chip in `~/.grokspace/ledgers/<project-id>.jsonl`. */
+export interface PermissionLedgerEntry {
+  time: number;
+  sessionId: string;
+  requestId: number;
+  summary: string;
+  chip: string;
+  optionId: string | null;
+}
+
 export interface Session {
   id: string;
   projectId: string;

@@ -130,13 +130,33 @@ pub fn answer_session_permission(
     allow: bool,
     option_id: Option<String>,
 ) -> Result<()> {
+    let snapshot = ledger_snapshot(&state, &id, request_id);
     state
         .acp
         .answer_permission(&id, request_id, allow, option_id.as_deref())?;
     if let Ok(conn) = state.db.lock() {
         let _ = clear_permission(&conn, &id, request_id);
     }
+    if let Some((project_id, summary)) = snapshot {
+        crate::ledger::record_answer(
+            &project_id,
+            &id,
+            request_id,
+            &summary,
+            allow,
+            option_id.as_deref(),
+        );
+    }
     Ok(())
+}
+
+fn ledger_snapshot(state: &AppState, id: &str, request_id: u64) -> Option<(String, String)> {
+    let conn = state.db.lock().ok()?;
+    let session = get(&conn, id).ok()?;
+    Some((
+        session.project_id,
+        db::permission_summary(&conn, id, request_id),
+    ))
 }
 
 #[tauri::command]

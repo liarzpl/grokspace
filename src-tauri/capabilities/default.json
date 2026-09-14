@@ -51,6 +51,7 @@
     "allow-write-setting",
     "allow-read-permission-policy",
     "allow-write-permission-policy",
+    "allow-list-permission-ledger",
     "allow-read-session-graph",
     "allow-list-session-graphs",
     "allow-watch-project-graphs",
