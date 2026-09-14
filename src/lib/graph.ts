@@ -428,6 +428,86 @@ export function resetGraphTitleStamps(): void {
   titleStamps.clear();
 }
 
+/** Nodes reachable by outgoing edges, not including `fromId`. */
+export function descendantNodeIds(edges: readonly GraphEdge[], fromId: string): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const edge of edges) {
+    const list = children.get(edge.source);
+    if (list) list.push(edge.target);
+    else children.set(edge.source, [edge.target]);
+  }
+  const seen = new Set<string>();
+  const queue = [fromId];
+  while (queue.length > 0) {
+    const id = queue.pop();
+    if (id === undefined) break;
+    for (const next of children.get(id) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return seen;
+}
+
+export interface ForkedGraph {
+  graph: GraphDocument;
+  /** Old node id → reminted id, so the copy cannot collide with the parent. */
+  idMap: Readonly<Record<string, string>>;
+}
+
+/** Remint ids; `nodeId` running, descendants pending. Missing node → null. */
+export function forkGraphFromNode(
+  graph: GraphDocument,
+  nodeId: string,
+  mintId: () => string = () => crypto.randomUUID(),
+): ForkedGraph | null {
+  if (!graph.nodes.some((node) => node.id === nodeId)) return null;
+
+  const descendants = descendantNodeIds(graph.edges, nodeId);
+  const idMap: Record<string, string> = {};
+  for (const node of graph.nodes) idMap[node.id] = mintId();
+
+  const nodes = graph.nodes.map((node) => {
+    let status = node.status;
+    if (node.id === nodeId) status = "running";
+    else if (descendants.has(node.id)) status = "pending";
+    return { ...node, id: idMap[node.id] ?? node.id, status, data: { ...node.data } };
+  });
+
+  const edges = graph.edges.map((edge) => ({
+    ...edge,
+    id: mintId(),
+    source: idMap[edge.source] ?? edge.source,
+    target: idMap[edge.target] ?? edge.target,
+  }));
+
+  const state = graph.state
+    ? {
+        ...graph.state,
+        currentLayer:
+          graph.state.currentLayer !== undefined
+            ? (idMap[graph.state.currentLayer] ?? graph.state.currentLayer)
+            : undefined,
+        survivors: graph.state.survivors
+          ?.map((id) => idMap[id])
+          .filter((id): id is string => id !== undefined),
+      }
+    : undefined;
+
+  return {
+    idMap,
+    graph: {
+      ...graph,
+      id: mintId(),
+      status: "running",
+      nodes,
+      edges,
+      ...(state ? { state } : {}),
+    },
+  };
+}
+
 export interface GraphStepMismatch {
   nodeId: string;
   nodeLabel: string;

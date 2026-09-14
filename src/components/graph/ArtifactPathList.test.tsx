@@ -113,6 +113,14 @@ describe("NodeInspector artifacts", () => {
     expect(container.querySelector("script")).toBeNull();
   });
 
+  it("forks from the selected node", async () => {
+    const user = userEvent.setup();
+    const onFork = vi.fn();
+    render(<NodeInspector node={node()} onClose={() => {}} onFork={onFork} />);
+    await user.click(screen.getByRole("button", { name: "Fork from here" }));
+    expect(onFork).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a trailing-slash directory as a label", () => {
     render(
       <NodeInspector

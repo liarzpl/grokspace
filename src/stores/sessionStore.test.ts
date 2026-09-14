@@ -1342,6 +1342,74 @@ describe("continueJob", () => {
   });
 });
 
+describe("forkFromNode", () => {
+  const tree = "/tmp/acme/.grokspace/worktrees/old";
+  const parent = () =>
+    session({
+      id: "old",
+      kind: "agent",
+      paneId: null,
+      role: "Coder",
+      status: "running",
+      worktreePath: tree,
+    });
+  const plan = {
+    id: "g1",
+    name: "Plan",
+    status: "running" as const,
+    nodes: [
+      { id: "a", type: "orchestrator" as const, label: "A", status: "completed" as const, position: { x: 0, y: 0 }, data: {} },
+      { id: "b", type: "agent" as const, label: "B", status: "failed" as const, position: { x: 200, y: 0 }, data: {} },
+    ],
+    edges: [{ id: "e1", source: "a", target: "b", type: "smoothstep" as const, animated: false }],
+  };
+
+  it("starts a new isolated session, remints graph ids, and leaves the parent listed", async () => {
+    useSessionStore.setState({ sessions: [parent()] });
+    useGraphStore.setState({ bySession: { old: { ...graphEntry(), graph: plan } } });
+    useStepStore.setState({
+      bySession: {
+        old: {
+          ...stepEntry(),
+          sessionId: "old",
+          phase: "approved",
+          steps: [{ ...stepEntry().steps[0]!, title: "Ship the gate", status: "done" }],
+        },
+      },
+    });
+    createSession.mockResolvedValue(
+      session({ id: "fresh", kind: "agent", paneId: null, worktreePath: `${tree}-fresh` }),
+    );
+
+    const next = await useSessionStore.getState().forkFromNode("old", "a");
+    const sent = createSession.mock.calls[0]?.[0] as { seedGraph?: string; seedSteps?: string };
+    const seeded = JSON.parse(sent.seedGraph ?? "{}") as { nodes: { id: string; status: string }[] };
+
+    expect(next?.id).toBe("fresh");
+    expect(next?.worktreePath).not.toBe(tree);
+    expect(restartSession).not.toHaveBeenCalled();
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "p1", paneId: null, kind: "agent", role: "Coder" }),
+    );
+    expect(sent).not.toHaveProperty("reuseWorktree");
+    expect(seeded.nodes.map((node) => node.id)).not.toEqual(["a", "b"]);
+    expect(seeded.nodes.map((node) => node.status)).toEqual(["running", "pending"]);
+    expect(JSON.parse(sent.seedSteps ?? "{}")).toEqual({
+      steps: [{ title: "Ship the gate", status: "pending" }],
+    });
+    expect(useSessionStore.getState().sessions.map((row) => row.id)).toEqual(["old", "fresh"]);
+    expect(useGraphStore.getState().bySession.old?.graph).toEqual(plan);
+  });
+
+  it("does not start when the node is missing", async () => {
+    useSessionStore.setState({ sessions: [parent()] });
+    useGraphStore.setState({ bySession: { old: { ...graphEntry(), graph: plan } } });
+    expect(await useSessionStore.getState().forkFromNode("old", "missing")).toBeNull();
+    expect(createSession).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessions.map((row) => row.id)).toEqual(["old"]);
+  });
+});
+
 describe("closeSession", () => {
   it("frees the pane and disposes the terminal", async () => {
     useSessionStore.setState({

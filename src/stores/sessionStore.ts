@@ -8,7 +8,8 @@ import {
   noteToolRepeat,
   type ToolRepeat,
 } from "../lib/doomLoop";
-import { unlockGraphTitles } from "../lib/graph";
+import { forkGraphFromNode, unlockGraphTitles } from "../lib/graph";
+import { proposedStepsSeed } from "../lib/steps";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import {
   grantSessionLease,
@@ -187,6 +188,8 @@ interface StartInput {
   rows: number;
   /** Confirm starting an agent on the project tree when isolation skipped. */
   allowUnisolated?: boolean;
+  seedGraph?: string;
+  seedSteps?: string;
 }
 
 /**
@@ -354,6 +357,8 @@ interface SessionState {
     rows: number,
     projectPath: string,
   ) => Promise<Session | null>;
+  /** Fork from a graph node. New session + worktree; parent unchanged. */
+  forkFromNode: (sessionId: string, nodeId: string) => Promise<Session | null>;
   stopSession: (id: string) => Promise<void>;
   restartSession: (id: string, cols: number, rows: number) => Promise<Session | null>;
   renameSession: (id: string, title: string) => Promise<void>;
@@ -749,6 +754,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ error: errorMessage(error) });
       return session;
     }
+  },
+
+  forkFromNode: async (sessionId, nodeId) => {
+    const source = get().sessions.find((session) => session.id === sessionId);
+    if (source === undefined) {
+      set({ error: "That session is gone." });
+      return null;
+    }
+    const stored = useGraphStore.getState().bySession[sessionId]?.graph;
+    const forked = stored === undefined ? null : forkGraphFromNode(stored, nodeId);
+    if (forked === null) {
+      set({ error: "That graph node cannot be forked." });
+      return null;
+    }
+    const steps = useStepStore.getState().bySession[sessionId]?.steps ?? [];
+    return get().createSession({
+      projectId: source.projectId,
+      paneId: null,
+      kind: "agent",
+      role: source.role ?? undefined,
+      seedGraph: JSON.stringify(forked.graph),
+      seedSteps: proposedStepsSeed(steps),
+      ...FALLBACK_PTY_SIZE,
+    });
   },
 
   restartSession: async (id, cols, rows) => {

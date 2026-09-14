@@ -1,6 +1,7 @@
 import ArtifactPathList from "./ArtifactPathList";
 import { isFileArtifact, uniqueFileArtifacts } from "../../lib/graphArtifact";
 import type { GraphNode } from "../../lib/graph";
+import { QuietButton } from "../ui";
 import { STATUS_META } from "./GraphNode";
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -25,6 +26,7 @@ export default function NodeInspector({
   onRevealArtifact,
   claimedPaths = [],
   compact = false,
+  onFork,
 }: {
   node: GraphNode;
   onClose: () => void;
@@ -36,6 +38,8 @@ export default function NodeInspector({
   claimedPaths?: string[];
   /** Fills a floating container instead of claiming a column of its own. */
   compact?: boolean;
+  /** Starts a new isolated session from this node. Parent stays as it is. */
+  onFork?: () => void;
 }) {
   const status = STATUS_META[node.status] ?? STATUS_META.pending;
   const artifactPath = node.data.artifactPath;
@@ -92,6 +96,15 @@ export default function NodeInspector({
         )}
         <Field label="Node id" value={node.id} mono />
       </dl>
+      {onFork !== undefined && (
+        <div className="mt-auto border-t border-line px-3 py-2.5">
+          <QuietButton
+            label="Fork from here"
+            title="New session and worktree at project HEAD. Parent is unchanged."
+            onClick={onFork}
+          />
+        </div>
+      )}
     </aside>
   );
 }

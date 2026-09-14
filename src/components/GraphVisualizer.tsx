@@ -436,6 +436,9 @@ function GraphCanvas({
                 void openArtifactInFinder(session.projectId, session.id, path)
               }
               claimedPaths={claimedPaths}
+              onFork={() => {
+                void useSessionStore.getState().forkFromNode(session.id, selected.id);
+              }}
               compact
             />
           </div>
@@ -450,6 +453,9 @@ function GraphCanvas({
               void openArtifactInFinder(session.projectId, session.id, path)
             }
             claimedPaths={claimedPaths}
+            onFork={() => {
+              void useSessionStore.getState().forkFromNode(session.id, selected.id);
+            }}
           />
         ))}
       </div>

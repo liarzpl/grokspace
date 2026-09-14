@@ -57,7 +57,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | Command | What it does |
 | --- | --- |
 | `list_sessions` | Sessions for one project, with pending permissions |
-| `create_session` | Insert the row, isolate an agent if needed, spawn pty or ACP. `allowUnisolated` only after the UI confirm |
+| `create_session` | Insert the row, isolate an agent if needed, spawn pty or ACP. `allowUnisolated` only after the UI confirm. Optional `seedGraph` / `seedSteps` write the new session's files (fork). Never `reuse_worktree` |
 | `attach_session` | Route output into a channel; replays buffered scrollback |
 | `write_session` | Bytes into a pty. Agents have no pane; use `prompt_session` |
 | `resize_session` | Pty size |

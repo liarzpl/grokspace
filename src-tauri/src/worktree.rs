@@ -1140,6 +1140,20 @@ mod tests {
     }
 
     #[test]
+    fn a_second_session_gets_a_clean_head_not_the_parent_dirty_files() {
+        let dir = repo();
+        let parent = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fs::write(parent.join("wip.rs"), "dirty\n").unwrap();
+        let child = checkout(&dir, "11111111-2222-3333-4444-555555555555");
+
+        assert_ne!(parent, child);
+        assert!(parent.join("wip.rs").is_file());
+        assert!(!child.join("wip.rs").exists());
+        assert_eq!(fs::read_to_string(child.join("README.md")).unwrap(), "hello\n");
+        assert!(!is_dirty(&child).unwrap());
+    }
+
+    #[test]
     fn add_checks_out_head_on_a_session_branch() {
         let dir = repo();
         let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";

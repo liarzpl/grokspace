@@ -528,7 +528,10 @@ except while its step list is still `proposed` — that idle is the Approve gate
 not the end of the work. Comments on a scoped diff (path, hunk, and a note)
 stay in the panel until they are sent as one follow-up to an idle agent. A
 graph node's file `artifactPath` opens that path in the Diff panel, scoped to
-the session. The node inspector and Memory Artifacts column list claimed file
+the session. **Fork from here** starts a new isolated agent at project `HEAD`
+(not the parent's dirty files) with a reminted graph (that node running,
+descendants pending) and steps as proposed. The parent is unchanged; trees are
+never shared. The node inspector and Memory Artifacts column list claimed file
 paths with Open in Finder or Diff. Markdown previews as text and images as
 images; agent HTML is never rendered.
 

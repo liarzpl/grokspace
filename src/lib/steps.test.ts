@@ -24,6 +24,7 @@ const {
   sessionsWithSteps,
   STEPS_MODE_LABEL,
   STEPS_MODES,
+  proposedStepsSeed,
   stepProgress,
   stepsMode,
   stepsModeLabel,
@@ -176,6 +177,15 @@ describe("bundled skills", () => {
     expect(graphSkill).toMatch(/status only/);
     expect(graphSkill).not.toMatch(/--plan\b|permission-mode/);
     expect(graphSkill).not.toMatch(/plan\.md/);
+  });
+});
+
+describe("proposedStepsSeed", () => {
+  it("copies titles as pending and omits an empty list", () => {
+    expect(proposedStepsSeed([])).toBeUndefined();
+    expect(JSON.parse(proposedStepsSeed([step({ title: "  Ship it  " }), step({ title: "" })])!)).toEqual({
+      steps: [{ title: "Ship it", status: "pending" }],
+    });
   });
 });
 

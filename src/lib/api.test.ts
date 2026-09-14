@@ -45,6 +45,19 @@ describe("sessionCreatePayload", () => {
       allowUnisolated: true,
     });
   });
+
+  it("omits fork seeds on the happy path and sends them when set", () => {
+    expect(sessionCreatePayload(start)).not.toHaveProperty("seedGraph");
+    expect(sessionCreatePayload(start)).not.toHaveProperty("seedSteps");
+    expect(
+      sessionCreatePayload({ ...start, seedGraph: '{"id":"forked"}', seedSteps: '{"steps":[]}' }),
+    ).toEqual({
+      ...start,
+      role: null,
+      seedGraph: '{"id":"forked"}',
+      seedSteps: '{"steps":[]}',
+    });
+  });
 });
 
 describe("taskDescriptionPatch", () => {
