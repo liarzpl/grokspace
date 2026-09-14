@@ -21,7 +21,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
-import { WORKSPACE_TABS, type AgentUpdateKind, type PermissionRequest, type SessionStatus } from "./types";
+import { type AgentUpdateKind, type PermissionRequest, type SessionStatus } from "./types";
 
 const dockAttention = createDockTracker();
 
@@ -125,9 +125,7 @@ export default function App() {
       .getState()
       .loadSettings()
       .then((settings) => {
-        if (WORKSPACE_TABS.includes(settings.openingTab)) {
-          useUiStore.getState().setTab(settings.openingTab);
-        }
+        useUiStore.getState().applyOpeningTab(settings.openingTab);
       });
   }, []);
 

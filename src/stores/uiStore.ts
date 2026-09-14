@@ -40,6 +40,12 @@ interface UiState {
   isPaletteOpen: boolean;
 
   setTab: (tab: WorkspaceTab) => void;
+  /**
+   * Applies the saved opening tab once, and only while the workspace is still
+   * on the default. A click or palette command that already left Terminals
+   * must not be yanked back when settings resolve.
+   */
+  applyOpeningTab: (tab: WorkspaceTab) => void;
   openSettings: () => void;
   closeSettings: () => void;
   /** Toggling rather than opening, so the same key closes it. */
@@ -55,6 +61,13 @@ export const useUiStore = create<UiState>((set) => ({
   // Closing the palette on its way out of every command, so a command that changes
   // the tab does not leave the palette sitting over the thing it just revealed.
   setTab: (tab) => set({ tab, isPaletteOpen: false }),
+  applyOpeningTab: (tab) =>
+    set((state) => {
+      if (state.tab !== "terminals") return state;
+      if (!TABS.some((candidate) => candidate.id === tab)) return state;
+      if (state.tab === tab) return state;
+      return { tab, isPaletteOpen: false };
+    }),
   openSettings: () => set({ isSettingsOpen: true, isPaletteOpen: false }),
   closeSettings: () => set({ isSettingsOpen: false }),
   togglePalette: () =>

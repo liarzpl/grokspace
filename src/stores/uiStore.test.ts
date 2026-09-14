@@ -15,6 +15,30 @@ describe("TABS", () => {
   });
 });
 
+
+describe("applyOpeningTab", () => {
+  it("applies the preference while the workspace is still on Terminals", () => {
+    useUiStore.getState().applyOpeningTab("graph");
+
+    expect(useUiStore.getState().tab).toBe("graph");
+  });
+
+  it("does not yank a tab the user already picked", () => {
+    useUiStore.getState().setTab("tasks");
+
+    useUiStore.getState().applyOpeningTab("graph");
+
+    expect(useUiStore.getState().tab).toBe("tasks");
+  });
+
+  it("is a no-op when the preference is already the default", () => {
+    useUiStore.getState().applyOpeningTab("terminals");
+
+    expect(useUiStore.getState().tab).toBe("terminals");
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
+  });
+});
+
 describe("togglePalette", () => {
   it("closes settings when the palette opens, so the two overlays cannot stack", () => {
     useUiStore.setState({ isSettingsOpen: true, isPaletteOpen: false });
