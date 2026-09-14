@@ -156,8 +156,8 @@ describe("loadSessions", () => {
   });
 
   it("empties the previous project's sessions when the load fails", async () => {
-    useSessionStore.setState({
-      sessions: [session()],
+    useSessionStore.setState({ sessions: [session()] });
+    useUiStore.setState({
       permissions: { s1: [{ requestId: 1, summary: "Write a file" }] },
     });
     listSessions.mockRejectedValue("database is locked");
@@ -166,12 +166,12 @@ describe("loadSessions", () => {
 
     const state = useSessionStore.getState();
     expect(state.sessions).toEqual([]);
-    expect(state.permissions).toEqual({});
+    expect(useUiStore.getState().permissions).toEqual({});
   });
 
   it("replaces pending permissions from the arriving list", async () => {
-    useSessionStore.setState({
-      sessions: [session({ id: "old" })],
+    useSessionStore.setState({ sessions: [session({ id: "old" })] });
+    useUiStore.setState({
       permissions: { old: [{ requestId: 1, summary: "Stale" }] },
     });
     listSessions.mockResolvedValue([
@@ -183,7 +183,7 @@ describe("loadSessions", () => {
 
     await useSessionStore.getState().loadSessions("p1");
 
-    expect(useSessionStore.getState().permissions).toEqual({
+    expect(useUiStore.getState().permissions).toEqual({
       s1: [{ requestId: 9, summary: "Write a file" }],
     });
   });
@@ -369,8 +369,8 @@ describe("loadSessions", () => {
   });
 
   it("empties the previous project's panes before the next list arrives", async () => {
-    useSessionStore.setState({
-      sessions: [session()],
+    useSessionStore.setState({ sessions: [session()] });
+    useUiStore.setState({
       permissions: { s1: [{ requestId: 1, summary: "Write a file" }] },
       transcript: { s1: [{ kind: "message", text: "hello" }] },
     });
@@ -386,18 +386,18 @@ describe("loadSessions", () => {
     const pending = useSessionStore.getState().loadSessions("p2");
 
     expect(useSessionStore.getState().sessions).toEqual([]);
-    expect(useSessionStore.getState().permissions).toEqual({});
+    expect(useUiStore.getState().permissions).toEqual({});
     await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("s1"));
     expect(detachTerminal).not.toHaveBeenCalled();
     expect(useGraphStore.getState().bySession).toEqual({});
     // The conversation is still running; coming back should not start from blank.
-    expect(useSessionStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
+    expect(useUiStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
 
     resolveNext([session({ id: "s2", projectId: "p2" })]);
     await pending;
 
     expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s2"]);
-    expect(useSessionStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
+    expect(useUiStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
   });
 
   it("does not blank the current project's panes while re-reading them", async () => {
@@ -424,6 +424,8 @@ describe("loadSessions", () => {
   it("drops transcripts of sessions that disappeared from the same project", async () => {
     useSessionStore.setState({
       sessions: [session(), session({ id: "s2", paneId: "1" })],
+    });
+    useUiStore.setState({
       transcript: {
         s1: [{ kind: "message", text: "keep" }],
         s2: [{ kind: "message", text: "gone" }],
@@ -433,7 +435,7 @@ describe("loadSessions", () => {
 
     await useSessionStore.getState().loadSessions("p1");
 
-    expect(useSessionStore.getState().transcript).toEqual({
+    expect(useUiStore.getState().transcript).toEqual({
       s1: [{ kind: "message", text: "keep" }],
     });
     await Promise.resolve();
@@ -442,15 +444,13 @@ describe("loadSessions", () => {
   });
 
   it("drops a stopped session's transcript when leaving the project", async () => {
-    useSessionStore.setState({
-      sessions: [session({ status: "stopped" })],
-      transcript: { s1: [{ kind: "message", text: "old run" }] },
-    });
+    useSessionStore.setState({ sessions: [session({ status: "stopped" })] });
+    useUiStore.setState({ transcript: { s1: [{ kind: "message", text: "old run" }] } });
     listSessions.mockResolvedValue([session({ id: "s2", projectId: "p2" })]);
 
     await useSessionStore.getState().loadSessions("p2");
 
-    expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
+    expect(useUiStore.getState().transcript["s1"]).toBeUndefined();
     await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("s1"));
   });
 
@@ -716,7 +716,7 @@ describe("permissions", () => {
     useSessionStore.getState().askPermission("s1", asked);
     useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
 
-    expect(useSessionStore.getState().permissions["s1"]).toHaveLength(2);
+    expect(useUiStore.getState().permissions["s1"]).toHaveLength(2);
   });
 
   it("upserts a late session-permission so the same requestId cannot stack", async () => {
@@ -741,7 +741,7 @@ describe("permissions", () => {
     });
     useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
 
-    expect(useSessionStore.getState().permissions["s1"]).toEqual([
+    expect(useUiStore.getState().permissions["s1"]).toEqual([
       { requestId: 9, summary: "Run `git push` (latest)" },
       { requestId: 10, summary: "Write a file" },
     ]);
@@ -756,7 +756,7 @@ describe("permissions", () => {
     await useSessionStore.getState().answerPermission("s1", 9, true);
 
     expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true, undefined);
-    expect(useSessionStore.getState().permissions["s1"]?.map((p) => p.requestId)).toEqual([10]);
+    expect(useUiStore.getState().permissions["s1"]?.map((p) => p.requestId)).toEqual([10]);
   });
 
   it("forwards an explicit option id so Always allow is not smuggled through Allow", async () => {
@@ -777,7 +777,7 @@ describe("permissions", () => {
 
     await useSessionStore.getState().answerPermission("s1", 9, true);
 
-    expect(useSessionStore.getState().permissions["s1"]).toHaveLength(1);
+    expect(useUiStore.getState().permissions["s1"]).toHaveLength(1);
     expect(useSessionStore.getState().error).toBe("that session is no longer running");
   });
 
@@ -787,13 +787,13 @@ describe("permissions", () => {
 
     useSessionStore.getState().markExited("s1", null);
 
-    expect(useSessionStore.getState().permissions["s1"]).toBeUndefined();
+    expect(useUiStore.getState().permissions["s1"]).toBeUndefined();
   });
 
   it("ignores a prompt for a session that is not in the list", () => {
     useSessionStore.getState().askPermission("gone", asked);
 
-    expect(useSessionStore.getState().permissions["gone"]).toBeUndefined();
+    expect(useUiStore.getState().permissions["gone"]).toBeUndefined();
   });
 });
 
@@ -862,7 +862,7 @@ describe("permission mode", () => {
       expect(answerSessionPermission).toHaveBeenCalledWith("s1", 9, true);
     });
     expect(answerSessionPermission.mock.calls[0]?.[3]).toBeUndefined();
-    expect(useSessionStore.getState().permissions["s1"]).toBeUndefined();
+    expect(useUiStore.getState().permissions["s1"]).toBeUndefined();
     expect(matchSessionLease("s1", "Edit src/lib/permissions.ts")?.prefix).toBe("src/");
   });
 
@@ -884,7 +884,7 @@ describe("permission mode", () => {
     });
 
     expect(answerSessionPermission).not.toHaveBeenCalled();
-    expect(useSessionStore.getState().permissions["s1"]?.map((item) => item.requestId)).toEqual([
+    expect(useUiStore.getState().permissions["s1"]?.map((item) => item.requestId)).toEqual([
       9, 10,
     ]);
   });
@@ -1114,8 +1114,8 @@ describe("handToRole", () => {
   it("starts Coder with memory, the source graph path, approved titles, and a capped excerpt", async () => {
     const head = "SECRET-HEAD-";
     const body = "n".repeat(BATON_EXCERPT_BYTES);
-    useSessionStore.setState({
-      sessions: [planner()],
+    useSessionStore.setState({ sessions: [planner()] });
+    useUiStore.setState({
       transcript: {
         "planner-1": [
           { kind: "message", text: head + body },
@@ -1210,10 +1210,8 @@ describe("handToRole", () => {
 
 describe("restartSession", () => {
   it("swaps in the new session and disposes the old terminal", async () => {
-    useSessionStore.setState({
-      sessions: [session({ id: "old", paneId: "1" })],
-      transcript: { old: [{ kind: "message", text: "previous run" }] },
-    });
+    useSessionStore.setState({ sessions: [session({ id: "old", paneId: "1" })] });
+    useUiStore.setState({ transcript: { old: [{ kind: "message", text: "previous run" }] } });
     restartSession.mockResolvedValue(session({ id: "fresh", paneId: "1" }));
 
     await useSessionStore.getState().restartSession("old", 100, 30);
@@ -1222,7 +1220,7 @@ describe("restartSession", () => {
     // Restarting mints a new id, so the old xterm instance has to go.
     await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("old"));
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["fresh"]);
-    expect(useSessionStore.getState().transcript["old"]).toBeUndefined();
+    expect(useUiStore.getState().transcript["old"]).toBeUndefined();
   });
 
   it("does not carry the previous run's graph over to the new session", async () => {
@@ -1250,6 +1248,8 @@ describe("closeSession", () => {
   it("frees the pane and disposes the terminal", async () => {
     useSessionStore.setState({
       sessions: [session(), session({ id: "s2", paneId: "1" })],
+    });
+    useUiStore.setState({
       transcript: { s1: [{ kind: "message", text: "hello" }], s2: [{ kind: "tool", text: "Read" }] },
     });
     closeSession.mockResolvedValue(undefined);
@@ -1258,8 +1258,8 @@ describe("closeSession", () => {
 
     await vi.waitFor(() => expect(disposeTerminal).toHaveBeenCalledWith("s1"));
     expect(useSessionStore.getState().sessions.map((s) => s.id)).toEqual(["s2"]);
-    expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
-    expect(useSessionStore.getState().transcript["s2"]?.[0]?.text).toBe("Read");
+    expect(useUiStore.getState().transcript["s1"]).toBeUndefined();
+    expect(useUiStore.getState().transcript["s2"]?.[0]?.text).toBe("Read");
   });
 
   it("drops the closed session's graph and leaves the other pane's alone", async () => {
@@ -1869,7 +1869,7 @@ describe("appendUpdate", () => {
     useSessionStore.getState().appendUpdate("s1", { kind: "message", text: "lo" });
     useSessionStore.getState().appendUpdate("s1", { kind: "tool", text: "Read src/lib.rs" });
 
-    expect(useSessionStore.getState().transcript["s1"]).toEqual([
+    expect(useUiStore.getState().transcript["s1"]).toEqual([
       { kind: "message", text: "Hello" },
       { kind: "tool", text: "Read src/lib.rs" },
     ]);
@@ -1946,7 +1946,7 @@ describe("promptSession", () => {
     await useSessionStore.getState().promptSession("s1", "  what leaked?  ");
 
     expect(promptSession).toHaveBeenCalledWith("s1", "what leaked?");
-    expect(useSessionStore.getState().transcript["s1"]).toEqual([
+    expect(useUiStore.getState().transcript["s1"]).toEqual([
       { kind: "prompt", text: "what leaked?" },
     ]);
   });
@@ -1956,7 +1956,7 @@ describe("promptSession", () => {
 
     await useSessionStore.getState().promptSession("s1", "hello");
 
-    expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
+    expect(useUiStore.getState().transcript["s1"]).toBeUndefined();
     expect(useSessionStore.getState().error).toBe("that session is no longer running");
   });
 

@@ -56,7 +56,7 @@ function firstFreePane(project: Project): string | undefined {
 function inboxFor(project: Pick<Project, "id">): InboxItem[] {
   const sessions = sessionsForProject(useSessionStore.getState().sessions, project.id);
   const tasks = tasksForProject(useTaskStore.getState().tasks, project.id);
-  return inboxItems(sessions, tasks, useSessionStore.getState().permissions, {});
+  return inboxItems(sessions, tasks, useUiStore.getState().permissions, {});
 }
 
 function firstNeedsYou(project: Pick<Project, "id">): InboxItem | undefined {
@@ -64,7 +64,7 @@ function firstNeedsYou(project: Pick<Project, "id">): InboxItem | undefined {
 }
 
 function allowOnceReady(sessionId: string): boolean {
-  const request = useSessionStore.getState().permissions[sessionId]?.[0];
+  const request = useUiStore.getState().permissions[sessionId]?.[0];
   if (request === undefined) return false;
   const chip = permissionChips(request).find((candidate) => candidate.key === ALLOW_ONCE);
   return chip !== undefined && !chip.disabled;
@@ -72,7 +72,7 @@ function allowOnceReady(sessionId: string): boolean {
 
 /** Allow once or Deny for the session's first pending permission. Never Always. */
 export function answerInboxPermission(sessionId: string, allow: boolean): void {
-  const request = useSessionStore.getState().permissions[sessionId]?.[0];
+  const request = useUiStore.getState().permissions[sessionId]?.[0];
   if (request === undefined) return;
   const key = allow ? ALLOW_ONCE : REJECT_ONCE;
   const chip = permissionChips(request).find((candidate) => candidate.key === key);

@@ -15,6 +15,7 @@ import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { tasksInColumn, useTaskStore, useTasksForProject } from "../stores/taskStore";
+import { useUiStore } from "../stores/uiStore";
 import {
   type PermissionRequest,
   type Project,
@@ -136,7 +137,7 @@ function TaskCard({
   );
   // What the agent on this task is blocked on. Shown here rather than in a banner
   // because it is a question about this specific piece of work.
-  const pending = useSessionStore((state) =>
+  const pending = useUiStore((state) =>
     task.assignedSessionId === null ? EMPTY_PERMISSIONS : (state.permissions[task.assignedSessionId] ?? EMPTY_PERMISSIONS),
   );
 

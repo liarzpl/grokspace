@@ -88,3 +88,45 @@ describe("togglePalette", () => {
     expect(useUiStore.getState().isSettingsOpen).toBe(false);
   });
 });
+
+describe("transcript and permissions", () => {
+  it("folds consecutive message chunks into one line", () => {
+    useUiStore.getState().appendTranscript("s1", { kind: "message", text: "Hel" });
+    useUiStore.getState().appendTranscript("s1", { kind: "message", text: "lo" });
+
+    expect(useUiStore.getState().transcript["s1"]).toEqual([{ kind: "message", text: "Hello" }]);
+  });
+
+  it("upserts a permission without stacking the same requestId", () => {
+    useUiStore.getState().upsertPermission("s1", { requestId: 9, summary: "a" });
+    useUiStore.getState().upsertPermission("s1", { requestId: 9, summary: "b" });
+    useUiStore.getState().upsertPermission("s1", { requestId: 10, summary: "c" });
+
+    expect(useUiStore.getState().permissions["s1"]).toEqual([
+      { requestId: 9, summary: "b" },
+      { requestId: 10, summary: "c" },
+    ]);
+  });
+
+  it("keepTranscript drops ids that are not in the keep set", () => {
+    useUiStore.getState().appendTranscript("s1", { kind: "message", text: "keep" });
+    useUiStore.getState().appendTranscript("s2", { kind: "message", text: "gone" });
+    useUiStore.getState().keepTranscript(new Set(["s1"]));
+
+    expect(useUiStore.getState().transcript).toEqual({
+      s1: [{ kind: "message", text: "keep" }],
+    });
+  });
+
+  it("resetPaneChrome does not blank a live transcript", () => {
+    useUiStore.getState().appendTranscript("s1", { kind: "message", text: "hi" });
+    useUiStore.getState().replacePermissions({ s1: [{ requestId: 1, summary: "x" }] });
+    useUiStore.getState().selectGraph("s1");
+
+    useUiStore.getState().resetPaneChrome();
+
+    expect(useUiStore.getState().transcript["s1"]?.[0]?.text).toBe("hi");
+    expect(useUiStore.getState().permissions["s1"]).toEqual([{ requestId: 1, summary: "x" }]);
+    expect(useUiStore.getState().graphSessionId).toBeNull();
+  });
+});

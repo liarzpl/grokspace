@@ -18,6 +18,7 @@ import {
 } from "../lib/transcript";
 import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { useSessionStore } from "../stores/sessionStore";
+import { useUiStore } from "../stores/uiStore";
 import type { AgentUpdate, AgentUpdateKind, Session } from "../types";
 import { QuietButton } from "./ui";
 
@@ -199,7 +200,7 @@ function TranscriptLine({
  * interrupts the turn; Stop, on the chip, still kills the process.
  */
 export default function AgentTranscript({ session }: { session: Session }) {
-  const entries = useSessionStore((state) => state.transcript[session.id] ?? EMPTY);
+  const entries = useUiStore((state) => state.transcript[session.id] ?? EMPTY);
   const promptSession = useSessionStore((state) => state.promptSession);
   const cancelSession = useSessionStore((state) => state.cancelSession);
   const [draft, setDraft] = useState("");

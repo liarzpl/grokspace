@@ -233,11 +233,12 @@ describe("forgetProject", () => {
       projects: [project({ id: "a" })],
       activeProjectId: "a",
     });
-    useSessionStore.setState({
-      sessions: [{ id: "s1" } as never],
+    useSessionStore.setState({ sessions: [{ id: "s1" } as never] });
+    useUiStore.setState({
+      paneViews: { "0": "graph" },
+      maximizedPane: "0",
       permissions: { s1: [{ requestId: 1, summary: "x" }] },
     });
-    useUiStore.setState({ paneViews: { "0": "graph" }, maximizedPane: "0" });
     removeProject.mockResolvedValue(undefined);
 
     await useProjectStore.getState().forgetProject("a");
@@ -246,7 +247,7 @@ describe("forgetProject", () => {
     expect(disposeTerminal).toHaveBeenCalledWith("s1");
     expect(disposeTerminal).toHaveBeenCalledWith("s2");
     expect(useSessionStore.getState().sessions).toEqual([]);
-    expect(useSessionStore.getState().permissions).toEqual({});
+    expect(useUiStore.getState().permissions).toEqual({});
     expect(useUiStore.getState().paneViews).toEqual({});
     expect(useUiStore.getState().maximizedPane).toBeNull();
     expect(removeProject).toHaveBeenCalledWith("a");

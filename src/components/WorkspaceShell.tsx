@@ -285,7 +285,7 @@ function IsolationBanner({ projectId }: { projectId: string }) {
 }
 
 function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
-  const permissions = useSessionStore((state) => state.permissions);
+  const permissions = useUiStore((state) => state.permissions);
   const sessions = useSessionsForProject(projectId);
   const tasks = useTaskStore((state) => state.tasks);
   const answerPermission = useSessionStore((state) => state.answerPermission);
@@ -339,7 +339,7 @@ function AttentionInbox({
   sessions: Session[];
 }) {
   const tasks = useTasksForProject(projectId);
-  const permissions = useSessionStore((state) => state.permissions);
+  const permissions = useUiStore((state) => state.permissions);
   const mergeReasons = useSessionStore((state) => state.mergeReasons);
   const inspectMerge = useSessionStore((state) => state.inspectMerge);
   const bySession = useStepStore((state) => state.bySession);
