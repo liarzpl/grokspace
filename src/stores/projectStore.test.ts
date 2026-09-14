@@ -30,6 +30,7 @@ vi.mock("../lib/api", async () => {
 const { disposeTerminal } = await import("../lib/terminals");
 const { useGraphStore } = await import("./graphStore");
 const { useSessionStore } = await import("./sessionStore");
+const { useUiStore } = await import("./uiStore");
 const { layoutOf, useProjectStore } = await import("./projectStore");
 
 function project(overrides: Partial<Project> = {}): Project {
@@ -47,12 +48,14 @@ function project(overrides: Partial<Project> = {}): Project {
 const initialState = useProjectStore.getState();
 const initialSessions = useSessionStore.getState();
 const initialGraphs = useGraphStore.getState();
+const initialUi = useUiStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
   useProjectStore.setState(initialState, true);
   useSessionStore.setState(initialSessions, true);
   useGraphStore.setState(initialGraphs, true);
+  useUiStore.setState(initialUi, true);
   listSessions.mockResolvedValue([]);
 });
 
@@ -228,6 +231,7 @@ describe("forgetProject", () => {
       sessions: [{ id: "s1" } as never],
       permissions: { s1: [{ requestId: 1, summary: "x" }] },
     });
+    useUiStore.setState({ paneViews: { "0": "graph" }, maximizedPane: "0" });
     removeProject.mockResolvedValue(undefined);
 
     await useProjectStore.getState().forgetProject("a");
@@ -237,6 +241,8 @@ describe("forgetProject", () => {
     expect(disposeTerminal).toHaveBeenCalledWith("s2");
     expect(useSessionStore.getState().sessions).toEqual([]);
     expect(useSessionStore.getState().permissions).toEqual({});
+    expect(useUiStore.getState().paneViews).toEqual({});
+    expect(useUiStore.getState().maximizedPane).toBeNull();
     expect(removeProject).toHaveBeenCalledWith("a");
   });
 });

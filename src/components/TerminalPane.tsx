@@ -14,6 +14,7 @@ import {
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { useSessionStore } from "../stores/sessionStore";
+import { useUiStore } from "../stores/uiStore";
 import type { Session, SessionKind } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
 import SessionSteps from "./SessionSteps";
@@ -29,8 +30,8 @@ const RESIZE_DEBOUNCE_MS = 80;
  * instance and its pty alive while another face has the pane.
  */
 function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
-  const view = useSessionStore((state) => state.paneViews[paneId] ?? "terminal");
-  const setPaneView = useSessionStore((state) => state.setPaneView);
+  const view = useUiStore((state) => state.paneViews[paneId] ?? "terminal");
+  const setPaneView = useUiStore((state) => state.setPaneView);
   const hasGraph = useGraphStore(
     (state) => graphFor(state.bySession, session.id).graph !== null,
   );
@@ -179,9 +180,9 @@ export default function TerminalPane({
   session?: Session;
 }) {
   const [renaming, setRenaming] = useState(false);
-  const maximizedPane = useSessionStore((state) => state.maximizedPane);
-  const paneView = useSessionStore((state) => state.paneViews[paneId] ?? "terminal");
-  const toggleMaximized = useSessionStore((state) => state.toggleMaximized);
+  const maximizedPane = useUiStore((state) => state.maximizedPane);
+  const paneView = useUiStore((state) => state.paneViews[paneId] ?? "terminal");
+  const toggleMaximized = useUiStore((state) => state.toggleMaximized);
   const stopSession = useSessionStore((state) => state.stopSession);
   const restartSession = useSessionStore((state) => state.restartSession);
   const renameSession = useSessionStore((state) => state.renameSession);
