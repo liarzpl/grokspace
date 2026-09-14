@@ -1,7 +1,9 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import type { SessionStatus, Task, TaskStatus } from "../types";
+import { sessionCanTakeWork } from "../lib/dispatch";
+import { FALLBACK_PTY_SIZE } from "../lib/limits";
+import type { Task, TaskStatus } from "../types";
 import { useSessionStore } from "./sessionStore";
 import { useStepStore } from "./stepStore";
 
@@ -15,9 +17,6 @@ import { useStepStore } from "./stepStore";
  * registry, and pulling that into this store's tests would drag a terminal
  * emulator into testing a Kanban column.
  */
-
-/** A session started for a task has not been measured yet, so it starts classic. */
-const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
 /**
  * What a dispatched task types into the agent's terminal.
@@ -44,18 +43,6 @@ function replaceTask(tasks: Task[], next: Task): Task[] {
 
 /** Drops in-flight `loadTasks` results that a newer project switch has replaced. */
 let loadGeneration = 0;
-
-/**
- * Whether a session in this state can be given work.
- *
- * A terminal only ever reports `running`. An agent reports more, and `idle` is the
- * state it is most ready in — it means the last turn finished. `needs_input` is
- * refused: it is already blocked, and a second prompt would queue behind a question
- * nobody has answered.
- */
-function canTake(status: SessionStatus): boolean {
-  return status === "running" || status === "idle";
-}
 
 interface TaskState {
   tasks: Task[];
@@ -155,7 +142,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // A shell is refused outright: it would try to *run* the prompt, and "Fix the
     // login bug" is a command as far as bash is concerned, which is worse than
     // refusing. A stopped session of either kind would swallow it.
-    if (!session || session.kind === "shell" || !canTake(session.status)) {
+    if (!session || !sessionCanTakeWork(session)) {
       set({ error: "That session is not running an agent to hand the task to." });
       return false;
     }
@@ -197,7 +184,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       projectId,
       paneId,
       kind: paneId === null ? "agent" : "grok",
-      ...FALLBACK_SIZE,
+      ...FALLBACK_PTY_SIZE,
     });
     // startSession has already put its own failure on the session store's error,
     // which the shell surfaces; repeating it here would show it twice.

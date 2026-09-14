@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useState } from "react";
 
 import { api, errorMessage } from "../lib/api";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
+import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissions } from "../lib/permissions";
 import { graphFor, useGraphStore } from "../stores/graphStore";
@@ -155,7 +156,13 @@ function SessionChip({
           {session.status === "stopped" && (
             <ChipButton
               label="Restart"
-              onClick={() => void restartSession(session.id, 80, 24)}
+              onClick={() =>
+                void restartSession(
+                  session.id,
+                  FALLBACK_PTY_SIZE.cols,
+                  FALLBACK_PTY_SIZE.rows,
+                )
+              }
             />
           )}
           {session.status === "stopped" && session.worktreePath !== null && (

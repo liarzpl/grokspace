@@ -35,8 +35,14 @@ export function paneOf(target: DispatchTarget): string | null {
   return target.kind === "pane" ? target.paneId : null;
 }
 
-/** Whether a session in this state can be given work; agents reach more of these. */
-function canTake(session: Session): boolean {
+/**
+ * Whether a session can be given work.
+ *
+ * A shell is refused: it would try to run the prompt as a command. `needs_input`
+ * is already blocked. A terminal only ever reports `running`; an agent is most
+ * ready when `idle`.
+ */
+export function sessionCanTakeWork(session: Session): boolean {
   return (
     session.kind !== "shell" && (session.status === "running" || session.status === "idle")
   );
@@ -63,12 +69,12 @@ export function dispatchTargets(project: Project, sessions: Session[]): Dispatch
   const inPanes = panes.flatMap((paneId): DispatchTarget[] => {
     const session = sessionForPane(sessions, paneId);
     if (session === undefined) return [{ kind: "pane", paneId }];
-    return canTake(session) ? [{ kind: "session", session }] : [];
+    return sessionCanTakeWork(session) ? [{ kind: "session", session }] : [];
   });
 
   // Agents hold no pane, so walking the grid does not find them.
   const agents: DispatchTarget[] = sessions
-    .filter((session) => session.kind === "agent" && canTake(session))
+    .filter((session) => session.kind === "agent" && sessionCanTakeWork(session))
     .map((session) => ({ kind: "session", session }));
 
   const newAgent: DispatchTarget = { kind: "agent" };

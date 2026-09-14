@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { briefPrompt, type Role } from "../lib/roles";
 import { detachTerminal, disposeTerminal } from "../lib/terminals";
 import { foldUpdate } from "../lib/transcript";
@@ -69,9 +70,6 @@ interface StartInput {
   /** Confirm starting an agent on the project tree when isolation skipped. */
   allowUnisolated?: boolean;
 }
-
-/** A session started for a role has not been measured, so it starts classic. */
-const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
 /**
  * An ACP agent that never got a worktree is on the project tree. The sentence is
@@ -326,7 +324,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         paneId: null,
         kind: "agent",
         role: role.name,
-        ...FALLBACK_SIZE,
+        ...FALLBACK_PTY_SIZE,
       });
       if (session === null) {
         failed.push(role.name);

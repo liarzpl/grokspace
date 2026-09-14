@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
+import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import {
   attachTerminal,
   clearTerminal,
@@ -16,9 +17,6 @@ import { useSessionStore } from "../stores/sessionStore";
 import type { Session, SessionKind } from "../types";
 import GraphVisualizer from "./GraphVisualizer";
 import SessionSteps from "./SessionSteps";
-
-/** A pane is created before it has been measured, so it starts at the classic size. */
-const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
 /** Long enough to swallow the burst a window drag produces, short enough to feel live. */
 const RESIZE_DEBOUNCE_MS = 80;
@@ -111,7 +109,7 @@ function EmptyPane({ paneId, projectId }: { paneId: string; projectId: string })
   const busy = useSessionStore((state) => state.busyPanes[paneId] ?? false);
 
   const start = (kind: SessionKind) =>
-    void startSession({ projectId, paneId, kind, ...FALLBACK_SIZE });
+    void startSession({ projectId, paneId, kind, ...FALLBACK_PTY_SIZE });
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2.5">
@@ -227,7 +225,7 @@ export default function TerminalPane({
 
   const restart = () => {
     if (!session) return;
-    const size = fitTerminal(session.id) ?? FALLBACK_SIZE;
+    const size = fitTerminal(session.id) ?? FALLBACK_PTY_SIZE;
     void restartSession(session.id, size.cols, size.rows);
   };
 
