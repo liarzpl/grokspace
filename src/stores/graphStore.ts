@@ -9,6 +9,7 @@ import {
   type ParseResult,
 } from "../lib/graph";
 import { createWatchedSessionMap } from "../lib/watchedSessionMap";
+import type { GraphSnapshot } from "../types";
 
 /**
  * One graph per session, kept in step with the files on disk.
@@ -70,6 +71,11 @@ interface GraphStoreState {
   /** Reads a session's graph now; safe to call repeatedly. */
   load: (sessionId: string) => Promise<void>;
   /**
+   * Replaces held graphs with one project listing. A newer call wins, so
+   * switching projects cannot leave the last project's files standing.
+   */
+  syncSessions: (projectId: string) => Promise<void>;
+  /**
    * Coalesced re-read, driven by the backend's change event. `isOpenSession`
    * says whether a session with that id is still open, which the caller knows
    * and this store does not.
@@ -92,6 +98,84 @@ const EMPTY: GraphEntry = {
   bytes: null,
   isLoading: true,
 };
+
+/** Drops in-flight `syncSessions` work that a newer project switch has replaced. */
+let syncGeneration = 0;
+
+function entryFromSnapshot(snapshot: GraphSnapshot, previous: GraphEntry | undefined): GraphEntry {
+  const bytes = snapshot.json?.length ?? 0;
+  if (
+    previous !== undefined &&
+    !previous.isLoading &&
+    snapshot.updatedAt !== null &&
+    previous.updatedAt === snapshot.updatedAt &&
+    previous.bytes === bytes
+  ) {
+    return previous;
+  }
+
+  if (snapshot.tooLarge) {
+    return {
+      path: snapshot.path,
+      graph: null,
+      warnings: [],
+      error: "The graph file is too large to read.",
+      updatedAt: snapshot.updatedAt,
+      bytes: null,
+      isLoading: false,
+    };
+  }
+
+  if (snapshot.json === null) {
+    return {
+      path: snapshot.path,
+      graph: null,
+      warnings: [],
+      error: null,
+      updatedAt: snapshot.updatedAt,
+      bytes: 0,
+      isLoading: false,
+    };
+  }
+
+  if (previous?.graph != null && snapshot.json.length > LIVE_GRAPH_BYTES) {
+    return { ...previous, updatedAt: snapshot.updatedAt, bytes };
+  }
+
+  const document = parseJson(snapshot.json);
+  if (!document.ok) {
+    return {
+      path: snapshot.path,
+      graph: null,
+      warnings: [],
+      error: "The graph file is not valid JSON.",
+      updatedAt: snapshot.updatedAt,
+      bytes,
+      isLoading: false,
+    };
+  }
+
+  const parsed: ParseResult = parseGraph(document.value);
+  return parsed.ok
+    ? {
+        path: snapshot.path,
+        graph: stabilizeGraph(previous?.graph ?? null, parsed.graph),
+        warnings: parsed.warnings,
+        error: null,
+        updatedAt: snapshot.updatedAt,
+        bytes,
+        isLoading: false,
+      }
+    : {
+        path: snapshot.path,
+        graph: null,
+        warnings: [],
+        error: parsed.error,
+        updatedAt: snapshot.updatedAt,
+        bytes,
+        isLoading: false,
+      };
+}
 
 function sameNode(left: GraphNode, right: GraphNode): boolean {
   return (
@@ -190,88 +274,22 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
       return;
     }
 
-    const existing = get().bySession[sessionId];
-    const bytes = snapshot.json?.length ?? 0;
-    // Same mtime and size: the watcher fired but the file did not change. Skip
-    // JSON.parse + parseGraph so React Flow keeps the last node identities.
     if (
-      existing !== undefined &&
-      !existing.isLoading &&
-      snapshot.updatedAt !== null &&
-      existing.updatedAt === snapshot.updatedAt &&
-      existing.bytes === bytes
+      allowRetry &&
+      snapshot.json !== null &&
+      !snapshot.tooLarge &&
+      !parseJson(snapshot.json).ok
     ) {
-      return;
-    }
-
-    // Ahead of the missing-graph branch, which an unread file also lands in: a
-    // file refused for its size is there, so reporting it as no graph yet would
-    // leave the pane waiting for something that has already arrived.
-    if (snapshot.tooLarge) {
-      write(sessionId, {
-        path: snapshot.path,
-        graph: null,
-        warnings: [],
-        error: "The graph file is too large to read.",
-        updatedAt: snapshot.updatedAt,
-        bytes: null,
-        isLoading: false,
-      });
-      return;
-    }
-
-    if (snapshot.json === null) {
-      write(sessionId, {
-        path: snapshot.path,
-        graph: null,
-        warnings: [],
-        error: null,
-        updatedAt: snapshot.updatedAt,
-        bytes: 0,
-        isLoading: false,
-      });
-      return;
-    }
-
-    if (existing?.graph != null && snapshot.json.length > LIVE_GRAPH_BYTES) {
-      write(sessionId, { updatedAt: snapshot.updatedAt, bytes });
-      return;
-    }
-
-    const document = parseJson(snapshot.json);
-    if (!document.ok && allowRetry) {
       // Probably a half-written file. Give the writer a moment, then believe it.
       await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
       if (!(sessionId in get().bySession)) return;
       return read(sessionId, false);
     }
 
-    const parsed: ParseResult = document.ok
-      ? parseGraph(document.value)
-      : { ok: false, error: "The graph file is not valid JSON." };
-
-    write(
-      sessionId,
-      parsed.ok
-        ? {
-            path: snapshot.path,
-            graph: stabilizeGraph(existing?.graph ?? null, parsed.graph),
-            warnings: parsed.warnings,
-            error: null,
-            updatedAt: snapshot.updatedAt,
-            bytes,
-            isLoading: false,
-          }
-        : {
-            path: snapshot.path,
-            graph: null,
-            warnings: [],
-            error: parsed.error,
-            updatedAt: snapshot.updatedAt,
-            bytes,
-            isLoading: false,
-          },
-    );
+    const existing = get().bySession[sessionId];
+    const next = entryFromSnapshot(snapshot, existing);
+    if (next === existing) return;
+    write(sessionId, next);
   };
 
   return {
@@ -285,6 +303,31 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
           : { bySession: { ...state.bySession, [sessionId]: { ...EMPTY } } },
       );
       await read(sessionId, true);
+    },
+
+    syncSessions: async (projectId) => {
+      const generation = ++syncGeneration;
+      try {
+        const snapshots = await api.listSessionGraphs(projectId);
+        if (generation !== syncGeneration) return;
+        const arriving = new Set(snapshots.map((item) => item.sessionId));
+        for (const id of Object.keys(get().bySession)) {
+          if (!arriving.has(id)) get().forget(id);
+        }
+        set((state) => {
+          const bySession = { ...state.bySession };
+          for (const snapshot of snapshots) {
+            bySession[snapshot.sessionId] = entryFromSnapshot(
+              snapshot,
+              bySession[snapshot.sessionId],
+            );
+          }
+          return { bySession, error: null };
+        });
+      } catch (error) {
+        if (generation !== syncGeneration) return;
+        set({ error: errorMessage(error) });
+      }
     },
 
     refresh: (sessionId, isOpenSession) => {

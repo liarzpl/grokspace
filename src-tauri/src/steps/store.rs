@@ -217,6 +217,47 @@ pub fn snapshot(conn: &Connection, session_id: &str) -> Result<SessionSteps> {
     })
 }
 
+/// Every session's list in one round trip, so project open is not N IPC.
+pub fn list_for_project(conn: &Connection, project_id: &str) -> Result<Vec<SessionSteps>> {
+    project::get(conn, project_id)?;
+    let mut session_stmt = conn.prepare(
+        "SELECT id, steps_phase FROM sessions WHERE project_id = ?1 ORDER BY created_at ASC",
+    )?;
+    let session_rows = session_stmt
+        .query_map([project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(session_stmt);
+
+    let mut steps = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM session_steps
+         WHERE session_id IN (SELECT id FROM sessions WHERE project_id = ?1)
+         ORDER BY session_id, sort_index ASC"
+    ))?;
+    let mut by_session: HashMap<String, Vec<SessionStep>> = HashMap::new();
+    for step in steps
+        .query_map([project_id], from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+    {
+        by_session
+            .entry(step.session_id.clone())
+            .or_default()
+            .push(step);
+    }
+
+    session_rows
+        .into_iter()
+        .map(|(session_id, phase)| {
+            Ok(SessionSteps {
+                steps: by_session.remove(&session_id).unwrap_or_default(),
+                session_id,
+                phase: StepsPhase::parse(&phase)?,
+            })
+        })
+        .collect()
+}
+
 fn clean_title(title: &str) -> Result<String> {
     let title = title.trim();
     if title.is_empty() {

@@ -4,13 +4,14 @@ import { SAMPLE_GRAPH } from "../lib/graphFixture";
 import type { GraphSnapshot } from "../types";
 
 const readSessionGraph = vi.fn();
+const listSessionGraphs = vi.fn();
 const watchProjectGraphs = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
     errorMessage: actual.errorMessage,
-    api: { readSessionGraph, watchProjectGraphs },
+    api: { readSessionGraph, listSessionGraphs, watchProjectGraphs },
   };
 });
 
@@ -332,5 +333,80 @@ describe("watch", () => {
 
     expect(watchProjectGraphs).toHaveBeenCalledWith("p1");
     expect(useGraphStore.getState().error).toBe("could not watch");
+  });
+});
+
+describe("syncSessions", () => {
+  it("loads every session from one project listing", async () => {
+    listSessionGraphs.mockResolvedValue([
+      snapshot(),
+      snapshot({
+        sessionId: "s2",
+        path: "/p/.grokspace/graphs/s2.json",
+        json: JSON.stringify({ name: "Other run", nodes: [{ id: "a" }] }),
+      }),
+    ]);
+
+    await useGraphStore.getState().syncSessions("p1");
+
+    expect(listSessionGraphs).toHaveBeenCalledWith("p1");
+    expect(readSessionGraph).not.toHaveBeenCalled();
+    expect(entry("s1").graph?.name).toBe("Idea Generation");
+    expect(entry("s2").graph?.name).toBe("Other run");
+  });
+
+  it("drops graphs that are not in the listing", async () => {
+    useGraphStore.setState({
+      bySession: {
+        gone: {
+          path: "/p/.grokspace/graphs/gone.json",
+          graph: null,
+          warnings: [],
+          error: null,
+          updatedAt: null,
+          bytes: 0,
+          isLoading: false,
+        },
+      },
+    });
+    listSessionGraphs.mockResolvedValue([snapshot()]);
+
+    await useGraphStore.getState().syncSessions("p1");
+
+    expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s1"]);
+  });
+
+  it("lets the later listing win when two complete out of order", async () => {
+    let resolveFirst: (value: GraphSnapshot[]) => void = () => {};
+    listSessionGraphs.mockImplementationOnce(
+      () =>
+        new Promise<GraphSnapshot[]>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    listSessionGraphs.mockResolvedValueOnce([
+      snapshot({
+        sessionId: "s2",
+        path: "/p/.grokspace/graphs/s2.json",
+        json: null,
+        exists: false,
+      }),
+    ]);
+
+    const first = useGraphStore.getState().syncSessions("p1");
+    const second = useGraphStore.getState().syncSessions("p2");
+    await second;
+    resolveFirst([snapshot()]);
+    await first;
+
+    expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s2"]);
+  });
+
+  it("surfaces a failed listing on the store rather than throwing", async () => {
+    listSessionGraphs.mockRejectedValue("database is locked");
+
+    await useGraphStore.getState().syncSessions("p1");
+
+    expect(useGraphStore.getState().error).toBe("database is locked");
   });
 });

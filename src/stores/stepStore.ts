@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { scheduleIdle } from "../lib/sessionSidecars";
 import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 import type { SessionStep, SessionSteps, StepsPhase } from "../types";
 
@@ -39,12 +38,10 @@ interface StepState {
   /** Reads a session's list now; safe to call repeatedly. */
   load: (sessionId: string) => Promise<void>;
   /**
-   * Replaces the held lists with those of the sessions that are now on screen.
-   * A newer call wins, so switching projects cannot leave the last project's
-   * checklists standing. `urgentIds` load now; the rest wait for idle so a
-   * project open does not storm IPC before the visible pane paints.
+   * Replaces the held lists with one project listing. A newer call wins, so
+   * switching projects cannot leave the last project's checklists standing.
    */
-  syncSessions: (sessionIds: readonly string[], urgentIds?: readonly string[]) => Promise<void>;
+  syncSessions: (projectId: string) => Promise<void>;
   /**
    * Coalesced re-read, driven by the backend's change event. `isOpenSession`
    * says whether a session with that id is still open, which the caller knows
@@ -151,27 +148,26 @@ export const useStepStore = create<StepState>((set, get) => {
       }
     },
 
-    syncSessions: async (sessionIds, urgentIds) => {
+    syncSessions: async (projectId) => {
       const generation = ++syncGeneration;
-      const arriving = new Set(sessionIds);
-      for (const id of Object.keys(get().bySession)) {
-        if (!arriving.has(id)) get().forget(id);
-      }
-      const urgent: string[] = [];
-      const seen = new Set<string>();
-      for (const id of urgentIds ?? sessionIds) {
-        if (!arriving.has(id) || seen.has(id)) continue;
-        seen.add(id);
-        urgent.push(id);
-      }
-      const rest = sessionIds.filter((id) => !seen.has(id));
-      await Promise.all(urgent.map((id) => get().load(id)));
-      if (generation !== syncGeneration) return;
-      if (rest.length === 0) return;
-      scheduleIdle(() => {
+      try {
+        const snapshots = await api.listProjectSteps(projectId);
         if (generation !== syncGeneration) return;
-        void Promise.all(rest.map((id) => get().load(id)));
-      });
+        const arriving = new Set(snapshots.map((item) => item.sessionId));
+        for (const id of Object.keys(get().bySession)) {
+          if (!arriving.has(id)) get().forget(id);
+        }
+        set((state) => {
+          const bySession = { ...state.bySession };
+          for (const snapshot of snapshots) {
+            bySession[snapshot.sessionId] = fromSnapshot(snapshot);
+          }
+          return { bySession, error: null };
+        });
+      } catch (error) {
+        if (generation !== syncGeneration) return;
+        set({ error: errorMessage(error) });
+      }
     },
 
     refresh: (sessionId, isOpenSession) => {
