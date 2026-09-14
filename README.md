@@ -92,7 +92,9 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   file's diff against `HEAD`; a file git has never seen is shown as all additions
   rather than skipped. Paths another worktree (or the project) also touched are
   marked; lockfiles and migrations get a louder hotspot strip. That strip warns —
-  it does not lock Merge. A stopped agent's Merge refusal (dirty project, nothing
+  it does not lock Merge. On an isolated worktree that overlaps, Walk (on by
+  default) lists hotspots, then other overlaps, then the rest; turn it off for
+  git's order. A stopped agent's Merge refusal (dirty project, nothing
   to merge, missing git) is shown before you click. The checkpoint is that
   worktree's `HEAD`; Discard reverts it so Close can proceed. Merge, on a
   stopped agent, lands that branch on the project. There is no shadow-git.
