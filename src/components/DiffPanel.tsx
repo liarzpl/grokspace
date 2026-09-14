@@ -17,6 +17,9 @@ import {
   overlapMarkTitle,
   overlapStrip,
   overlapsOf,
+  walkEnabled,
+  walkFiles,
+  WALK_ORDER_LABEL,
 } from "../lib/overlap";
 import {
   isolationNotice,
@@ -36,8 +39,10 @@ import type { ChangedFile, FileChange, PathOverlap, Project, Session } from "../
  * refuse (dirty project, nothing to merge) before a click; a conflict abort
  * lands there too.
  * Shared paths with another worktree (or the project) get a red mark and a
- * warning strip that names the other session — Merge stays clickable. A selected
- * hunk plus an optional sentence can be sent back to an idle agent.
+ * warning strip that names the other session — Merge stays clickable. Isolated
+ * scopes with overlaps can Walk hotspots, then other overlaps, then the rest;
+ * the toggle defaults on, and off is git order. A selected hunk plus an optional
+ * sentence can be sent back to an idle agent.
  *
  * The default view is the project's tree. ACP agents that isolated into a worktree
  * appear as chips; picking one reads that checkout, which is a clean `HEAD` plus
@@ -488,6 +493,7 @@ export default function DiffPanel({ project }: { project: Project }) {
     [projectSessions],
   );
   const [hunkIndex, setHunkIndex] = useState<number | null>(null);
+  const [walkOn, setWalkOn] = useState(true);
 
   useEffect(() => {
     void loadDiff(project.id, null);
@@ -501,6 +507,13 @@ export default function DiffPanel({ project }: { project: Project }) {
   const scopedSession = sessions.find((session) => session.id === scoped) ?? null;
   const hunks = scoped === null ? [] : splitDiff(body).hunks;
   const selectedHunk = hunkIndex === null ? null : (hunks[hunkIndex] ?? null);
+  const overlaps = overlapsOf(diff);
+  const walking = walkEnabled(scoped !== null, overlaps, walkOn);
+  const listed = diff.state === "changed" ? walkFiles(diff.files, overlaps, walking) : [];
+
+  useEffect(() => {
+    setWalkOn(true);
+  }, [scoped]);
 
   if (diff.state === "gitMissing") {
     return (
@@ -541,6 +554,23 @@ export default function DiffPanel({ project }: { project: Project }) {
         <span className="text-[10px] text-ink-faint">{CHECKPOINT_EQUALS_HEAD}</span>
       )}
       <div className="flex-1" />
+      {diff.state === "changed" && overlaps.length > 0 && scoped !== null && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={walkOn}
+          aria-label={WALK_ORDER_LABEL}
+          title={WALK_ORDER_LABEL}
+          onClick={() => setWalkOn((on) => !on)}
+          className={`rounded-sm px-1.5 py-0.5 text-[10px] transition-colors ${
+            walkOn
+              ? "bg-accent-soft text-ink"
+              : "text-ink-faint hover:bg-elevated hover:text-ink-muted"
+          }`}
+        >
+          Walk
+        </button>
+      )}
       {/* A snapshot rather than a watch: a watcher over a whole project would fire on
           every artifact an agent's test run writes. */}
       <button
@@ -553,8 +583,6 @@ export default function DiffPanel({ project }: { project: Project }) {
       </button>
     </header>
   );
-
-  const overlaps = overlapsOf(diff);
 
   const chips = (
     <ScopeChips
@@ -601,7 +629,7 @@ export default function DiffPanel({ project }: { project: Project }) {
           dir="ltr"
           className="flex w-64 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line p-1.5"
         >
-          {diff.files.map((file) => (
+          {listed.map((file) => (
             <FileRow
               key={file.path}
               file={file}

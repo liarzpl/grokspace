@@ -101,3 +101,49 @@ export function overlapStrip(overlaps: PathOverlap[]): string | null {
   const verb = hotspots.length === 1 ? "is" : "are";
   return `${files} ${verb} also touched by ${who}. Lockfiles and migrations conflict more often.`;
 }
+
+/** Toggle label. Off keeps git's list order. */
+export const WALK_ORDER_LABEL = "Walk: hotspots → overlap → rest";
+
+/**
+ * Walk is on by default for an isolated scope that has overlaps.
+ * Project view, no overlaps, or an explicit off all keep git order.
+ */
+export function walkEnabled(
+  isolated: boolean,
+  overlaps: readonly PathOverlap[],
+  walkOn: boolean,
+): boolean {
+  return isolated && overlaps.length > 0 && walkOn;
+}
+
+/**
+ * Reorder a file list: hotspots, then other overlaps, then the rest.
+ * Off (or nothing to walk) returns the input order. Within a bucket,
+ * the original order is kept.
+ */
+export function walkFiles<T extends { path: string }>(
+  files: readonly T[],
+  overlaps: readonly PathOverlap[],
+  enabled: boolean,
+): T[] {
+  if (!enabled) return files.slice();
+
+  const byPath = new Map(overlaps.map((item) => [item.path, item]));
+  const hotspots: T[] = [];
+  const shared: T[] = [];
+  const rest: T[] = [];
+
+  for (const file of files) {
+    const overlap = byPath.get(file.path);
+    if (overlap === undefined) {
+      rest.push(file);
+    } else if (overlap.hotspot) {
+      hotspots.push(file);
+    } else {
+      shared.push(file);
+    }
+  }
+
+  return [...hotspots, ...shared, ...rest];
+}

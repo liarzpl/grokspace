@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import type { PathOverlap } from "../types";
@@ -7,7 +11,15 @@ import {
   overlapPathsOf,
   overlapStrip,
   overlapsOf,
+  walkEnabled,
+  walkFiles,
+  WALK_ORDER_LABEL,
 } from "./overlap";
+
+const diffPanel = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "../components/DiffPanel.tsx"),
+  "utf8",
+);
 
 const reviewer: PathOverlap = {
   path: "src/lib.rs",
@@ -147,5 +159,78 @@ describe("overlapStrip", () => {
     expect(overlapStrip([lockfile, packageLock, migration])).toBe(
       "Cargo.lock and 2 other generated files are also touched by Reviewer. Lockfiles and migrations conflict more often.",
     );
+  });
+});
+
+const rest = { path: "src/main.rs", change: "modified" as const };
+const shared = { path: "src/lib.rs", change: "modified" as const };
+const hot = { path: "Cargo.lock", change: "modified" as const };
+
+describe("walkEnabled", () => {
+  it("defaults on for an isolated scope that has overlaps", () => {
+    expect(walkEnabled(true, [reviewer], true)).toBe(true);
+  });
+
+  it("is off when the toggle is off, the scope is the project, or nothing overlaps", () => {
+    expect(walkEnabled(true, [reviewer], false)).toBe(false);
+    expect(walkEnabled(false, [reviewer], true)).toBe(false);
+    expect(walkEnabled(true, [], true)).toBe(false);
+  });
+});
+
+describe("walkFiles", () => {
+  it("keeps git order when walk is off", () => {
+    expect(walkFiles([rest, shared, hot], [reviewer, lockfile], false)).toEqual([
+      rest,
+      shared,
+      hot,
+    ]);
+  });
+
+  it("lists hotspots, then other overlaps, then the rest", () => {
+    expect(walkFiles([rest, shared, hot], [reviewer, lockfile], true)).toEqual([
+      hot,
+      shared,
+      rest,
+    ]);
+  });
+
+  it("keeps original order inside each bucket", () => {
+    const laterHot = { path: "package-lock.json", change: "modified" as const };
+    const laterShared = { path: "src/api.rs", change: "modified" as const };
+    const laterRest = { path: "README.md", change: "modified" as const };
+    const packageLock: PathOverlap = {
+      path: "package-lock.json",
+      hotspot: true,
+      peers: [{ sessionId: "agent-2", title: "Reviewer" }],
+    };
+    const api: PathOverlap = {
+      path: "src/api.rs",
+      hotspot: false,
+      peers: [{ sessionId: "agent-2", title: "Reviewer" }],
+    };
+
+    expect(
+      walkFiles(
+        [laterRest, shared, laterHot, rest, hot, laterShared],
+        [reviewer, lockfile, packageLock, api],
+        true,
+      ),
+    ).toEqual([laterHot, hot, shared, laterShared, laterRest, rest]);
+  });
+
+  it("is a no-op when the overlap list is empty", () => {
+    expect(walkFiles([rest, hot], [], true)).toEqual([rest, hot]);
+  });
+
+  it("names the walk toggle", () => {
+    expect(WALK_ORDER_LABEL).toBe("Walk: hotspots → overlap → rest");
+  });
+
+  it("is the order DiffPanel uses, with an off switch", () => {
+    expect(diffPanel).toMatch(/walkFiles\(/);
+    expect(diffPanel).toMatch(/walkEnabled\(/);
+    expect(diffPanel).toMatch(/WALK_ORDER_LABEL/);
+    expect(diffPanel).toMatch(/role="switch"/);
   });
 });
