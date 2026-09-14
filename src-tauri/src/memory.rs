@@ -13,7 +13,7 @@ use tauri::State;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
-use crate::skill::{Skill, SkillFile, SkillStatus};
+use crate::skill::{Skill, SkillFile};
 use crate::{project, AppState};
 
 const COLUMNS: &str = "project_id, key, content, type, updated_at";
@@ -22,7 +22,7 @@ const COLUMNS: &str = "project_id, key, content, type, updated_at";
 const MEMORY_FILE: &str = "memory.md";
 
 /// The skill that teaches an agent to read the file before it plans anything.
-const SKILL: Skill = Skill {
+pub(crate) const SKILL: Skill = Skill {
     dir: "grokspace-memory",
     files: &[SkillFile {
         path: "SKILL.md",
@@ -298,16 +298,6 @@ pub fn remove_memory(
     })?;
     project_to_disk(&entries, path.as_deref());
     Ok(entries)
-}
-
-#[tauri::command]
-pub fn memory_skill_status() -> Result<SkillStatus> {
-    SKILL.status()
-}
-
-#[tauri::command]
-pub fn install_memory_skill() -> Result<SkillStatus> {
-    SKILL.install()
 }
 
 /// The path the panel names, so someone can look at what agents are being given.

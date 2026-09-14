@@ -161,6 +161,30 @@ impl Skill {
     }
 }
 
+/// Stable ids the UI and palette send. One pair of commands instead of six.
+pub const GRAPH: &str = "graph";
+pub const MEMORY: &str = "memory";
+pub const STEPS: &str = "steps";
+
+pub(crate) fn bundled(id: &str) -> Result<&'static Skill> {
+    match id {
+        GRAPH => Ok(&crate::graph::SKILL),
+        MEMORY => Ok(&crate::memory::SKILL),
+        STEPS => Ok(&crate::steps::SKILL),
+        _ => Err(Error::Invalid(format!("unknown skill `{id}`"))),
+    }
+}
+
+#[tauri::command]
+pub fn skill_status(id: String) -> Result<SkillStatus> {
+    bundled(&id)?.status()
+}
+
+#[tauri::command]
+pub fn install_skill(id: String) -> Result<SkillStatus> {
+    bundled(&id)?.install()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +388,20 @@ mod tests {
             !dir.join(SKILL_FILE).exists(),
             "the check runs over every file before any of them is written"
         );
+    }
+
+    #[test]
+    fn known_ids_resolve_to_the_bundled_skills() {
+        assert_eq!(bundled(GRAPH).unwrap().dir, crate::graph::SKILL.dir);
+        assert_eq!(bundled(MEMORY).unwrap().dir, crate::memory::SKILL.dir);
+        assert_eq!(bundled(STEPS).unwrap().dir, crate::steps::SKILL.dir);
+    }
+
+    #[test]
+    fn an_unknown_id_is_invalid() {
+        match bundled("nope") {
+            Ok(_) => panic!("unknown id must be refused"),
+            Err(err) => assert!(err.to_string().contains("unknown skill")),
+        }
     }
 }

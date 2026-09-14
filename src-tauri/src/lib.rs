@@ -98,8 +98,8 @@ pub fn run() {
             memory::put_memory,
             memory::remove_memory,
             memory::memory_file_path,
-            memory::memory_skill_status,
-            memory::install_memory_skill,
+            skill::skill_status,
+            skill::install_skill,
             task::list_tasks,
             task::create_task,
             task::update_task,
@@ -112,8 +112,6 @@ pub fn run() {
             settings::write_setting,
             graph::read_session_graph,
             graph::watch_project_graphs,
-            graph::graph_skill_status,
-            graph::install_graph_skill,
             steps::list_session_steps,
             steps::add_session_step,
             steps::update_session_step,
@@ -122,8 +120,6 @@ pub fn run() {
             steps::approve_session_steps,
             steps::reopen_session_steps,
             steps::watch_project_steps,
-            steps::steps_skill_status,
-            steps::install_steps_skill,
         ])
         .build(tauri::generate_context!())
         .expect("error while starting GrokSpace");

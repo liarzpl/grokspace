@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import type { MemoryEntry, MemoryEntryType, SkillStatus } from "../types";
+import type { MemoryEntry, MemoryEntryType } from "../types";
 
 /**
  * The project's shared memory: what everyone working on it should already know.
@@ -27,8 +27,6 @@ interface MemoryState {
   /** The file agents are told to read, named so a missing one stays discoverable. */
   filePath: string;
   isLoading: boolean;
-  skill: SkillStatus | null;
-  isInstallingSkill: boolean;
   error: string | null;
 
   loadMemory: (projectId: string) => Promise<void>;
@@ -38,17 +36,13 @@ interface MemoryState {
     entry: { key: string; content: string; type: MemoryEntryType },
   ) => Promise<boolean>;
   forgetEntry: (projectId: string, key: string) => Promise<void>;
-  loadSkill: () => Promise<void>;
-  installSkill: () => Promise<void>;
   clearError: () => void;
 }
 
-export const useMemoryStore = create<MemoryState>((set, get) => ({
+export const useMemoryStore = create<MemoryState>((set) => ({
   entries: [],
   filePath: "",
   isLoading: false,
-  skill: null,
-  isInstallingSkill: false,
   error: null,
 
   clearError: () => set({ error: null }),
@@ -91,26 +85,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     }
   },
 
-  loadSkill: async () => {
-    if (get().skill !== null) return;
-    try {
-      set({ skill: await api.memorySkillStatus() });
-    } catch {
-      // Only decides whether to offer the install; a failure here should not put an
-      // error over a panel that is otherwise working.
-    }
-  },
-
-  installSkill: async () => {
-    set({ isInstallingSkill: true, error: null });
-    try {
-      set({ skill: await api.installMemorySkill() });
-    } catch (error) {
-      set({ error: errorMessage(error) });
-    } finally {
-      set({ isInstallingSkill: false });
-    }
-  },
 }));
 
 /** The entries of one type, in the order the backend returned them. */

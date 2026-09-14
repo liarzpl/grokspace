@@ -22,7 +22,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::error::{Error, Result};
-use crate::skill::{Skill, SkillFile, SkillStatus};
+use crate::skill::{Skill, SkillFile};
 use crate::{db, project, session, AppState};
 
 /// Emitted when a session's graph file appears, changes, or goes away. Like the
@@ -42,7 +42,7 @@ const MAX_GRAPH_BYTES: u64 = 4 * 1024 * 1024;
 /// Three files rather than one. `SKILL.md` is the runbook; the catalogue and the file
 /// contract are read on demand, which is what keeps a two-node graph from costing an
 /// agent twenty kilobytes of topology theory it does not need.
-const SKILL: Skill = Skill {
+pub(crate) const SKILL: Skill = Skill {
     dir: "grokspace-graph",
     files: &[
         SkillFile {
@@ -372,16 +372,6 @@ pub fn read_session_graph(state: State<'_, AppState>, session_id: String) -> Res
         project::get(&conn, &session.project_id)?.path
     };
     Ok(snapshot(Path::new(&project_path), &session_id))
-}
-
-#[tauri::command]
-pub fn graph_skill_status() -> Result<SkillStatus> {
-    SKILL.status()
-}
-
-#[tauri::command]
-pub fn install_graph_skill() -> Result<SkillStatus> {
-    SKILL.install()
 }
 
 #[cfg(test)]

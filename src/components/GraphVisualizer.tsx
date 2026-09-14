@@ -24,6 +24,7 @@ import GraphNodeCard, {
 } from "./graph/GraphNode";
 import { graphTheme } from "../lib/theme";
 import NodeInspector from "./graph/NodeInspector";
+import { SkillInstallButton, useSkill } from "./SkillHint";
 import { TextButton } from "./ui";
 
 /** Module scope on purpose: React Flow warns when this object's identity changes. */
@@ -70,15 +71,8 @@ function NoSession() {
  * teaches `grok` to write one, and a direct request to this agent.
  */
 function AwaitingGraph({ session, path }: { session: Session; path: string }) {
-  const skill = useGraphStore((state) => state.skill);
-  const isInstalling = useGraphStore((state) => state.isInstallingSkill);
-  const loadSkill = useGraphStore((state) => state.loadSkill);
-  const installSkill = useGraphStore((state) => state.installSkill);
+  const skill = useSkill("graph").status;
   const [asked, setAsked] = useState(false);
-
-  useEffect(() => {
-    void loadSkill();
-  }, [loadSkill]);
 
   useEffect(() => {
     setAsked(false);
@@ -121,19 +115,12 @@ function AwaitingGraph({ session, path }: { session: Session; path: string }) {
             disabled={asked}
           />
         )}
-        {skill !== null && !skill.current && (
-          <TextButton
-            label={
-              isInstalling
-                ? "Installing…"
-                : skill.installed
-                  ? "Update the graph skill"
-                  : "Install the graph skill"
-            }
-            onClick={() => void installSkill()}
-            disabled={isInstalling}
-          />
-        )}
+        <SkillInstallButton
+          id="graph"
+          variant="text"
+          installLabel="Install the graph skill"
+          updateLabel="Update the graph skill"
+        />
       </div>
 
       {skill?.current === true && (

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import { errorMessage } from "../lib/api";
-import { homeRelative } from "../lib/paths";
 import {
   canApproveSteps,
   MAX_STEPS,
@@ -13,6 +12,7 @@ import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
 import AgentTranscript from "./AgentTranscript";
+import { SkillHint } from "./SkillHint";
 import { QuietButton, StatusDot, TextButton } from "./ui";
 
 const STEP_MARK: Record<StepStatus, { glyph: string; tone: string; title: string }> = {
@@ -26,50 +26,6 @@ function nextStatus(status: StepStatus): StepStatus {
   if (status === "pending") return "doing";
   if (status === "doing") return "done";
   return "pending";
-}
-
-function SkillHint() {
-  const skill = useStepStore((state) => state.skill);
-  const isInstalling = useStepStore((state) => state.isInstallingSkill);
-  const loadSkill = useStepStore((state) => state.loadSkill);
-  const installSkill = useStepStore((state) => state.installSkill);
-
-  useEffect(() => {
-    void loadSkill();
-  }, [loadSkill]);
-
-  if (skill === null) return null;
-
-  if (skill.current) {
-    return (
-      <p className="text-[10px] leading-snug text-ink-faint">
-        The steps skill is installed, so agents started from now on write a list before they work.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col items-start gap-1">
-      <QuietButton
-        label={
-          isInstalling
-            ? "Installing…"
-            : skill.installed
-              ? "Update the steps skill"
-              : "Install the steps skill"
-        }
-        onClick={() => void installSkill()}
-        disabled={isInstalling}
-      />
-      {!skill.installed && (
-        <p className="text-[10px] leading-snug text-ink-faint">
-          Installing writes the skill into{" "}
-          <span className="font-mono selectable">{homeRelative(skill.path)}</span>, which is where
-          Grok looks for them.
-        </p>
-      )}
-    </div>
-  );
 }
 
 function StepRow({
@@ -288,7 +244,14 @@ export default function SessionSteps({
           <p className="text-[11px] leading-snug text-ink-faint">
             The agent has not proposed steps yet.
           </p>
-          {!compact && <SkillHint />}
+          {!compact && (
+            <SkillHint
+              id="steps"
+              installLabel="Install the steps skill"
+              updateLabel="Update the steps skill"
+              currentLabel="The steps skill is installed, so agents started from now on write a list before they work."
+            />
+          )}
         </div>
       ) : (
         <ol className="min-h-0 flex-1 overflow-y-auto">

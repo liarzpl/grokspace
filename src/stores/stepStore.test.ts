@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SessionSteps, SkillStatus } from "../types";
+import type { SessionSteps } from "../types";
 
 const listSessionSteps = vi.fn();
 const addSessionStep = vi.fn();
@@ -9,8 +9,6 @@ const removeSessionStep = vi.fn();
 const reorderSessionSteps = vi.fn();
 const approveSessionSteps = vi.fn();
 const reopenSessionSteps = vi.fn();
-const stepsSkillStatus = vi.fn();
-const installStepsSkill = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -24,8 +22,6 @@ vi.mock("../lib/api", async () => {
       reorderSessionSteps,
       approveSessionSteps,
       reopenSessionSteps,
-      stepsSkillStatus,
-      installStepsSkill,
     },
   };
 });
@@ -329,47 +325,5 @@ describe("mutations", () => {
 
     expect(reopenSessionSteps).toHaveBeenCalledWith("s1");
     expect(entry("s1").phase).toBe("proposed");
-  });
-});
-
-const skill = (overrides: Partial<SkillStatus> = {}): SkillStatus => ({
-  path: "/home/dev/.grok/skills/grokspace-steps/SKILL.md",
-  installed: true,
-  current: true,
-  ...overrides,
-});
-
-describe("loadSkill", () => {
-  it("asks the backend once however many panes want to know", async () => {
-    stepsSkillStatus.mockResolvedValue(skill({ installed: false, current: false }));
-
-    await useStepStore.getState().loadSkill();
-    await useStepStore.getState().loadSkill();
-
-    expect(stepsSkillStatus).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("installSkill", () => {
-  it("takes the status the install reports back", async () => {
-    useStepStore.setState({ skill: skill({ installed: false, current: false }) });
-    installStepsSkill.mockResolvedValue(skill());
-
-    await useStepStore.getState().installSkill();
-
-    expect(useStepStore.getState().skill?.current).toBe(true);
-    expect(useStepStore.getState().isInstallingSkill).toBe(false);
-  });
-
-  it("leaves the button usable when the install fails", async () => {
-    const before = skill({ installed: false, current: false });
-    useStepStore.setState({ skill: before });
-    installStepsSkill.mockRejectedValue("permission denied");
-
-    await useStepStore.getState().installSkill();
-
-    expect(useStepStore.getState().skill).toEqual(before);
-    expect(useStepStore.getState().isInstallingSkill).toBe(false);
-    expect(useStepStore.getState().error).toBe("permission denied");
   });
 });

@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { MAX_MEMORY_CHARS } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { entriesOfType, MEMORY_TYPES, memorySize, useMemoryStore } from "../stores/memoryStore";
 import type { MemoryEntry, MemoryEntryType, Project } from "../types";
-import { QuietButton, TextButton } from "./ui";
+import { SkillHint } from "./SkillHint";
+import { QuietButton } from "./ui";
 
 /**
  * One entry, editable in place.
@@ -146,14 +147,6 @@ function NewEntryForm({ projectId }: { projectId: string }) {
  */
 function MemoryFooter() {
   const filePath = useMemoryStore((state) => state.filePath);
-  const skill = useMemoryStore((state) => state.skill);
-  const isInstalling = useMemoryStore((state) => state.isInstallingSkill);
-  const loadSkill = useMemoryStore((state) => state.loadSkill);
-  const installSkill = useMemoryStore((state) => state.installSkill);
-
-  useEffect(() => {
-    void loadSkill();
-  }, [loadSkill]);
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-3 py-2">
@@ -166,26 +159,13 @@ function MemoryFooter() {
         </p>
       )}
       <div className="flex-1" />
-      {skill !== null && !skill.current && (
-        <TextButton
-          primary
-          label={
-            isInstalling
-              ? "Installing…"
-              : skill.installed
-                ? "Update the memory skill"
-                : "Install the memory skill"
-          }
-          onClick={() => void installSkill()}
-          disabled={isInstalling}
-        />
-      )}
-      {skill?.current === true && (
-        <p className="text-[10px] text-ink-faint">
-          The memory skill is installed, so agents started from now on read this before
-          they plan.
-        </p>
-      )}
+      <SkillHint
+        id="memory"
+        variant="primary"
+        installLabel="Install the memory skill"
+        updateLabel="Update the memory skill"
+        currentLabel="The memory skill is installed, so agents started from now on read this before they plan."
+      />
     </div>
   );
 }

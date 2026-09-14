@@ -30,10 +30,10 @@ pub use watch::StepWatchers;
 use tauri::{AppHandle, Runtime, State};
 
 use crate::error::Result;
-use crate::skill::{Skill, SkillFile, SkillStatus};
+use crate::skill::{Skill, SkillFile};
 use crate::AppState;
 
-const SKILL: Skill = Skill {
+pub(crate) const SKILL: Skill = Skill {
     dir: "grokspace-steps",
     files: &[SkillFile {
         path: "SKILL.md",
@@ -102,16 +102,6 @@ pub fn watch_project_steps<R: Runtime>(
     project_id: String,
 ) -> Result<Vec<String>> {
     watch::watch_project_steps(app, state, project_id)
-}
-
-#[tauri::command]
-pub fn steps_skill_status() -> Result<SkillStatus> {
-    SKILL.status()
-}
-
-#[tauri::command]
-pub fn install_steps_skill() -> Result<SkillStatus> {
-    SKILL.install()
 }
 
 #[cfg(test)]
