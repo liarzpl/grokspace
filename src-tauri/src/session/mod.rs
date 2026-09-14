@@ -11,6 +11,8 @@ pub use db::{clear_permission, get, list, set_title, Session, SessionKind, Sessi
 pub use db::{
     delete, insert, reconcile_on_start, record_permission, set_status, PendingPermission,
 };
+#[allow(unused_imports)] // e2e_smoke (cfg(test))
+pub(crate) use start::session_env;
 pub(crate) use start::{start, ChannelSink, StartRequest};
 #[allow(unused_imports)] // project::remove_project
 pub(crate) use worktree_cmds::close_forgetting;

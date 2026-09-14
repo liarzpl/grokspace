@@ -149,6 +149,7 @@ published to npm — it says nothing about the repository.
 ```bash
 npm run build          # type-check the frontend and build it
 npm test               # frontend store tests (Vitest)
+npm run test:e2e       # TEST-002 host smoke (skips WebView if none)
 
 cd src-tauri
 cargo test             # backend tests, against in-memory SQLite
@@ -160,6 +161,13 @@ Those are the same checks [`.github/workflows/ci.yml`](.github/workflows/ci.yml)
 runs on every pull request, so a green run locally is a green run there. CI adds
 `cargo fmt --check` in place of `cargo fmt`, and installs the WebKitGTK packages
 Tauri needs to compile on Linux.
+
+`npm run test:e2e` is one smoke, not a harness: it opens a fixture folder, starts
+a shell pane, runs `graph:demo` in that pane, and asserts the Graph snapshot
+the panel would draw. A Playwright drive of the Tauri window is skipped when
+there is no display (Linux CI has WebKitGTK to link, not a usable WebView).
+On a Mac you can still watch the same path by hand with `npm run tauri:dev`
+and `npm run graph:demo -- "$GROKSPACE_GRAPH_FILE"`.
 
 ### Where things live
 
@@ -182,9 +190,9 @@ src/
   styles.css      Every colour the app draws, including the ANSI palette
   types.ts        Mirrors the Rust structs, which serialize as camelCase
   generated/      Domain enum lists emitted from src-tauri/src/domain.rs
-scripts/          Development helpers; demo-graph.mjs writes a moving graph, and
-                  the release-*.sh pair holds the release workflow's decisions so
-                  they can be tested
+scripts/          Development helpers; demo-graph.mjs writes a moving graph,
+                  e2e-smoke.mjs is the TEST-002 host smoke, and the release-*.sh
+                  pair holds the release workflow's decisions so they can be tested
 src-tauri/
   migrations/     Append-only SQL migrations
   skills/         The three Grok skills GrokSpace installs on request (see below)
@@ -213,6 +221,7 @@ src-tauri/
     settings.rs   App preferences: key-value in SQLite, typed on the way out
     domain.rs     Shared enum lists; emits src/generated/domain.ts
     error.rs      Error type; serializes to a plain string for the frontend
+    e2e_smoke.rs  TEST-002 host smoke (compiled only for tests)
   icons/source/   Icon artwork and how to regenerate it
 ```
 
