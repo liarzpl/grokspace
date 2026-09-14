@@ -137,6 +137,30 @@ pub fn open_folder(conn: &Connection, raw_path: &str) -> Result<Project> {
     upsert_by_path(conn, canonical_path, name)
 }
 
+/// The folder GrokSpace writes into a user project: memory, graphs, steps, worktrees.
+pub(crate) const GROKSPACE_DIR: &str = ".grokspace";
+
+/// Contents of `.grokspace/.gitignore`. `*` hides memory, graphs, and worktrees
+/// from `git add .`. An existing file, including one a person edited, is left alone.
+pub(crate) const GROKSPACE_IGNORE: &str = "*\n";
+
+/// Plants `.grokspace/.gitignore` on the first write under that folder.
+///
+/// The app used to create the directory and never ignore it, so a later
+/// `git add .` committed notes (and anything else under `.grokspace/`). This is
+/// idempotent and best-effort at the call site: failing to ignore is not a
+/// reason to refuse a memory or graph write.
+pub(crate) fn ensure_grokspace_ignored(project_path: &Path) -> Result<()> {
+    let dir = project_path.join(GROKSPACE_DIR);
+    std::fs::create_dir_all(&dir)?;
+    let ignore = dir.join(".gitignore");
+    if ignore.exists() {
+        return Ok(());
+    }
+    std::fs::write(ignore, GROKSPACE_IGNORE)?;
+    Ok(())
+}
+
 pub fn update(
     conn: &Connection,
     id: &str,
@@ -414,6 +438,96 @@ mod tests {
             .unwrap();
         assert_eq!(tasks, 0);
         assert!(list(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn first_write_under_grokspace_plants_a_star_gitignore() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+
+        ensure_grokspace_ignored(dir.path()).unwrap();
+
+        let ignore = dir.path().join(GROKSPACE_DIR).join(".gitignore");
+        assert_eq!(std::fs::read_to_string(&ignore).unwrap(), GROKSPACE_IGNORE);
+        ensure_grokspace_ignored(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&ignore).unwrap(),
+            GROKSPACE_IGNORE,
+            "planting twice must not rewrite the file"
+        );
+    }
+
+    #[test]
+    fn an_existing_grokspace_ignore_is_left_alone() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let grokspace = dir.path().join(GROKSPACE_DIR);
+        std::fs::create_dir_all(&grokspace).unwrap();
+        let ignore = grokspace.join(".gitignore");
+        std::fs::write(&ignore, "graphs/\n").unwrap();
+
+        ensure_grokspace_ignored(dir.path()).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&ignore).unwrap(),
+            "graphs/\n",
+            "a person who edited the ignore must keep their rules"
+        );
+    }
+
+    #[test]
+    fn git_add_dot_skips_grokspace_after_it_is_ignored() {
+        // The security property: memory and graph files stay out of the index.
+        let git = crate::program::find("git").expect("these tests need git");
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@grokspace.dev"],
+            vec!["config", "user.name", "GrokSpace Test"],
+        ] {
+            let done = std::process::Command::new(&git)
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .expect("git should run");
+            assert!(done.status.success(), "git {args:?} failed");
+        }
+        std::fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+        for args in [vec!["add", "."], vec!["commit", "-qm", "first"]] {
+            let done = std::process::Command::new(&git)
+                .args(&args)
+                .current_dir(dir.path())
+                .output()
+                .expect("git should run");
+            assert!(done.status.success(), "git {args:?} failed");
+        }
+
+        ensure_grokspace_ignored(dir.path()).unwrap();
+        std::fs::write(dir.path().join(GROKSPACE_DIR).join("memory.md"), "secret\n").unwrap();
+        let graphs = dir.path().join(GROKSPACE_DIR).join("graphs");
+        std::fs::create_dir_all(&graphs).unwrap();
+        std::fs::write(graphs.join("s1.json"), "{}\n").unwrap();
+
+        let add = std::process::Command::new(&git)
+            .args(["add", "."])
+            .current_dir(dir.path())
+            .output()
+            .expect("git add should run");
+        assert!(add.status.success(), "git add . failed");
+        let status = std::process::Command::new(&git)
+            .args(["status", "--porcelain"])
+            .current_dir(dir.path())
+            .output()
+            .expect("git status should run");
+        let porcelain = String::from_utf8_lossy(&status.stdout);
+        assert!(
+            porcelain.is_empty(),
+            "git add . must not stage .grokspace/: {porcelain}"
+        );
+        let ignored = std::process::Command::new(&git)
+            .args(["check-ignore", "-q", ".grokspace/memory.md"])
+            .current_dir(dir.path())
+            .status()
+            .expect("git check-ignore should run");
+        assert!(ignored.success(), "memory.md should be ignored");
     }
 
     #[test]

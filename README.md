@@ -329,6 +329,11 @@ The database is the memory; the file is a projection of it:
 <project>/.grokspace/memory.md
 ```
 
+The first write under `.grokspace/` also plants `.grokspace/.gitignore` with `*`,
+so `git add .` does not commit memory, graphs, or worktrees. This repository
+lists `.grokspace/` in its own `.gitignore` for the same reason; opening a
+different folder did not, until that first write.
+
 Agents read files rather than SQLite, so every write rebuilds that file from the
 whole table and every session is spawned knowing its path through
 `GROKSPACE_MEMORY_FILE`. It is written even when the memory is empty, since a file
