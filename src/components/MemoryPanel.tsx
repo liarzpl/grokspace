@@ -1,5 +1,10 @@
 import { useState } from "react";
 
+import {
+  claimedPathsFromMemory,
+  openArtifactInDiff,
+  openArtifactInFinder,
+} from "../lib/graphArtifact";
 import { MAX_MEMORY_CHARS } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { moveSegmented } from "../lib/segmented";
@@ -12,6 +17,7 @@ import {
   useMemoryStore,
 } from "../stores/memoryStore";
 import type { MemoryEntry, MemoryEntryType, Project } from "../types";
+import ArtifactPathList from "./graph/ArtifactPathList";
 import { SkillHint } from "./SkillHint";
 import { QuietButton } from "./ui";
 
@@ -67,6 +73,16 @@ function EntryRow({ entry, projectId }: { entry: MemoryEntry; projectId: string 
           onChange={(event) => setDraft(event.target.value)}
           className="selectable mt-1 w-full resize-y rounded-sm border border-accent bg-canvas px-1.5 py-1 text-[11px] leading-snug text-ink focus:outline-none"
         />
+      )}
+
+      {entry.type === "artifact" && draft === null && (
+        <div className="mt-2">
+          <ArtifactPathList
+            paths={claimedPathsFromMemory(entry.content)}
+            onOpenDiff={(path) => void openArtifactInDiff(projectId, null, path)}
+            onReveal={(path) => void openArtifactInFinder(projectId, null, path)}
+          />
+        </div>
       )}
     </div>
   );

@@ -43,6 +43,7 @@
     "allow-remove-task",
     "allow-project-diff",
     "allow-file-diff",
+    "allow-reveal-artifact",
     "allow-read-settings",
     "allow-write-setting",
     "allow-read-session-graph",

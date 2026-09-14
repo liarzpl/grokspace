@@ -14,7 +14,11 @@ import { errorMessage } from "../lib/api";
 import { inferDirection, type GraphDocument, type GraphNode } from "../lib/graph";
 import { prefersReducedMotion } from "../lib/motion";
 import { askForGraph, canAskForGraph } from "../lib/graphAsk";
-import { openArtifactInDiff } from "../lib/graphArtifact";
+import {
+  claimedArtifactPaths,
+  openArtifactInDiff,
+  openArtifactInFinder,
+} from "../lib/graphArtifact";
 import { homeRelative } from "../lib/paths";
 import { graphNodeA11yLabel, nodeStatusLabel } from "../lib/statusText";
 import { graphFor, useGraphStore } from "../stores/graphStore";
@@ -304,6 +308,7 @@ function GraphCanvas({
   // Derived rather than stored, so a node that disappears from a reloaded graph
   // closes the inspector on its own.
   const selected = graph.nodes.find((node) => node.id === selectedId) ?? null;
+  const claimedPaths = useMemo(() => claimedArtifactPaths(graph.nodes), [graph.nodes]);
 
   const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => {
     setSelectedId(node.id);
@@ -401,6 +406,10 @@ function GraphCanvas({
               onOpenArtifact={(path) =>
                 void openArtifactInDiff(session.projectId, session.id, path)
               }
+              onRevealArtifact={(path) =>
+                void openArtifactInFinder(session.projectId, session.id, path)
+              }
+              claimedPaths={claimedPaths}
               compact
             />
           </div>
@@ -411,6 +420,10 @@ function GraphCanvas({
             onOpenArtifact={(path) =>
               void openArtifactInDiff(session.projectId, session.id, path)
             }
+            onRevealArtifact={(path) =>
+              void openArtifactInFinder(session.projectId, session.id, path)
+            }
+            claimedPaths={claimedPaths}
           />
         ))}
     </div>

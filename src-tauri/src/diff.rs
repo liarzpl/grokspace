@@ -628,9 +628,75 @@ pub fn file_diff(
     of_file(&root, &path, untracked)
 }
 
+/// Reveal a confined file in Finder (`open -R`) or the Linux file manager.
+/// Same jail as `file_diff`. Not the Tauri shell-open plugin.
+#[tauri::command]
+pub fn reveal_artifact(
+    state: State<'_, AppState>,
+    project_id: String,
+    path: String,
+    session_id: Option<String>,
+) -> Result<()> {
+    let root = match diff_root(&state, &project_id, session_id.as_deref()) {
+        Ok(root) => root,
+        Err(Error::Invalid(message)) if message.contains("no worktree") => {
+            let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+            PathBuf::from(project::get(&conn, &project_id)?.path)
+        }
+        Err(error) => return Err(error),
+    };
+    let abs = root.join(confined_to_project(&root, &path)?);
+    if !abs.is_file() {
+        return Err(Error::Invalid(format!("{path} is not a file on disk")));
+    }
+    reveal_in_file_manager(&abs)
+}
+
+fn reveal_in_file_manager(path: &Path) -> Result<()> {
+    #[cfg(test)]
+    {
+        record_reveal(path);
+        Ok(())
+    }
+    #[cfg(all(not(test), target_os = "macos"))]
+    {
+        let status = Command::new("/usr/bin/open")
+            .args(["-R"])
+            .arg(path)
+            .status()
+            .map_err(|error| Error::Invalid(format!("could not open Finder: {error}")))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(Error::Invalid(format!(
+                "Finder did not open {}",
+                path.display()
+            )))
+        }
+    }
+    #[cfg(all(not(test), not(target_os = "macos")))]
+    {
+        let parent = path.parent().unwrap_or(path);
+        let status = Command::new("xdg-open")
+            .arg(parent)
+            .status()
+            .map_err(|error| Error::Invalid(format!("could not open the file manager: {error}")))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(Error::Invalid(format!(
+                "the file manager did not open {}",
+                path.display()
+            )))
+        }
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     static SPAWNS: std::cell::RefCell<Vec<(PathBuf, Vec<String>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    static REVEALS: std::cell::RefCell<Vec<PathBuf>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -647,6 +713,16 @@ fn record_spawn(cwd: &Path, args: &[&str]) {
 #[cfg(test)]
 fn take_spawns() -> Vec<(PathBuf, Vec<String>)> {
     SPAWNS.with(|spawns| std::mem::take(&mut *spawns.borrow_mut()))
+}
+
+#[cfg(test)]
+fn record_reveal(path: &Path) {
+    REVEALS.with(|reveals| reveals.borrow_mut().push(path.to_path_buf()));
+}
+
+#[cfg(test)]
+fn take_reveals() -> Vec<PathBuf> {
+    REVEALS.with(|reveals| std::mem::take(&mut *reveals.borrow_mut()))
 }
 
 #[cfg(test)]
@@ -853,6 +929,25 @@ mod tests {
         assert!(
             of_file(dir.path(), "../secret.txt", true).is_err(),
             "a relative escape must be refused too"
+        );
+    }
+
+    #[test]
+    fn reveal_records_a_file_inside_the_project() {
+        let dir = repo();
+        commit(dir.path(), "notes.md", "# hi\n");
+        let abs = dir.path().join("notes.md");
+        reveal_in_file_manager(&abs).unwrap();
+        assert_eq!(take_reveals(), vec![abs]);
+    }
+
+    #[test]
+    fn reveal_refuses_a_path_outside_the_project() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        assert!(
+            confined_to_project(dir.path(), "../secret.txt").is_err(),
+            "Finder must use the same jail as file_diff"
         );
     }
 

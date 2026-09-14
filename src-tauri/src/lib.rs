@@ -122,6 +122,7 @@ pub fn run() {
             task::remove_task,
             diff::project_diff,
             diff::file_diff,
+            diff::reveal_artifact,
             settings::read_settings,
             settings::write_setting,
             graph::read_session_graph,

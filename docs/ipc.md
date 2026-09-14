@@ -98,6 +98,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | --- | --- |
 | `project_diff` | What git sees. Optional `sessionId` scopes to that worktree |
 | `file_diff` | One file. `untracked` diffs against nothing (all additions) |
+| `reveal_artifact` | Reveal a confined path in the OS file manager |
 
 ### Settings — `settings.rs`
 
