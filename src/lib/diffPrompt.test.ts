@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { hunkPrompt, splitDiff } from "./diffPrompt";
+import { session } from "../test/fixtures";
+import { canSendComments, commentsPrompt, hunkPrompt, splitDiff } from "./diffPrompt";
 
 const UNIFIED = `diff --git a/src/lib.rs b/src/lib.rs
 --- a/src/lib.rs
@@ -60,5 +61,71 @@ describe("hunkPrompt", () => {
 
     expect(text).not.toContain("\n\n\n");
     expect(text.endsWith("```")).toBe(true);
+  });
+});
+
+describe("commentsPrompt", () => {
+  it("is hunkPrompt when there is only one comment", () => {
+    const comment = {
+      path: "src/lib.rs",
+      hunkIndex: 0,
+      text: "keep the comment",
+      hunk: "@@ -1 +1 @@\n-old\n+new",
+    };
+
+    expect(commentsPrompt([comment])).toBe(
+      hunkPrompt(comment.path, comment.hunk, comment.text),
+    );
+  });
+
+  it("joins every open comment so one send covers several hunks", () => {
+    const text = commentsPrompt([
+      {
+        path: "src/lib.rs",
+        hunkIndex: 0,
+        text: "keep the comment",
+        hunk: "@@ -1 +1 @@\n+hi",
+      },
+      {
+        path: "src/main.rs",
+        hunkIndex: 1,
+        text: "rename this",
+        hunk: "@@ -10 +11 @@\n+extra",
+      },
+    ]);
+
+    expect(text).toContain("Regarding `src/lib.rs`");
+    expect(text).toContain("keep the comment");
+    expect(text).toContain("Regarding `src/main.rs`");
+    expect(text).toContain("rename this");
+    expect(text).toContain("+hi");
+    expect(text).toContain("+extra");
+  });
+});
+
+describe("canSendComments", () => {
+  const comments = [
+    {
+      path: "a.rs",
+      hunkIndex: 0,
+      text: "fix this",
+      hunk: "@@ -1 +1 @@\n+x",
+    },
+  ];
+
+  it("is true only for an idle agent with at least one comment", () => {
+    expect(
+      canSendComments(session({ kind: "agent", status: "idle", paneId: null }), comments),
+    ).toBe(true);
+  });
+
+  it("is false when the session is not idle", () => {
+    expect(
+      canSendComments(session({ kind: "agent", status: "running", paneId: null }), comments),
+    ).toBe(false);
+  });
+
+  it("is false when there is nothing to send", () => {
+    expect(canSendComments(session({ kind: "agent", status: "idle" }), [])).toBe(false);
   });
 });
