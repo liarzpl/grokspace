@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { errorMessage } from "../lib/api";
 import {
   CHECKPOINT_EQUALS_HEAD,
   DISCARD_REVERTS_CHECKPOINT,
 } from "../lib/checkpoint";
-import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
+import {
+  canSendComments,
+  commentsPrompt,
+  type DiffComment,
+  splitDiff,
+} from "../lib/diffPrompt";
+import { talkToSession } from "../lib/talkToSession";
 import {
   INITIAL_DIFF_LINES,
   growVisible,
@@ -41,8 +48,9 @@ import type { ChangedFile, FileChange, PathOverlap, Project, Session } from "../
  * Shared paths with another worktree (or the project) get a red mark and a
  * warning strip that names the other session — Merge stays clickable. Isolated
  * scopes with overlaps can Walk hotspots, then other overlaps, then the rest;
- * the toggle defaults on, and off is git order. A selected hunk plus an optional
- * sentence can be sent back to an idle agent.
+ * the toggle defaults on, and off is git order. Comments on hunks (path,
+ * index, note) stay in the store for that session until they are sent as one
+ * follow-up to an idle agent.
  *
  * The default view is the project's tree. ACP agents that isolated into a worktree
  * appear as chips; picking one reads that checkout, which is a clean `HEAD` plus
@@ -124,6 +132,8 @@ function MoreLines({
   );
 }
 
+const NO_COMMENTS: DiffComment[] = [];
+
 /**
  * One line of a diff, coloured by what it is.
  *
@@ -193,51 +203,112 @@ function DiffBody({
   );
 }
 
-function HunkPromptBar({
-  path,
-  hunk,
+function CommentBar({
   session,
+  path,
+  hunkIndex,
+  hunk,
 }: {
-  path: string;
-  hunk: string;
   session: Session;
+  path: string | null;
+  hunkIndex: number | null;
+  hunk: string | null;
 }) {
-  const promptSession = useSessionStore((state) => state.promptSession);
+  const commentsBySession = useDiffStore((state) => state.comments);
+  const addComment = useDiffStore((state) => state.addComment);
+  const removeComment = useDiffStore((state) => state.removeComment);
+  const clearComments = useDiffStore((state) => state.clearComments);
+  const comments = commentsBySession[session.id] ?? NO_COMMENTS;
   const [sentence, setSentence] = useState("");
-  const idle = session.status === "idle" && session.kind === "agent";
+  const canAdd =
+    path !== null && hunkIndex !== null && hunk !== null && sentence.trim() !== "";
+  const canSend = canSendComments(session, comments);
+
+  const add = () => {
+    if (path === null || hunkIndex === null || hunk === null) return;
+    addComment(session.id, { path, hunkIndex, text: sentence, hunk });
+    setSentence("");
+  };
 
   const send = () => {
-    if (!idle) return;
-    const text = hunkPrompt(path, hunk, sentence);
-    setSentence("");
-    void promptSession(session.id, text);
+    if (!canSend) return;
+    void (async () => {
+      try {
+        await talkToSession(session, commentsPrompt(comments));
+        clearComments(session.id);
+      } catch (error) {
+        useDiffStore.setState({ error: errorMessage(error) });
+      }
+    })();
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-1.5">
-      <input
-        type="text"
-        value={sentence}
-        aria-label="Ask about this hunk"
-        onChange={(event) => setSentence(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            send();
-          }
-        }}
-        placeholder={idle ? "Ask about this hunk…" : "Agent has to be idle"}
-        disabled={!idle}
-        className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong disabled:opacity-40"
-      />
-      <button
-        type="button"
-        onClick={send}
-        disabled={!idle}
-        className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-40"
-      >
-        Send to agent
-      </button>
+    <div className="flex shrink-0 flex-col gap-1.5 border-t border-line px-3 py-1.5">
+      {hunk !== null && path !== null && hunkIndex !== null && (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={sentence}
+            aria-label="Ask about this hunk"
+            onChange={(event) => setSentence(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                add();
+              }
+            }}
+            placeholder="Comment on this hunk…"
+            className="min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <button
+            type="button"
+            onClick={add}
+            disabled={!canAdd}
+            className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-40"
+          >
+            Add comment
+          </button>
+        </div>
+      )}
+      {comments.length > 0 && (
+        <>
+          <ul className="flex flex-col gap-0.5">
+            {comments.map((comment) => (
+              <li
+                key={`${comment.path}:${comment.hunkIndex}`}
+                className="flex items-baseline gap-2 text-[11px] text-ink-muted"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  <span className="font-mono text-ink">{comment.path}</span>
+                  {" · hunk "}
+                  {comment.hunkIndex + 1}
+                  {": "}
+                  {comment.text}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove comment on ${comment.path} hunk ${comment.hunkIndex + 1}`}
+                  onClick={() => removeComment(session.id, comment.path, comment.hunkIndex)}
+                  className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={send}
+              disabled={!canSend}
+              title={canSend ? "Send every open comment to this agent" : "Agent has to be idle"}
+              className="shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-40"
+            >
+              Send to idle agent
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -483,6 +554,7 @@ export default function DiffPanel({ project }: { project: Project }) {
   const isLoadingBody = useDiffStore((state) => state.isLoadingBody);
   const loadDiff = useDiffStore((state) => state.loadDiff);
   const selectFile = useDiffStore((state) => state.selectFile);
+  const commentsBySession = useDiffStore((state) => state.comments);
   const projectSessions = useSessionsForProject(project.id);
   const sessions = useMemo(
     () => projectSessions.filter((session) => session.worktreePath !== null),
@@ -507,6 +579,8 @@ export default function DiffPanel({ project }: { project: Project }) {
   const scopedSession = sessions.find((session) => session.id === scoped) ?? null;
   const hunks = scoped === null ? [] : splitDiff(body).hunks;
   const selectedHunk = hunkIndex === null ? null : (hunks[hunkIndex] ?? null);
+  const scopedComments =
+    scoped === null ? NO_COMMENTS : (commentsBySession[scoped] ?? NO_COMMENTS);
   const overlaps = overlapsOf(diff);
   const walking = walkEnabled(scoped !== null, overlaps, walkOn);
   const listed = diff.state === "changed" ? walkFiles(diff.files, overlaps, walking) : [];
@@ -663,12 +737,17 @@ export default function DiffPanel({ project }: { project: Project }) {
               selectedHunk={hunkIndex}
               onSelectHunk={scoped === null ? null : setHunkIndex}
             />
-            {scopedSession !== null && selectedHunk !== null && (
-              <HunkPromptBar path={selected} hunk={selectedHunk} session={scopedSession} />
-            )}
           </div>
         )}
       </div>
+      {scopedSession !== null && (selectedHunk !== null || scopedComments.length > 0) && (
+        <CommentBar
+          session={scopedSession}
+          path={selected}
+          hunkIndex={hunkIndex}
+          hunk={selectedHunk}
+        />
+      )}
     </div>
   );
 }

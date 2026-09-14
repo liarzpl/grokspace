@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import type { DiffComment } from "../lib/diffPrompt";
 import type { ChangedFile, DiffState } from "../types";
 
 /**
@@ -16,6 +17,17 @@ import type { ChangedFile, DiffState } from "../types";
  */
 
 const NOTHING: DiffState = { state: "clean", branch: null, overlaps: [] };
+
+function withoutSession(
+  comments: Record<string, DiffComment[]>,
+  sessionId: string,
+): Record<string, DiffComment[]> {
+  const next: Record<string, DiffComment[]> = {};
+  for (const [id, list] of Object.entries(comments)) {
+    if (id !== sessionId) next[id] = list;
+  }
+  return next;
+}
 
 /** Drops in-flight `loadDiff` results that a newer project or scope has replaced. */
 let loadGeneration = 0;
@@ -36,6 +48,11 @@ interface DiffStoreState {
   isLoading: boolean;
   isLoadingBody: boolean;
   error: string | null;
+  /**
+   * Review comments keyed by scoped session id. The project tree (null scope)
+   * has none. Reload drops the map; that is v1.
+   */
+  comments: Record<string, DiffComment[]>;
 
   loadDiff: (projectId: string, sessionId?: string | null) => Promise<void>;
   selectFile: (projectId: string, file: ChangedFile) => Promise<void>;
@@ -45,6 +62,9 @@ interface DiffStoreState {
    * still has somewhere to land.
    */
   openPath: (projectId: string, sessionId: string, path: string) => Promise<void>;
+  addComment: (sessionId: string, comment: DiffComment) => void;
+  removeComment: (sessionId: string, path: string, hunkIndex: number) => void;
+  clearComments: (sessionId: string) => void;
   clearError: () => void;
 }
 
@@ -56,8 +76,42 @@ export const useDiffStore = create<DiffStoreState>((set, get) => ({
   isLoading: false,
   isLoadingBody: false,
   error: null,
+  comments: {},
 
   clearError: () => set({ error: null }),
+
+  addComment: (sessionId, comment) => {
+    const text = comment.text.trim();
+    if (text === "") return;
+    const current = get().comments[sessionId] ?? [];
+    const next = [...current];
+    const existing = next.findIndex(
+      (item) => item.path === comment.path && item.hunkIndex === comment.hunkIndex,
+    );
+    const stored: DiffComment = { ...comment, text };
+    if (existing === -1) next.push(stored);
+    else next[existing] = stored;
+    set({ comments: { ...get().comments, [sessionId]: next } });
+  },
+
+  removeComment: (sessionId, path, hunkIndex) => {
+    const current = get().comments[sessionId];
+    if (current === undefined) return;
+    const next = current.filter(
+      (item) => item.path !== path || item.hunkIndex !== hunkIndex,
+    );
+    if (next.length === current.length) return;
+    if (next.length === 0) {
+      set({ comments: withoutSession(get().comments, sessionId) });
+      return;
+    }
+    set({ comments: { ...get().comments, [sessionId]: next } });
+  },
+
+  clearComments: (sessionId) => {
+    if (get().comments[sessionId] === undefined) return;
+    set({ comments: withoutSession(get().comments, sessionId) });
+  },
 
   loadDiff: async (projectId, sessionId = null) => {
     const generation = ++loadGeneration;

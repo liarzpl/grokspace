@@ -425,3 +425,58 @@ describe("overlaps", () => {
     ]);
   });
 });
+
+const note = {
+  path: "src/lib.rs",
+  hunkIndex: 0,
+  text: "keep the comment",
+  hunk: "@@ -1 +1 @@\n+x",
+};
+
+describe("comments", () => {
+  it("stores a note on the scoped session only", () => {
+    useDiffStore.getState().addComment("agent-1", note);
+    useDiffStore.getState().addComment("agent-2", {
+      ...note,
+      path: "src/main.rs",
+      text: "rename this",
+    });
+
+    expect(useDiffStore.getState().comments["agent-1"]).toEqual([note]);
+    expect(useDiffStore.getState().comments["agent-2"]?.[0]?.text).toBe("rename this");
+  });
+
+  it("replaces a later note on the same path and hunk", () => {
+    useDiffStore.getState().addComment("agent-1", note);
+    useDiffStore.getState().addComment("agent-1", { ...note, text: "actually this" });
+
+    expect(useDiffStore.getState().comments["agent-1"]).toEqual([
+      { ...note, text: "actually this" },
+    ]);
+  });
+
+  it("ignores a blank note rather than storing an empty paragraph", () => {
+    useDiffStore.getState().addComment("agent-1", { ...note, text: "  \n" });
+
+    expect(useDiffStore.getState().comments["agent-1"]).toBeUndefined();
+  });
+
+  it("does not drop comments when the file list is refreshed", async () => {
+    useDiffStore.setState({ comments: { "agent-1": [note] } });
+    projectDiff.mockResolvedValue(changed([{ path: "other.rs", change: "modified" }]));
+
+    await useDiffStore.getState().loadDiff("p1", "agent-1");
+
+    expect(useDiffStore.getState().comments["agent-1"]).toEqual([note]);
+  });
+
+  it("clears only that session's comments", () => {
+    useDiffStore.getState().addComment("agent-1", note);
+    useDiffStore.getState().addComment("agent-2", { ...note, path: "b.rs" });
+
+    useDiffStore.getState().clearComments("agent-1");
+
+    expect(useDiffStore.getState().comments["agent-1"]).toBeUndefined();
+    expect(useDiffStore.getState().comments["agent-2"]).toHaveLength(1);
+  });
+});
