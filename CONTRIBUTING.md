@@ -12,9 +12,12 @@ GrokSpace is a Tauri 2 + React + Rust app. Frontend lives in `src/`, backend in 
 - The [`grok` CLI](https://docs.x.ai/build) — needed to drive agents, not to compile or run the CI checks
 
 ```bash
-npm install
+npm ci
 npm run tauri:dev
 ```
+
+Use `npm ci` so the lockfile matches CI. `npm install` can resolve newer
+caret versions and rewrite `package-lock.json`.
 
 `npm run tauri:build` produces a release build, and a `.dmg` on macOS.
 
