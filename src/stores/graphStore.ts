@@ -1,7 +1,13 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { parseGraph, type GraphDocument, type ParseResult } from "../lib/graph";
+import {
+  parseGraph,
+  type GraphDocument,
+  type GraphEdge,
+  type GraphNode,
+  type ParseResult,
+} from "../lib/graph";
 import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 
 /**
@@ -19,6 +25,13 @@ import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 
 /** How long to give a writer to finish before broken JSON is believed. */
 const RETRY_MS = 150;
+
+/**
+ * A live watcher re-read past this size keeps the last drawable graph. The
+ * backend still allows 4MB on a first load; parsing that on every 80ms
+ * coalesce is what froze the pane.
+ */
+const LIVE_GRAPH_BYTES = 512 * 1024;
 
 /**
  * Whether the file was JSON at all, which is the one failure worth reading again.
@@ -43,6 +56,8 @@ export interface GraphEntry {
   error: string | null;
   /** Modification time of the file the graph came from. */
   updatedAt: number | null;
+  /** Byte length of the last `json` we parsed or skipped, for cheap equality. */
+  bytes: number | null;
   /** True until the first read of this session's file has completed. */
   isLoading: boolean;
 }
@@ -74,8 +89,78 @@ const EMPTY: GraphEntry = {
   warnings: [],
   error: null,
   updatedAt: null,
+  bytes: null,
   isLoading: true,
 };
+
+function sameNode(left: GraphNode, right: GraphNode): boolean {
+  return (
+    left.id === right.id &&
+    left.type === right.type &&
+    left.label === right.label &&
+    left.status === right.status &&
+    left.role === right.role &&
+    left.position.x === right.position.x &&
+    left.position.y === right.position.y &&
+    left.data.description === right.data.description &&
+    left.data.model === right.data.model &&
+    left.data.effort === right.data.effort &&
+    left.data.parallelism === right.data.parallelism &&
+    left.data.worktree === right.data.worktree &&
+    left.data.artifactPath === right.data.artifactPath
+  );
+}
+
+function sameEdge(left: GraphEdge, right: GraphEdge): boolean {
+  return (
+    left.id === right.id &&
+    left.source === right.source &&
+    left.target === right.target &&
+    left.label === right.label &&
+    left.type === right.type &&
+    left.animated === right.animated
+  );
+}
+
+/**
+ * Reuses previous node/edge objects when the parsed file did not change them,
+ * so React Flow can skip a full reconcile.
+ */
+export function stabilizeGraph(
+  previous: GraphDocument | null,
+  next: GraphDocument,
+): GraphDocument {
+  if (previous === null) return next;
+  if (
+    previous.nodes.length !== next.nodes.length ||
+    previous.edges.length !== next.edges.length
+  ) {
+    return next;
+  }
+
+  const nodes = next.nodes.map((node, index) => {
+    const prior = previous.nodes[index];
+    return prior !== undefined && sameNode(prior, node) ? prior : node;
+  });
+  const edges = next.edges.map((edge, index) => {
+    const prior = previous.edges[index];
+    return prior !== undefined && sameEdge(prior, edge) ? prior : edge;
+  });
+  const nodesSame = nodes.every((node, index) => node === previous.nodes[index]);
+  const edgesSame = edges.every((edge, index) => edge === previous.edges[index]);
+  if (
+    nodesSame &&
+    edgesSame &&
+    previous.id === next.id &&
+    previous.name === next.name &&
+    previous.status === next.status &&
+    previous.topology === next.topology &&
+    previous.state?.notes === next.state?.notes
+  ) {
+    return previous;
+  }
+  return { ...next, nodes, edges };
+}
 
 /** Timers live outside the store: they are plumbing, not state to render. */
 const coalesce = createWatchedSessionMap({ onClosed: "keep-if-present" });
@@ -105,6 +190,20 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
       return;
     }
 
+    const existing = get().bySession[sessionId];
+    const bytes = snapshot.json?.length ?? 0;
+    // Same mtime and size: the watcher fired but the file did not change. Skip
+    // JSON.parse + parseGraph so React Flow keeps the last node identities.
+    if (
+      existing !== undefined &&
+      !existing.isLoading &&
+      snapshot.updatedAt !== null &&
+      existing.updatedAt === snapshot.updatedAt &&
+      existing.bytes === bytes
+    ) {
+      return;
+    }
+
     // Ahead of the missing-graph branch, which an unread file also lands in: a
     // file refused for its size is there, so reporting it as no graph yet would
     // leave the pane waiting for something that has already arrived.
@@ -115,6 +214,7 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
         warnings: [],
         error: "The graph file is too large to read.",
         updatedAt: snapshot.updatedAt,
+        bytes: null,
         isLoading: false,
       });
       return;
@@ -127,8 +227,14 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
         warnings: [],
         error: null,
         updatedAt: snapshot.updatedAt,
+        bytes: 0,
         isLoading: false,
       });
+      return;
+    }
+
+    if (existing?.graph != null && snapshot.json.length > LIVE_GRAPH_BYTES) {
+      write(sessionId, { updatedAt: snapshot.updatedAt, bytes });
       return;
     }
 
@@ -149,10 +255,11 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
       parsed.ok
         ? {
             path: snapshot.path,
-            graph: parsed.graph,
+            graph: stabilizeGraph(existing?.graph ?? null, parsed.graph),
             warnings: parsed.warnings,
             error: null,
             updatedAt: snapshot.updatedAt,
+            bytes,
             isLoading: false,
           }
         : {
@@ -161,6 +268,7 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
             warnings: [],
             error: parsed.error,
             updatedAt: snapshot.updatedAt,
+            bytes,
             isLoading: false,
           },
     );

@@ -80,6 +80,7 @@ function graphEntry() {
     warnings: [],
     error: null,
     updatedAt: 1000,
+    bytes: null,
     isLoading: false,
   };
 }
