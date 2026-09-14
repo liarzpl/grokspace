@@ -12,11 +12,10 @@ import { PANE_LAYOUTS, type Settings } from "../types";
  * them — a sixth tab would have turned that row into a menu. It is reached from the
  * command palette, which is what a palette is for.
  *
- * There is no theme switch here, though the roadmap named one and `styles.css` has
- * promised it since Phase 0. A control with one option is a control that does
- * nothing, and this app has already had to fix two of those. The colour tokens moved
- * out of the components in this PR, which is the part of theming that was actually
- * blocking; a switch belongs in the PR that adds the second palette.
+ * There is no theme switch here. `styles.css` still has only one palette, and a
+ * control with one option is a control that does nothing. Colour tokens live in
+ * that stylesheet (`theme.ts` reads them back for xterm and React Flow); a switch
+ * belongs in the change that adds the second palette.
  */
 
 function Choice<T extends string>({

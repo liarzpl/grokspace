@@ -122,8 +122,8 @@ telemetry; workspace state lives in `~/.grokspace`.
 - Node.js 20.19+ or 22.12+ and npm (`package.json` `engines` matches Vite)
 - Rust 1.88+ (`rustup toolchain install 1.88`; `rust-toolchain.toml` pins this channel)
 - On macOS: Xcode Command Line Tools (`xcode-select --install`)
-- The [`grok` CLI](https://docs.x.ai/build) — not needed to compile or run the
-  CI checks; it is the engine behind every agent session
+- The [`grok` CLI](https://docs.x.ai/build) — needed to drive agents and Grok
+  panes, not to compile or run the CI checks
 - Optional: `XAI_API_KEY` in the **process environment** if you want ACP to
   authenticate with an API key instead of `grok login`. A repo-root `.env` is
   not loaded. Export it in the same shell as `npm run tauri:dev`. A packaged
@@ -456,7 +456,7 @@ JSON, phase, skill), the same shape as
 [`docs/graph-engineering.md`](docs/graph-engineering.md) for graphs.
 
 [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
-verified `grok` CLI surface that Phases 1-3 build on, and
+verified `grok` CLI surface the app builds on, and
 [`docs/releasing.md`](docs/releasing.md) covers signing, notarizing and what to check
 the first time a real release runs.
 

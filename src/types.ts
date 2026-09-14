@@ -1,8 +1,6 @@
 /**
  * Mirrors the Rust structs in `src-tauri/src/`, which serialize as camelCase.
- * `Task`, `Session`, and `MemoryEntry` already have tables in migration 0001;
- * they are declared here so Phases 1-3 extend these types instead of redefining
- * the data model.
+ * New fields land here beside the Rust type rather than as a second model.
  */
 
 export type ProjectSettings = Record<string, unknown>;
