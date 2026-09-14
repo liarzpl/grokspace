@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import { subscribeOverlay } from "../lib/overlay";
 import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { DISPATCH_TARGETS, PANE_LAYOUTS, WORKSPACE_TABS, type Settings } from "../types";
+import { DISPATCH_TARGETS, PANE_LAYOUTS, WORKSPACE_TABS, WORKTREE_SETUP, type Settings } from "../types";
 import { Choice } from "./ui";
 
 /**
@@ -89,11 +89,21 @@ export default function SettingsPanel() {
             onChoose={(target) => void setSetting("defaultDispatch", target)}
           />
 
+          <Choice
+            label="Worktree setup"
+            hint="Run .grokspace/worktree-setup after isolating an agent. Off unless you trust that file"
+            options={WORKTREE_SETUP}
+            value={settings.runWorktreeSetup}
+            onChoose={(value) => void setSetting("runWorktreeSetup", value)}
+          />
+
           <p className="text-[10px] leading-relaxed text-ink-faint">
             Changing the default layout does not move a project that has already picked
             one. Changing what the workspace opens on takes effect next launch, not now —
             yanking you to another panel mid-thought would be the wrong kind of helpful.
             Dispatch only reorders what is offered; it never picks a target for you.
+            Worktree setup stays off until you turn it on — a clone must not run that
+            script for you.
           </p>
         </div>
       </div>

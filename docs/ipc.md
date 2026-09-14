@@ -103,7 +103,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 
 | Command | What it does |
 | --- | --- |
-| `read_settings` | App preferences, defaults filled |
+| `read_settings` | App preferences, defaults filled (`runWorktreeSetup` default `off`) |
 | `write_setting` | One key. Unknown values are refused rather than stored |
 
 ### Graphs — `graph.rs`

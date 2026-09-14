@@ -5,6 +5,7 @@ import {
   DEFAULT_DISPATCH,
   DEFAULT_LAYOUT,
   DEFAULT_TAB,
+  DEFAULT_WORKTREE_SETUP,
   type SettingValue,
   type Settings,
 } from "../types";
@@ -21,6 +22,7 @@ const DEFAULTS: Settings = {
   defaultLayout: DEFAULT_LAYOUT,
   openingTab: DEFAULT_TAB,
   defaultDispatch: DEFAULT_DISPATCH,
+  runWorktreeSetup: DEFAULT_WORKTREE_SETUP,
 };
 
 interface SettingsState {

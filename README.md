@@ -115,7 +115,11 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   from the project into the new tree. Missing paths are skipped; start still
   succeeds. `**`, `..`, absolute paths, and anything outside the project are
   refused. Nothing is copied by default — not `.env`. Restart reuses the tree
-  and does not copy again.
+  and does not copy again. If Settings → Worktree setup is **on** (off by
+  default), GrokSpace then runs `<project>/.grokspace/worktree-setup`, or
+  `setup` in `.grokspace/worktrees.json`, in that tree. `$GROKSPACE_WORKTREE`
+  is the dest. Output is logged. Fail or timeout is an isolation skip, not a
+  silent half-prepared tree. Restart does not run the script again.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on
@@ -411,6 +415,16 @@ skipped with a reason; isolation still succeeds. `**`, `..`, absolute paths,
 and anything that resolves outside the project are refused. There is no
 default copy — `.env` and `node_modules` stay off the tree unless listed.
 Restart reuses the checkout and does not copy again.
+
+To *install* (not just copy), add `<project>/.grokspace/worktree-setup` or a
+`setup` string in `.grokspace/worktrees.json`. GrokSpace runs it only
+when Settings → Worktree setup is **on**. That toggle is **off** by default:
+a setup script is a trust boundary, not something a clone should run. The
+command is logged (and named in the skip reason). `$GROKSPACE_WORKTREE` is
+the dest; a `worktree-setup` file also gets dest as `$1`. Timeout is two
+minutes. Fail or timeout skips isolation rather than leaving a silent tree.
+Restart reuses the checkout and does not run the script again. This is not
+folder trust (that is later); the off-by-default toggle is the stand-in.
 
 GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
 every extra flag is a way for a session to fail to start, which is the same

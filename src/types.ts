@@ -10,6 +10,7 @@ import {
   DEFAULT_DISPATCH,
   DEFAULT_LAYOUT,
   DEFAULT_TAB,
+  DEFAULT_WORKTREE_SETUP,
   DISPATCH_TARGETS,
   MEMORY_ENTRY_TYPES,
   PANE_LAYOUTS,
@@ -20,12 +21,14 @@ import {
   STEPS_PHASES,
   TASK_STATUSES,
   WORKSPACE_TABS,
+  WORKTREE_SETUP,
 } from "./generated/domain";
 
 export {
   DEFAULT_DISPATCH,
   DEFAULT_LAYOUT,
   DEFAULT_TAB,
+  DEFAULT_WORKTREE_SETUP,
   DISPATCH_TARGETS,
   MEMORY_ENTRY_TYPES,
   PANE_LAYOUTS,
@@ -36,6 +39,7 @@ export {
   STEPS_PHASES,
   TASK_STATUSES,
   WORKSPACE_TABS,
+  WORKTREE_SETUP,
 };
 
 /** Per-project prefs. Only known keys; a typo must not persist as a silent fallback. */
@@ -240,6 +244,7 @@ export type DiffState =
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 export type OpeningTab = WorkspaceTab;
 export type DispatchTarget = (typeof DISPATCH_TARGETS)[number];
+export type RunWorktreeSetup = (typeof WORKTREE_SETUP)[number];
 
 /**
  * Preferences that belong to the app rather than to one project. Missing keys read
@@ -257,6 +262,11 @@ export interface Settings {
    * the difference between one click and seven.
    */
   defaultDispatch: DispatchTarget;
+  /**
+   * Run `<project>/.grokspace/worktree-setup` (or `setup` in `worktrees.json`)
+   * after a fresh isolated checkout. Off by default — a script is code.
+   */
+  runWorktreeSetup: RunWorktreeSetup;
 }
 
 /** The value `writeSetting` will accept for a given key. */
