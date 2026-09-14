@@ -1470,6 +1470,69 @@ describe("appendUpdate", () => {
   });
 });
 
+describe("doom loop", () => {
+  const same = { kind: "tool" as const, text: "Read · {\"path\":\"src/lib.rs\"}" };
+  const other = { kind: "tool" as const, text: "Read · {\"path\":\"src/main.rs\"}" };
+
+  it("trips after five identical tool texts and not after four", () => {
+    for (let i = 0; i < 4; i += 1) {
+      useSessionStore.getState().appendUpdate("s1", same);
+    }
+    expect(useSessionStore.getState().doomLoops["s1"]).toBeUndefined();
+
+    useSessionStore.getState().appendUpdate("s1", same);
+    expect(useSessionStore.getState().doomLoops["s1"]).toEqual({
+      text: same.text,
+      count: 5,
+    });
+  });
+
+  it("does not trip when args differ", () => {
+    for (let i = 0; i < 4; i += 1) {
+      useSessionStore.getState().appendUpdate("s1", same);
+    }
+    useSessionStore.getState().appendUpdate("s1", other);
+    expect(useSessionStore.getState().doomLoops["s1"]).toBeUndefined();
+    expect(useSessionStore.getState().toolRepeats["s1"]).toEqual({
+      text: other.text,
+      count: 1,
+    });
+  });
+
+  it("Continue dismisses the prompt and resets the streak", () => {
+    for (let i = 0; i < 5; i += 1) {
+      useSessionStore.getState().appendUpdate("s1", same);
+    }
+
+    useSessionStore.getState().continueDoomLoop("s1");
+
+    expect(useSessionStore.getState().doomLoops["s1"]).toBeUndefined();
+    expect(useSessionStore.getState().toolRepeats["s1"]).toBeUndefined();
+  });
+
+  it("Pause cancels the turn and clears the prompt", async () => {
+    cancelSession.mockResolvedValue(undefined);
+    for (let i = 0; i < 5; i += 1) {
+      useSessionStore.getState().appendUpdate("s1", same);
+    }
+
+    await useSessionStore.getState().pauseDoomLoop("s1");
+
+    expect(cancelSession).toHaveBeenCalledWith("s1");
+    expect(useSessionStore.getState().doomLoops["s1"]).toBeUndefined();
+  });
+
+  it("does not stack a second prompt while one is already showing", () => {
+    for (let i = 0; i < 5; i += 1) {
+      useSessionStore.getState().appendUpdate("s1", same);
+    }
+    useSessionStore.getState().appendUpdate("s1", same);
+
+    expect(useSessionStore.getState().doomLoops["s1"]?.count).toBe(5);
+    expect(useSessionStore.getState().toolRepeats["s1"]?.count).toBe(6);
+  });
+});
+
 describe("promptSession", () => {
   it("records the follow-up after the backend accepts it", async () => {
     promptSession.mockResolvedValue(undefined);

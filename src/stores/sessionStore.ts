@@ -2,6 +2,12 @@ import { useMemo } from "react";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import {
+  DEFAULT_DOOM_LOOP_THRESHOLD,
+  doomLoopTripped,
+  noteToolRepeat,
+  type ToolRepeat,
+} from "../lib/doomLoop";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { briefPrompt, type Role } from "../lib/roles";
 import { foldUpdate } from "../lib/transcript";
@@ -209,6 +215,13 @@ interface SessionState {
    * back does not blank a conversation that is still running.
    */
   transcript: Record<string, AgentUpdate[]>;
+  /** Consecutive identical tool texts, keyed by session. */
+  toolRepeats: Record<string, ToolRepeat>;
+  /**
+   * Host Pause / Continue prompts after N identical tools. Not an ACP
+   * permission — Pause cancels the turn; Continue dismisses and resets.
+   */
+  doomLoops: Record<string, ToolRepeat>;
   /**
    * Why isolation failed, keyed by session. Live events fill the skip reason;
    * reload prefers `session.isolationSkip`, then the generic sentence.
@@ -292,6 +305,10 @@ interface SessionState {
   promptSession: (id: string, text: string) => Promise<void>;
   /** Interrupts the current turn without ending the session. */
   cancelSession: (id: string) => Promise<void>;
+  /** Pause on a doom-loop prompt: cancel the turn. */
+  pauseDoomLoop: (id: string) => Promise<void>;
+  /** Continue on a doom-loop prompt: dismiss and reset the streak. */
+  continueDoomLoop: (id: string) => void;
   setError: (error: string) => void;
   /**
    * Drops graphs, steps, and transcript for these ids. When `clearWorkspace`
@@ -307,6 +324,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   busyPanes: {},
   permissions: {},
   transcript: {},
+  toolRepeats: {},
+  doomLoops: {},
   isolationReasons: {},
   isolationConfirm: null,
   isLoading: false,
@@ -324,6 +343,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({
       transcript: Object.fromEntries(
         Object.entries(state.transcript).filter(([sessionId]) => !forgotten.has(sessionId)),
+      ),
+      toolRepeats: Object.fromEntries(
+        Object.entries(state.toolRepeats).filter(([sessionId]) => !forgotten.has(sessionId)),
+      ),
+      doomLoops: Object.fromEntries(
+        Object.entries(state.doomLoops).filter(([sessionId]) => !forgotten.has(sessionId)),
       ),
       ...(clearWorkspace ? { sessions: [], permissions: {} } : {}),
     }));
@@ -377,6 +402,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // Stopped ones do not: those strings plus xterm instances were unbounded.
         transcript: keepOnly(
           state.transcript,
+          new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
+        ),
+        toolRepeats: keepOnly(
+          state.toolRepeats,
+          new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
+        ),
+        doomLoops: keepOnly(
+          state.doomLoops,
           new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
         ),
         mergeReasons: keepOnly(state.mergeReasons, arriving),
@@ -530,6 +563,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           sessions,
           isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
           transcript: without(state.transcript, id),
+          ...dropDoom(state, id),
           mergeReasons: without(state.mergeReasons, id),
         };
       });
@@ -563,6 +597,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
         transcript: without(state.transcript, id),
+        ...dropDoom(state, id),
         isolationReasons: without(state.isolationReasons, id),
         mergeReasons: without(state.mergeReasons, id),
       }));
@@ -649,6 +684,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isolationReasons: isolationFrom(sessions, state.isolationReasons),
         // Nothing can answer what a session that has gone was asking.
         permissions: without(state.permissions, id),
+        ...dropDoom(state, id),
       };
     }),
 
@@ -663,6 +699,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions: state.sessions.map((session) =>
           session.id === id ? { ...session, status } : session,
         ),
+        ...(status === "idle" || status === "stopped" ? dropDoom(state, id) : {}),
       };
     }),
 
@@ -712,18 +749,32 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   appendUpdate: (id, update) =>
-    set((state) => ({
-      transcript: {
+    set((state) => {
+      const transcript = {
         ...state.transcript,
         [id]: foldUpdate(state.transcript[id] ?? [], update),
-      },
-    })),
+      };
+      if (update.kind !== "tool") {
+        return { transcript };
+      }
+      const repeat = noteToolRepeat(state.toolRepeats[id], update.text);
+      const already = state.doomLoops[id] !== undefined;
+      return {
+        transcript,
+        toolRepeats: { ...state.toolRepeats, [id]: repeat },
+        doomLoops:
+          !already && doomLoopTripped(repeat, DEFAULT_DOOM_LOOP_THRESHOLD)
+            ? { ...state.doomLoops, [id]: repeat }
+            : state.doomLoops,
+      };
+    }),
 
   promptSession: async (id, text) => {
     const trimmed = text.trim();
     if (trimmed === "") return;
     try {
       await api.promptSession(id, trimmed);
+      set((state) => dropDoom(state, id));
       get().appendUpdate(id, { kind: "prompt", text: trimmed });
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -733,11 +784,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   cancelSession: async (id) => {
     try {
       await api.cancelSession(id);
+      set((state) => dropDoom(state, id));
     } catch (error) {
       set({ error: errorMessage(error) });
     }
   },
+
+  pauseDoomLoop: (id) => get().cancelSession(id),
+
+  continueDoomLoop: (id) => set((state) => dropDoom(state, id)),
 }));
+
+/** Drops the doom-loop streak and host prompt for one session. */
+function dropDoom<T extends { toolRepeats: Record<string, ToolRepeat>; doomLoops: Record<string, ToolRepeat> }>(
+  state: T,
+  id: string,
+): Pick<T, "toolRepeats" | "doomLoops"> {
+  return {
+    toolRepeats: without(state.toolRepeats, id),
+    doomLoops: without(state.doomLoops, id),
+  };
+}
 
 /** A copy without one session's entry. */
 function without<T>(bySession: Record<string, T>, id: string): Record<string, T> {

@@ -5,6 +5,7 @@ import {
   CHECKPOINT_EQUALS_HEAD,
   DISCARD_REVERTS_CHECKPOINT,
 } from "../lib/checkpoint";
+import { doomLoopNotice } from "../lib/doomLoop";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
@@ -218,6 +219,48 @@ const SessionChip = memo(function SessionChip({
  * ACP agents that never got a worktree. Derived from the session list so a
  * reload still shows it; the live skip reason is extra, not the only path.
  */
+/**
+ * Host Pause / Continue after N identical ACP tools. Not an ACP permission —
+ * other workers own those chips — and visible from every tab so a swarm pane
+ * you are not looking at cannot spin unnoticed.
+ */
+function DoomLoopBanner({ projectId }: { projectId: string }) {
+  const sessions = useSessionsForProject(projectId);
+  const doomLoops = useSessionStore((state) => state.doomLoops);
+  const pauseDoomLoop = useSessionStore((state) => state.pauseDoomLoop);
+  const continueDoomLoop = useSessionStore((state) => state.continueDoomLoop);
+  const items = sessions.flatMap((session) => {
+    const repeat = doomLoops[session.id];
+    return repeat === undefined ? [] : [{ session, repeat }];
+  });
+  if (items.length === 0) return null;
+
+  return (
+    <div
+      role="alert"
+      className="flex shrink-0 flex-col gap-1.5 border-b border-warning/40 bg-warning/10 px-4 py-2"
+    >
+      {items.map(({ session, repeat }) => (
+        <div key={session.id} className="flex items-start gap-3">
+          <p className="min-w-0 flex-1 text-[11px] leading-snug text-ink-muted">
+            {doomLoopNotice(session.title ?? "", repeat)}
+          </p>
+          <QuietButton
+            label="Pause"
+            title="Cancel this turn"
+            onClick={() => void pauseDoomLoop(session.id)}
+          />
+          <QuietButton
+            label="Continue"
+            title="Keep the turn running"
+            onClick={() => continueDoomLoop(session.id)}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function IsolationBanner({ projectId }: { projectId: string }) {
   const unisolated = useSessionStore(
     useShallow((state) =>
@@ -508,6 +551,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       </header>
 
       <IsolationBanner projectId={project.id} />
+      <DoomLoopBanner projectId={project.id} />
       <OrphanedPermissionBanner projectId={project.id} />
 
       {/*
