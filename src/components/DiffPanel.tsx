@@ -232,6 +232,27 @@ function HunkPromptBar({
   );
 }
 
+/**
+ * POSIX path that stays LTR for AT (A11Y-010 / WP-29).
+ *
+ * The old `[direction:rtl]` + `truncate` trick kept the file name in view but
+ * put the path itself in the RTL accessibility tree, so VoiceOver could read
+ * `src/lib/api.ts` backwards. Clip the directory instead: the name identifies
+ * the row, and the tree is `dir="ltr"`.
+ */
+function FilePath({ path, className }: { path: string; className: string }) {
+  const slash = path.lastIndexOf("/");
+  const dir = slash === -1 ? "" : path.slice(0, slash + 1);
+  const name = slash === -1 ? path : path.slice(slash + 1);
+
+  return (
+    <span dir="ltr" className={`flex min-w-0 flex-1 text-left text-[11px] ${className}`}>
+      {dir !== "" && <span className="min-w-0 truncate">{dir}</span>}
+      <span className="max-w-full shrink-0 truncate">{name}</span>
+    </span>
+  );
+}
+
 function FileRow({
   file,
   active,
@@ -259,15 +280,10 @@ function FileRow({
       {mark !== null && (
         <span aria-label={mark} className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-danger" />
       )}
-      {/* Reversed so the end of a long path stays visible: the file name is what
-          identifies it, and the directories above it usually repeat. */}
-      <span
-        className={`min-w-0 flex-1 truncate text-left text-[11px] [direction:rtl] ${
-          overlap?.hotspot === true ? "text-danger" : "text-ink-muted"
-        }`}
-      >
-        {file.path}
-      </span>
+      <FilePath
+        path={file.path}
+        className={overlap?.hotspot === true ? "text-danger" : "text-ink-muted"}
+      />
     </button>
   );
 }
@@ -572,7 +588,10 @@ export default function DiffPanel({ project }: { project: Project }) {
       {header}
 
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-64 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line p-1.5">
+        <div
+          dir="ltr"
+          className="flex w-64 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line p-1.5"
+        >
           {diff.files.map((file) => (
             <FileRow
               key={file.path}
