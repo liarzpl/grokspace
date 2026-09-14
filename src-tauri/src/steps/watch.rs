@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use notify::RecommendedWatcher;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 
 use crate::error::{Error, Result};
 use crate::{project, session, AppState};
@@ -98,7 +98,8 @@ impl StepWatchers {
             // A close deletes the row and then the file. Emitting for a gone
             // session would make the frontend re-read it and banner SessionNotFound.
             if live {
-                let _ = app.emit(
+                crate::log::emit(
+                    &app,
                     CHANGE_EVENT,
                     StepsChanged {
                         session_id: session_id.clone(),

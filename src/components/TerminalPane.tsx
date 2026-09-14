@@ -2,6 +2,7 @@ import { lazy, memo, Suspense, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { isKeyboardClick } from "../lib/keyboardClick";
+import { clientErrorMessage, isQuietHostError, logClientError } from "../lib/log";
 import { moveSegmented } from "../lib/segmented";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import {
@@ -145,13 +146,27 @@ function TerminalSurface({ session }: { session: Session }) {
     const sync = () => {
       const size = fitTerminal(session.id);
       // A stopped session has no pty to resize; the pane already says so.
-      if (size) void api.resizeSession(session.id, size.cols, size.rows).catch(() => {});
+      if (size) {
+        void api.resizeSession(session.id, size.cols, size.rows).catch((error) => {
+          if (isQuietHostError(error)) return;
+          logClientError("resize", `${session.id}: ${clientErrorMessage(error)}`);
+        });
+      }
     };
 
     sync();
     // A reconciled session from a previous run has no pty behind it, so this
     // rejects and the pane simply stays empty until it is restarted.
-    void attachTerminal(session.id).catch(() => {});
+    void attachTerminal(session.id).catch((error) => {
+      const message = clientErrorMessage(error);
+      logClientError("attach", `${session.id}: ${message}`);
+      const live = useSessionStore.getState().sessions.find((item) => item.id === session.id);
+      if (live != null && live.status !== "stopped") {
+        useSessionStore.setState({
+          error: `Could not attach the terminal: ${message}`,
+        });
+      }
+    });
 
     let timer: number | undefined;
     const observer = new ResizeObserver(() => {

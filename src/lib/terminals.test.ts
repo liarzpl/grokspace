@@ -98,7 +98,10 @@ vi.mock("@xterm/addon-webgl", () => ({
     dispose = vi.fn();
   },
 }));
-vi.mock("@tauri-apps/api/core", () => ({ Channel: FakeChannel }));
+vi.mock("@tauri-apps/api/core", () => ({
+  Channel: FakeChannel,
+  invoke: vi.fn(() => Promise.resolve()),
+}));
 vi.mock("./api", () => ({ api: { attachSession, writeSession } }));
 
 import {

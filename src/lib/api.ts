@@ -304,6 +304,13 @@ export const api = {
   watchProjectSteps: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_steps", { projectId }),
 
+  /**
+   * Appends a renderer line to `~/.grokspace/logs/grokspace.log`.
+   * Local file only; the host does not send this anywhere.
+   */
+  logClientError: (source: string, message: string): Promise<void> =>
+    invoke<void>("log_client_error", { source, message }),
+
 };
 
 /** Rust returns errors as plain strings, so unwrap them for display. */

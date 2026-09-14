@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 
 import CommandPalette from "./components/CommandPalette";
@@ -20,6 +19,7 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
 import { listenBackendEvents } from "./lib/events";
+import { listenLogged, logClientError } from "./lib/log";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
 
 const WorkspaceShell = lazy(() => import("./components/WorkspaceShell"));
@@ -75,6 +75,10 @@ export default function App() {
     settingsError ??
     diffError ??
     skillError;
+
+  useEffect(() => {
+    if (error) logClientError("banner", error);
+  }, [error]);
 
   useEffect(() => {
     void loadProjects();
@@ -138,7 +142,7 @@ export default function App() {
   useEffect(() => {
     // Terminal output streams over a channel; these eight events are infrequent
     // enough to belong on the event system. Names and payloads live in events.ts.
-    const unlisten = listenBackendEvents(listen, {
+    const unlisten = listenBackendEvents(listenLogged, {
       markExited: (id, exitCode) => useSessionStore.getState().markExited(id, exitCode),
       markStatus: (id, status) => useSessionStore.getState().markStatus(id, status),
       askPermission: (id, request) => useSessionStore.getState().askPermission(id, request),
