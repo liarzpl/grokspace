@@ -1,10 +1,22 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { api, errorMessage } from "../lib/api";
 import { subscribeOverlay } from "../lib/overlay";
+import { homeRelative } from "../lib/paths";
 import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
-import { DISPATCH_TARGETS, PANE_LAYOUTS, WORKSPACE_TABS, WORKTREE_SETUP, type Settings } from "../types";
-import { Choice } from "./ui";
+import {
+  DISPATCH_TARGETS,
+  PANE_LAYOUTS,
+  PERMISSION_POLICY_ACTIONS,
+  WORKSPACE_TABS,
+  WORKTREE_SETUP,
+  type PermissionPolicy,
+  type PermissionPolicyAction,
+  type PermissionPolicyRule,
+  type Settings,
+} from "../types";
+import { Choice, QuietButton } from "./ui";
 
 /**
  * An overlay rather than a tab.
@@ -97,16 +109,109 @@ export default function SettingsPanel() {
             onChoose={(value) => void setSetting("runWorktreeSetup", value)}
           />
 
+          <PermissionPolicyEditor />
+
           <p className="text-[10px] leading-relaxed text-ink-faint">
             Changing the default layout does not move a project that has already picked
             one. Changing what the workspace opens on takes effect next launch, not now —
             yanking you to another panel mid-thought would be the wrong kind of helpful.
             Dispatch only reorders what is offered; it never picks a target for you.
             Worktree setup stays off until you turn it on — a clone must not run that
-            script for you.
+            script for you. Permission globs: Deny wins; allow-once-similar is never Always.
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PermissionPolicyEditor() {
+  const [policy, setPolicy] = useState<PermissionPolicy | null>(null);
+  const [action, setAction] = useState<PermissionPolicyAction>("deny");
+  const [pattern, setPattern] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api
+      .readPermissionPolicy()
+      .then((next) => {
+        setPolicy(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)));
+  }, []);
+
+  const save = (rules: PermissionPolicyRule[]) => {
+    void api
+      .writePermissionPolicy(rules)
+      .then((next) => {
+        setPolicy(next);
+        setError(null);
+        setPattern("");
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)));
+  };
+
+  const add = () => {
+    const next = pattern.trim();
+    if (next === "" || policy === null) return;
+    save([...policy.rules, { action, pattern: next }]);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[12px] font-medium text-ink">Permission policy</h3>
+        <span className="text-[10px] text-ink-faint">
+          {policy ? `${homeRelative(policy.path)}; also ${policy.projectFile}` : "User globs"}
+        </span>
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {(policy?.rules ?? []).map((rule, index) => (
+          <li key={`${rule.action}:${rule.pattern}:${index}`} className="flex min-w-0 items-center gap-1 text-[11px]">
+            <span className="shrink-0 text-ink-faint">{rule.action}</span>
+            <code className="min-w-0 flex-1 truncate font-mono text-[10px]">{rule.pattern}</code>
+            <QuietButton
+              label="Remove"
+              title="Remove this rule"
+              onClick={() => save((policy?.rules ?? []).filter((_, i) => i !== index))}
+            />
+          </li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap items-center gap-1">
+        <select
+          aria-label="Policy action"
+          value={action}
+          onChange={(event) => setAction(event.target.value as PermissionPolicyAction)}
+          className="rounded-sm border border-line bg-canvas px-1 py-0.5 text-[11px] text-ink"
+        >
+          {PERMISSION_POLICY_ACTIONS.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="Policy glob"
+          value={pattern}
+          placeholder="*git push*"
+          onChange={(event) => setPattern(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              add();
+            }
+          }}
+          className="selectable min-w-0 flex-1 rounded-sm border border-line bg-canvas px-1 py-0.5 text-[11px] text-ink focus:outline-none"
+        />
+        <QuietButton label="Add" title="Add a user glob. Deny wins." onClick={add} />
+      </div>
+      {error !== null && (
+        <p role="alert" className="text-[10px] text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

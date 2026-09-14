@@ -105,6 +105,21 @@ export interface PermissionRequest {
   options?: PermissionOption[];
 }
 
+/** User-authored globs in `~/.grokspace/permission-policy.json`. */
+export const PERMISSION_POLICY_ACTIONS = ["deny", "ask", "allow-once-similar"] as const;
+export type PermissionPolicyAction = (typeof PERMISSION_POLICY_ACTIONS)[number];
+
+export interface PermissionPolicyRule {
+  action: PermissionPolicyAction;
+  pattern: string;
+}
+
+export interface PermissionPolicy {
+  path: string;
+  projectFile: string;
+  rules: PermissionPolicyRule[];
+}
+
 export interface Session {
   id: string;
   projectId: string;

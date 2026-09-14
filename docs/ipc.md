@@ -106,6 +106,8 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | --- | --- |
 | `read_settings` | App preferences, defaults filled (`runWorktreeSetup` default `off`) |
 | `write_setting` | One key. Unknown values are refused rather than stored |
+| `read_permission_policy` | User `~/.grokspace/permission-policy.json` (missing file is empty rules) |
+| `write_permission_policy` | Replace that file. Empty patterns, unusable globs, and `*` allow-once-similar are refused |
 
 ### Graphs — `graph.rs`
 
@@ -139,7 +141,7 @@ Payloads are camelCase. `App.tsx` is the only `listen`.
 | --- | --- | --- | --- |
 | `session-exited` | `{ id, exitCode }` | Pty exit, or ACP `on_closed` (`exitCode` then `null`) | Mark stopped |
 | `session-status` | `{ id, status }` | ACP status (`idle` / `running` / `needs_input`). Terminals do not emit this | Update the chip; dock attention |
-| `session-permission` | `{ id, requestId, summary, options }` | ACP permission request, after the row is stored | Show Allow / Deny. Emitted before the matching `needs_input` status |
+| `session-permission` | `{ id, requestId, summary, options }` | ACP permission request, after the row is stored | Show Allow / Deny. Emitted before the matching `needs_input` status. A local policy Deny or allow-once-similar answers first and does not emit this |
 | `session-isolation` | `{ id, reason }` | Agent start when `worktree add` was skipped | Isolation banner. Not persisted; reload infers from a null path |
 | `session-update` | `{ id, kind, text }` | ACP transcript (`message` / `thought` / `tool` / `plan`) | Append. Empty text and `kind: "prompt"` are dropped |
 | `graph-changed` | `{ sessionId, path, removed }` | Graph directory watcher | Re-read that session's file. Frontend only uses `sessionId` |

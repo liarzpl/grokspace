@@ -6,6 +6,8 @@ import type {
   MemoryEntry,
   MemoryEntryType,
   MergeOutcome,
+  PermissionPolicy,
+  PermissionPolicyRule,
   Project,
   ProjectSettings,
   Session,
@@ -240,6 +242,13 @@ export const api = {
     key: K,
     value: Settings[K],
   ): Promise<Settings> => invoke<Settings>("write_setting", { key, value }),
+
+  /** User-authored globs in `~/.grokspace/permission-policy.json`. */
+  readPermissionPolicy: (): Promise<PermissionPolicy> =>
+    invoke<PermissionPolicy>("read_permission_policy"),
+
+  writePermissionPolicy: (rules: PermissionPolicyRule[]): Promise<PermissionPolicy> =>
+    invoke<PermissionPolicy>("write_permission_policy", { rules }),
 
   listMemory: (projectId: string): Promise<MemoryEntry[]> =>
     invoke<MemoryEntry[]>("list_memory", { projectId }),
