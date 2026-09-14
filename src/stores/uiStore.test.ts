@@ -59,11 +59,13 @@ describe("pane chrome", () => {
   it("resetPaneChrome drops faces and the maximised pane together", () => {
     useUiStore.getState().setPaneView("1", "graph");
     useUiStore.getState().toggleMaximized("1");
+    useUiStore.getState().selectGraph("s1");
 
     useUiStore.getState().resetPaneChrome();
 
     expect(useUiStore.getState().paneViews).toEqual({});
     expect(useUiStore.getState().maximizedPane).toBeNull();
+    expect(useUiStore.getState().graphSessionId).toBeNull();
   });
 });
 

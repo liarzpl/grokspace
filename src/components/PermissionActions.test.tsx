@@ -137,6 +137,12 @@ describe("PermissionActions", () => {
 
     await user.click(screen.getByRole("button", { name: "Allow" }));
     expect(onAnswer).toHaveBeenCalledWith(true, undefined);
+    expect(screen.getByTestId("permission-actions")).toHaveAttribute("data-inbox-keys", "");
+    expect(screen.getByRole("button", { name: "Allow" })).toHaveAttribute(
+      "title",
+      "Allow once (A)",
+    );
+    expect(screen.getByRole("button", { name: "Deny" })).toHaveAttribute("title", "Deny (D)");
     expect(screen.queryByTestId("permission-why")).not.toBeInTheDocument();
   });
 

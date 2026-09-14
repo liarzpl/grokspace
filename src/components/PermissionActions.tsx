@@ -9,8 +9,9 @@ import {
   proposedLease,
   syncSessionLeases,
 } from "../lib/permissionLease";
-import { permissionChips } from "../lib/permissions";
+import { ALLOW_ONCE, REJECT_ONCE, permissionChips } from "../lib/permissions";
 import { loadedOverlapPaths, permissionWhyFrom } from "../lib/permissionWhy";
+import { shortcutLabel } from "../lib/shortcuts";
 import { useDiffStore } from "../stores/diffStore";
 import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
@@ -96,14 +97,27 @@ export function PermissionActions({
   }
 
   return (
-    <div className="flex min-w-0 shrink-0 flex-col gap-0.5">
+    <div
+      data-testid="permission-actions"
+      data-inbox-keys=""
+      data-session-id={sessionId}
+      className="flex min-w-0 shrink-0 flex-col gap-0.5"
+    >
       <div className="flex shrink-0 flex-wrap items-center gap-0.5">
         {permissionChips(request).map((chip) => (
           <QuietButton
             key={chip.key}
             label={chip.label}
             disabled={chip.disabled}
-            title={chip.disabled ? "The agent did not offer this option" : undefined}
+            title={
+              chip.disabled
+                ? "The agent did not offer this option"
+                : chip.key === ALLOW_ONCE
+                  ? `Allow once (${shortcutLabel("inbox-allow")})`
+                  : chip.key === REJECT_ONCE
+                    ? `Deny (${shortcutLabel("inbox-deny")})`
+                    : undefined
+            }
             onClick={() => onAnswer(chip.allow, chip.optionId)}
           />
         ))}

@@ -85,8 +85,8 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   starts that role (or prompts an idle one) with the source graph path (read-only),
   approved step titles, and a ≤2 KiB transcript excerpt; the source is left idle.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
-  launches, Hand to Coder/Reviewer, project switches, skill installs, and Merge for a stopped isolated
-  agent from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
+  launches, Hand to Coder/Reviewer, project switches, skill installs, Merge for a stopped isolated
+  agent, Allow first wait, and Jump to first Needs you from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
   and can refresh that list; there is no remote catalog. "Install or refresh
   GrokSpace skills" writes graph, memory, and steps in that order; the Graph
@@ -133,7 +133,10 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   agent on `needs_input` or a pending permission), **Review** (idle, with
   approved steps or an isolated worktree), and **Merge** (stopped, isolated, and
   Merge would not refuse). Clicking jumps to the task card, the Diff chip, or
-  the graph. Dispatch is not gated on an empty inbox.
+  the graph. With the inbox or a permission chip focused (not a terminal),
+  `A` allows once, `D` denies, `O` opens the pane or card, and `G` shows the
+  graph. The palette has **Allow first wait** and **Jump to first Needs you**.
+  Dispatch is not gated on an empty inbox.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on

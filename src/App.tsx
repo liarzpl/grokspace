@@ -18,10 +18,15 @@ import { useDiffStore } from "./stores/diffStore";
 import { firstSkillError, useSkillStore } from "./stores/skillStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useUiStore } from "./stores/uiStore";
+import {
+  answerInboxPermission,
+  openInboxSession,
+  showInboxGraph,
+} from "./lib/commands";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
 import { listenBackendEvents } from "./lib/events";
 import { listenLogged, logClientError } from "./lib/log";
-import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
+import { runGlobalShortcut, runInboxShortcut, shortcutFor } from "./lib/shortcuts";
 
 const WorkspaceShell = lazy(() => import("./components/WorkspaceShell"));
 
@@ -107,12 +112,25 @@ export default function App() {
     // thinks Cmd+K means.
     const onKeyDown = (event: KeyboardEvent) => {
       const shortcut = shortcutFor(event);
-      if (shortcut === undefined) return;
-      event.preventDefault();
-      runGlobalShortcut(shortcut, {
-        closePalette,
-        togglePalette,
-        openProject: () => void pickAndOpenProject(),
+      if (shortcut !== undefined) {
+        event.preventDefault();
+        runGlobalShortcut(shortcut, {
+          closePalette,
+          togglePalette,
+          openProject: () => void pickAndOpenProject(),
+        });
+        return;
+      }
+      // Inbox keys are not global: a focused xterm keeps A/D/O/G for grok.
+      runInboxShortcut(event, {
+        allowOnce: (sessionId) => answerInboxPermission(sessionId, true),
+        deny: (sessionId) => answerInboxPermission(sessionId, false),
+        openPane: (sessionId) => {
+          const projectId = useProjectStore.getState().activeProjectId;
+          if (projectId === null) return;
+          openInboxSession(projectId, sessionId);
+        },
+        showGraph: showInboxGraph,
       });
     };
     window.addEventListener("keydown", onKeyDown, true);

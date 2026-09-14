@@ -22,6 +22,7 @@ const reopenSessionSteps = vi.fn();
 const writeSession = vi.fn();
 const promptSession = vi.fn();
 const cancelSession = vi.fn();
+const answerSessionPermission = vi.fn();
 const installSkill = vi.fn();
 const skillStatus = vi.fn();
 
@@ -46,6 +47,7 @@ vi.mock("../lib/api", async () => {
       writeSession,
       promptSession,
       cancelSession,
+      answerSessionPermission,
       installSkill,
       skillStatus,
     },
@@ -57,6 +59,7 @@ const { useProjectStore } = await import("../stores/projectStore");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useSkillStore } = await import("../stores/skillStore");
 const { useStepStore } = await import("../stores/stepStore");
+const { useTaskStore } = await import("../stores/taskStore");
 const { useUiStore } = await import("../stores/uiStore");
 
 function project(overrides: Partial<Project> = {}): Project {
@@ -89,11 +92,41 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 
+function waitingAgent(withChip: boolean) {
+  useSessionStore.setState({
+    sessions: [
+      session({
+        id: "wait",
+        paneId: null,
+        kind: "agent",
+        title: "Waiter",
+        status: "needs_input",
+      }),
+    ],
+    permissions: withChip
+      ? {
+          wait: [
+            {
+              requestId: 9,
+              summary: "Edit src/a.ts",
+              options: [
+                { optionId: "allow-once", name: "Allow", kind: "allow_once" },
+                { optionId: "always", name: "Always allow", kind: "allow_always" },
+                { optionId: "reject-once", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          ],
+        }
+      : {},
+  });
+}
+
 const initialUi = useUiStore.getState();
 const initialProjects = useProjectStore.getState();
 const initialSessions = useSessionStore.getState();
 const initialSteps = useStepStore.getState();
 const initialSkills = useSkillStore.getState();
+const initialTasks = useTaskStore.getState();
 
 const ISOLATION_ERR =
   "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
@@ -106,6 +139,7 @@ beforeEach(() => {
   useSessionStore.setState(initialSessions, true);
   useStepStore.setState(initialSteps, true);
   useSkillStore.setState(initialSkills, true);
+  useTaskStore.setState(initialTasks, true);
 });
 
 const labels = (project: Project | null) => commands(project).map((command) => command.label);
@@ -345,6 +379,26 @@ describe("the command list", () => {
     const open = commands(null).find((command) => command.id === "open-project");
 
     expect(open?.shortcut).toBe("open-project");
+  });
+
+  it("offers Jump to first Needs you, and Allow first wait when a chip can Allow once", () => {
+    waitingAgent(true);
+    const shown = labels(project());
+    expect(shown).toContain("Jump to first Needs you");
+    expect(shown).toContain("Allow first wait");
+  });
+
+  it("does not offer Allow first wait when the first wait has no Allow once", () => {
+    waitingAgent(false);
+    const shown = labels(project());
+    expect(shown).toContain("Jump to first Needs you");
+    expect(shown).not.toContain("Allow first wait");
+  });
+
+  it("does not offer inbox commands when nothing needs you", () => {
+    const shown = labels(project());
+    expect(shown).not.toContain("Jump to first Needs you");
+    expect(shown).not.toContain("Allow first wait");
   });
 });
 
@@ -632,6 +686,43 @@ describe("running a command", () => {
     await vi.waitFor(() => expect(mergeSessionWorktree).toHaveBeenCalledWith("agent-1"));
 
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
+  });
+
+  it("allows the first wait as allow_once, never always", async () => {
+    answerSessionPermission.mockResolvedValue(undefined);
+    useUiStore.setState({ isPaletteOpen: true });
+    waitingAgent(true);
+
+    commands(project()).find((command) => command.id === "allow-first-wait")?.run();
+    await vi.waitFor(() => expect(answerSessionPermission).toHaveBeenCalled());
+
+    expect(answerSessionPermission).toHaveBeenCalledWith("wait", 9, true, undefined);
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
+  });
+
+  it("jumps to the first Needs you card", () => {
+    useUiStore.setState({ isPaletteOpen: true, tab: "terminals" });
+    waitingAgent(false);
+    useTaskStore.setState({
+      tasks: [
+        {
+          id: "t-wait",
+          projectId: "p1",
+          title: "Fix it",
+          description: null,
+          status: "in_progress",
+          assignedSessionId: "wait",
+          priority: 0,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+    });
+
+    commands(project()).find((command) => command.id === "jump-first-needs-you")?.run();
+
+    expect(useUiStore.getState().tab).toBe("tasks");
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
   });
 
   it("refreshes the skill list without installing", async () => {

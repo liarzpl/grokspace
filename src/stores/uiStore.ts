@@ -44,10 +44,16 @@ interface UiState {
   /** Which of its faces each pane is showing; panes default to terminal. */
   paneViews: Record<string, PaneView>;
   maximizedPane: string | null;
+  /**
+   * Which session the Graph tab is showing. Chrome, not a session field:
+   * the palette and inbox keys need this without sharing WorkspaceShell state.
+   */
+  graphSessionId: string | null;
 
   setTab: (tab: WorkspaceTab) => void;
   setPaneView: (paneId: string, view: PaneView) => void;
   toggleMaximized: (paneId: string) => void;
+  selectGraph: (sessionId: string) => void;
   /** Project switch and forget drop chrome that is keyed by reused pane ids. */
   resetPaneChrome: () => void;
   /**
@@ -69,6 +75,7 @@ export const useUiStore = create<UiState>((set) => ({
   isPaletteOpen: false,
   paneViews: {},
   maximizedPane: null,
+  graphSessionId: null,
 
   // Closing the palette on its way out of every command, so a command that changes
   // the tab does not leave the palette sitting over the thing it just revealed.
@@ -77,7 +84,8 @@ export const useUiStore = create<UiState>((set) => ({
     set((state) => ({ paneViews: { ...state.paneViews, [paneId]: view } })),
   toggleMaximized: (paneId) =>
     set((state) => ({ maximizedPane: state.maximizedPane === paneId ? null : paneId })),
-  resetPaneChrome: () => set({ paneViews: {}, maximizedPane: null }),
+  selectGraph: (sessionId) => set({ graphSessionId: sessionId }),
+  resetPaneChrome: () => set({ paneViews: {}, maximizedPane: null, graphSessionId: null }),
   applyOpeningTab: (tab) =>
     set((state) => {
       if (state.tab !== "terminals") return state;
