@@ -1,14 +1,15 @@
 # Grok Build CLI integration
 
-Reference notes for the `grok` CLI surface that GrokSpace drives from Phase 1
-onward. Checked against the xAI Grok Build docs (`docs.x.ai/build`) and, for the
-ACP section, against Grok's own published client example and the Agent Client
-Protocol schema.
+Reference notes for the `grok` CLI surface GrokSpace actually invokes, plus the
+upstream flags this repo must **not** pass. Checked against the
+[CLI reference](https://docs.x.ai/build/cli/reference) (`docs.x.ai/build/cli`
+404s) and, for ACP, against Grok's published client example and the Agent
+Client Protocol schema.
 
-Phase 0 does not shell out to `grok` at all. This file exists so the terminal
-and dispatch work starts from the real flag surface rather than from
-assumptions — several of the flags in the original plan behave differently than
-their names suggest.
+The compile-and-CI path does not shell out to `grok`. Agent sessions do. This
+file exists so a later change starts from the argv in
+[`session.rs`](../src-tauri/src/session.rs) and [`acp.rs`](../src-tauri/src/acp.rs),
+not from the original plan's unused flags.
 
 ## Corrections to the original master plan
 
@@ -19,11 +20,12 @@ These are the places where the planned integration would not have worked:
   existing conversation use `-r, --resume [<uuid>]` or `-c, --continue` (the
   most recent session for the current directory). `--session-id` is only valid
   alongside `--resume`/`--continue` when paired with `--fork-session`.
-  GrokSpace should therefore generate a UUID when it *creates* a session, store
-  it on the `sessions` row, and pass that UUID to `--resume` afterwards.
+  GrokSpace does **not** do this. Session ids are GrokSpace's own UUIDs. Neither
+  `--session-id` nor `--resume` appears in `session.rs` or `acp.rs`. A restart
+  mints a new GrokSpace session rather than resuming a grok conversation.
 - **Prefer ACP over parsing stdout for status.** The plan called for watching
   stdout to derive agent status. `grok agent stdio` runs Grok as an
-  [ACP](https://docs.x.ai/build/cli) agent speaking JSON-RPC over stdin/stdout
+  [ACP](https://docs.x.ai/build/cli/reference) agent speaking JSON-RPC over stdin/stdout
   and emits structured `session/update` events. That is a far better source for
   the `idle | running | needs_input | stopped` states than scraping a TUI, and
   it is stable across releases in a way that rendered output is not.
@@ -31,48 +33,61 @@ These are the places where the planned integration would not have worked:
   the `plan` permission mode instead of sending `/plan` into the TUI.
 - **Worktree naming needs the `=` form.** `grok --worktree feat "prompt"` can
   parse `feat` as the prompt. Use `--worktree=feat`.
-- **`--no-auto-update` belongs in every automated invocation**, otherwise
-  background update checks can interleave with machine-readable output.
+- **`--no-auto-update` is passed only to the TUI pane**, otherwise background
+  update checks can interleave with an automated session. ACP start is
+  `.args(["agent", "stdio"])` only — no `--no-auto-update` there. Agent flags
+  that exist upstream must sit between `agent` and `stdio`; GrokSpace passes
+  none of them.
 
 ## Invocation modes
 
-GrokSpace uses two of the three modes, for different jobs.
+GrokSpace uses two modes. A third exists upstream and is unused.
 
-**Interactive TUI** — what a terminal pane runs. Needs a real PTY.
-
-```bash
-grok --cwd <project-path> --no-auto-update
-```
-
-**Headless** — one prompt, then exit. This is what "Dispatch to Agent" uses when
-a task does not need a visible terminal.
+**Interactive TUI** — what a Grok terminal pane runs. Needs a real PTY.
+`command_for(SessionKind::Grok)` is only `--no-auto-update`. Process cwd is the
+source of truth; `--cwd` is not passed.
 
 ```bash
-grok -p "<goal>" --cwd <project-path> --output-format json --no-auto-update
+grok --no-auto-update
 ```
 
-**ACP** — `grok agent stdio`, JSON-RPC over stdin/stdout, for structured status.
+**ACP** — what an agent session runs. `acp.rs` spawns:
+
+```bash
+grok agent stdio
+```
+
+Process cwd (and ACP `session/new` cwd) is the worktree when isolation
+succeeded, otherwise the project folder.
+
+**Headless — unused.** Upstream documents `grok -p "<goal>" --output-format json`
+(and `--cwd`). "Dispatch to Agent" does **not** spawn that. `task.rs` `dispatch`
+only writes `assigned_session_id` / `in_progress`. The prompt then goes through
+`prompt_session` (ACP `session/prompt`) or `writeSession` (pty). There is no
+`-p` / `--output-format` child.
 
 ## Flags that matter to us
 
-Session and location:
+Session and location (upstream; **GrokSpace does not pass these**):
 
-- `--cwd <path>` — working directory; always set it explicitly
+- `--cwd <path>` — working directory. GrokSpace sets process cwd instead.
 - `-s, --session-id <uuid>` — assign a UUID to a **new** session
 - `-r, --resume [<uuid>]` — resume an existing session, or the latest
 - `-c, --continue` — continue the latest session for the current directory
 - `--fork-session` — branch instead of reusing the session id when resuming
 
-Headless output:
+Headless output (upstream; **unused** — dispatch does not spawn `-p`):
 
 - `-p, --single <prompt>` — send one prompt and exit
 - `--output-format plain | json | streaming-json`
 - `--json-schema <schema>` — constrain headless output to a schema
 - `-m, --model <model>`
+- `--effort <level>` — reasoning effort (current reference)
 
 Permissions:
 
-- `--always-approve` — auto-approve tool execution; must stay user-controlled
+- `--always-approve` (alias `--yolo`) — auto-approve tool execution; **must
+  not** be passed. Permission prompts are the only thing `needs_input` can mean.
 - permission modes include `acceptEdits`, `bypassPermissions`, and `plan`
 - `--allow '<tool>'` filters, for example `--allow 'Bash(git *)'`
 
@@ -177,6 +192,7 @@ is the only thing `needs_input` can mean.
 ## How dispatch works today
 
 There are two ways a task reaches an agent, because there are two kinds of agent.
+There is no third headless `grok -p` child.
 
 **Into a terminal.** The prompt is typed into a running `grok` pane, the way the
 graph panel's "Ask for a graph" does. This is why such a prompt is flattened to one
@@ -302,8 +318,10 @@ is still `proposed` (the Approve gate). A selected hunk plus a sentence is a
 
 ## Notes for later phases
 
-- A dispatched headless run should capture `sessionId` from
-  `--output-format json` and persist it on the `sessions` row, so the session
-  can later be resumed or exported.
+- Headless `-p` / `--output-format json` / `--resume` remain unused. Do not
+  document them as the dispatch path. If that spawn is ever added, it is a new
+  product decision, not a missing implementation of this file's old "should".
 - `--agent-profile` remains the untried option for roles; a paragraph of brief
   was enough for Phase 3.
+- `--leader` / `--no-leader` share credentials between processes, not sessions.
+  They do not turn a TUI pane into an ACP agent. Not passed.
