@@ -3,10 +3,29 @@
 //! Its own module because there are two callers now: sessions look for `grok`, and
 //! the diff panel looks for `git`. The lesson the skill installer taught is to move
 //! a thing when the second copy is about to be written rather than after.
+//!
+//! Hits live for the process lifetime. Every Diff load used to walk PATH for `git`
+//! (twice), and a swarm start does the same for every worktree. A spawn failure
+//! forgets the hit so the next lookup can recover after a reinstall.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 use crate::error::{Error, Result};
+
+static FOUND: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Forget a cached hit so the next `find` walks PATH again.
+///
+/// Call this when spawning the cached binary fails. A process-lifetime cache is
+/// only honest if a miss at run time can recover.
+pub fn invalidate(program: &str) {
+    if let Ok(mut cache) = FOUND.lock() {
+        cache.remove(program);
+    }
+}
 
 /// Where a program might be when it is not on `PATH`.
 ///
@@ -26,16 +45,7 @@ fn fallback_dirs() -> Vec<PathBuf> {
     .collect()
 }
 
-/// The absolute path to `program`, or `None` when it is nowhere to be found.
-///
-/// Separate from `resolve` because the two callers want different things from a
-/// miss: a session cannot start without `grok` and says how to install it, while the
-/// diff panel simply has nothing to show and says that instead.
-pub fn find(program: &str) -> Option<String> {
-    if program.contains('/') {
-        return Some(program.to_string());
-    }
-
+fn lookup(program: &str) -> Option<String> {
     let on_path = std::env::var_os("PATH")
         .map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
         .unwrap_or_default()
@@ -53,6 +63,33 @@ pub fn find(program: &str) -> Option<String> {
         .map(|found| found.to_string_lossy().into_owned())
 }
 
+/// The absolute path to `program`, or `None` when it is nowhere to be found.
+///
+/// Separate from `resolve` because the two callers want different things from a
+/// miss: a session cannot start without `grok` and says how to install it, while the
+/// diff panel simply has nothing to show and says that instead.
+pub fn find(program: &str) -> Option<String> {
+    if program.contains('/') {
+        return Some(program.to_string());
+    }
+
+    if let Ok(mut cache) = FOUND.lock() {
+        match cache.get(program) {
+            Some(path) if Path::new(path).is_file() => return Some(path.clone()),
+            Some(_) => {
+                cache.remove(program);
+            }
+            None => {}
+        }
+    }
+
+    let found = lookup(program)?;
+    if let Ok(mut cache) = FOUND.lock() {
+        cache.insert(program.to_string(), found.clone());
+    }
+    Some(found)
+}
+
 /// The same lookup, but an error naming how to install what is missing.
 pub fn resolve(program: &str) -> Result<String> {
     find(program).ok_or_else(|| {
@@ -61,6 +98,19 @@ pub fn resolve(program: &str) -> Result<String> {
              Install it with: curl -fsSL https://x.ai/cli/install.sh | bash"
         ))
     })
+}
+
+#[cfg(test)]
+pub(crate) fn seed_cache(program: &str, path: impl Into<String>) {
+    FOUND
+        .lock()
+        .expect("program cache")
+        .insert(program.to_string(), path.into());
+}
+
+#[cfg(test)]
+pub(crate) fn cached(program: &str) -> Option<String> {
+    FOUND.lock().ok()?.get(program).cloned()
 }
 
 #[cfg(test)]
@@ -96,5 +146,34 @@ mod tests {
             error.to_string().contains("x.ai/cli/install.sh"),
             "the message is what someone reads when a session will not start"
         );
+    }
+
+    #[test]
+    fn a_cached_hit_is_returned_without_walking_path() {
+        // A name that is not on PATH would miss unless the cache already has it.
+        seed_cache("grokspace-cache-probe", "/usr/bin/env");
+
+        assert_eq!(
+            find("grokspace-cache-probe").as_deref(),
+            Some("/usr/bin/env")
+        );
+    }
+
+    #[test]
+    fn a_cached_path_that_is_gone_is_looked_up_again() {
+        seed_cache("sh", "/grokspace-no-such-sh");
+
+        let found = find("sh").expect("sh should be on PATH");
+        assert_ne!(found, "/grokspace-no-such-sh");
+        assert!(found.ends_with("/sh"));
+    }
+
+    #[test]
+    fn invalidate_drops_a_cached_hit() {
+        seed_cache("grokspace-cache-probe-forget", "/usr/bin/env");
+        invalidate("grokspace-cache-probe-forget");
+
+        assert_eq!(cached("grokspace-cache-probe-forget"), None);
+        assert_eq!(find("grokspace-cache-probe-forget"), None);
     }
 }

@@ -16,9 +16,11 @@
 //! GrokSpace shells out to `git` rather than linking libgit2: it already spawns `grok`
 //! and the user's shell, so a third is consistent, and a diff is text a command prints.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{LazyLock, Mutex};
+use std::time::SystemTime;
 
 use serde::Serialize;
 use tauri::State;
@@ -117,12 +119,48 @@ struct OverlapTree {
     path: PathBuf,
 }
 
+/// `(canonical tree, project HEAD)` → `(mtime of that tree's HEAD file, paths)`.
+///
+/// Committed names only change when this tree or the project moves HEAD. Dirty
+/// files stay on the porcelain path, which is never cached.
+type CommittedKey = (PathBuf, String);
+type CommittedVal = (SystemTime, BTreeSet<String>);
+
+static COMMITTED: LazyLock<Mutex<HashMap<CommittedKey, CommittedVal>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 fn git(git: &str, cwd: &Path, args: &[&str]) -> Result<std::process::Output> {
-    Command::new(git)
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .map_err(|error| Error::Invalid(format!("could not run git: {error}")))
+    #[cfg(test)]
+    record_spawn(cwd, args);
+
+    match Command::new(git).args(args).current_dir(cwd).output() {
+        Ok(output) => Ok(output),
+        Err(error) => {
+            program::invalidate("git");
+            Err(Error::Invalid(format!("could not run git: {error}")))
+        }
+    }
+}
+
+/// mtime of `HEAD` in this checkout, including a worktree whose `.git` is a file.
+fn git_head_stamp(cwd: &Path) -> Option<SystemTime> {
+    let dot_git = cwd.join(".git");
+    let git_dir = if dot_git.is_dir() {
+        dot_git
+    } else {
+        let text = std::fs::read_to_string(&dot_git).ok()?;
+        let gitdir = text
+            .lines()
+            .find_map(|line| line.strip_prefix("gitdir:"))?
+            .trim();
+        let gitdir = Path::new(gitdir);
+        if gitdir.is_absolute() {
+            gitdir.to_path_buf()
+        } else {
+            cwd.join(gitdir)
+        }
+    };
+    git_dir.join("HEAD").metadata().ok()?.modified().ok()
 }
 
 /// The branch name, or `None` on a detached head, which is not worth an error.
@@ -207,6 +245,18 @@ fn interpret_porcelain(output: std::process::Output, branch: Option<String>) -> 
     })
 }
 
+/// Uncommitted paths `state_of` already paid for. `.grokspace/` stays out of overlap.
+fn porcelain_paths_of(state: &DiffState) -> BTreeSet<String> {
+    match state {
+        DiffState::Changed { files, .. } => files
+            .iter()
+            .map(|file| file.path.clone())
+            .filter(|path| !is_grokspace_path(path))
+            .collect(),
+        _ => BTreeSet::new(),
+    }
+}
+
 /// Paths GrokSpace owns. Graphs, steps, memory, and the worktrees themselves live
 /// here; they are not the human's files, so they must not count as overlap.
 fn is_grokspace_path(path: &str) -> bool {
@@ -253,28 +303,56 @@ fn porcelain_paths(git_path: &str, cwd: &Path) -> BTreeSet<String> {
 ///
 /// `git diff --name-only <project-head>...HEAD` is the three-dot form: merge-base
 /// to this `HEAD`. Uncommitted files are not in it; porcelain covers those.
+/// Cached until this tree's `HEAD` file or the project's `HEAD` moves.
 fn committed_paths(git_path: &str, cwd: &Path, project_head: &str) -> BTreeSet<String> {
-    let spec = format!("{project_head}...HEAD");
-    let Ok(output) = git(git_path, cwd, &["diff", "--name-only", &spec]) else {
-        return BTreeSet::new();
-    };
-    if !output.status.success() {
-        return BTreeSet::new();
+    let stamp = git_head_stamp(cwd);
+    let key = cwd
+        .canonicalize()
+        .ok()
+        .map(|tree| (tree, project_head.to_string()));
+    if let (Some(stamp), Some(key)) = (stamp, key.as_ref()) {
+        if let Ok(cache) = COMMITTED.lock() {
+            if let Some((cached_stamp, paths)) = cache.get(key) {
+                if *cached_stamp == stamp {
+                    return paths.clone();
+                }
+            }
+        }
     }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(|line| line.trim().trim_matches('"').to_string())
-        .filter(|path| !path.is_empty() && !is_grokspace_path(path))
-        .collect()
+
+    let spec = format!("{project_head}...HEAD");
+    let paths = match git(git_path, cwd, &["diff", "--name-only", &spec]) {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(|line| line.trim().trim_matches('"').to_string())
+            .filter(|path| !path.is_empty() && !is_grokspace_path(path))
+            .collect(),
+        _ => BTreeSet::new(),
+    };
+
+    if let (Some(stamp), Some(key)) = (stamp, key) {
+        if let Ok(mut cache) = COMMITTED.lock() {
+            cache.insert(key, (stamp, paths.clone()));
+        }
+    }
+    paths
+}
+
+fn touched_from_porcelain(
+    git_path: &str,
+    cwd: &Path,
+    project_head: &str,
+    mut porcelain: BTreeSet<String>,
+) -> BTreeSet<String> {
+    porcelain.extend(committed_paths(git_path, cwd, project_head));
+    porcelain
 }
 
 fn touched_paths(git_path: &str, cwd: &Path, project_head: &str) -> BTreeSet<String> {
     if !cwd.exists() {
         return BTreeSet::new();
     }
-    let mut paths = porcelain_paths(git_path, cwd);
-    paths.extend(committed_paths(git_path, cwd, project_head));
-    paths
+    touched_from_porcelain(git_path, cwd, project_head, porcelain_paths(git_path, cwd))
 }
 
 fn sort_peers(peers: &mut [OverlapPeer]) {
@@ -288,14 +366,33 @@ fn sort_peers(peers: &mut [OverlapPeer]) {
 
 /// Paths this tree shares with `peers`. Empty when git cannot answer; a miss
 /// must not hide the diff itself. Never refuses Merge.
+///
+/// `ours_porcelain` is the `status --porcelain` `state_of` already ran. Passing
+/// it skips that spawn for the tree on screen — the extra one that made every
+/// Diff load 6+2S processes.
 fn overlaps_with(ours: &Path, project_path: &Path, peers: &[OverlapTree]) -> Vec<PathOverlap> {
+    overlaps_against(ours, project_path, peers, None)
+}
+
+fn overlaps_against(
+    ours: &Path,
+    project_path: &Path,
+    peers: &[OverlapTree],
+    ours_porcelain: Option<BTreeSet<String>>,
+) -> Vec<PathOverlap> {
     let Some(git_path) = program::find("git") else {
         return Vec::new();
     };
     let Some(project_head) = rev_parse(&git_path, project_path, "HEAD") else {
         return Vec::new();
     };
-    let ours_paths = touched_paths(&git_path, ours, &project_head);
+    let ours_paths = match ours_porcelain {
+        Some(porcelain) if ours.exists() => {
+            touched_from_porcelain(&git_path, ours, &project_head, porcelain)
+        }
+        Some(_) => BTreeSet::new(),
+        None => touched_paths(&git_path, ours, &project_head),
+    };
     if ours_paths.is_empty() {
         return Vec::new();
     }
@@ -508,9 +605,10 @@ pub fn project_diff(
     // slower than any query, and every command shares the one connection.
     let (path, project_path, peers) = overlap_peers(&state, &project_id, session_id.as_deref())?;
     let mut diff = state_of(&path)?;
+    let ours_porcelain = porcelain_paths_of(&diff);
     match &mut diff {
         DiffState::Clean { overlaps, .. } | DiffState::Changed { overlaps, .. } => {
-            *overlaps = overlaps_with(&path, &project_path, &peers);
+            *overlaps = overlaps_against(&path, &project_path, &peers, Some(ours_porcelain));
         }
         _ => {}
     }
@@ -527,6 +625,43 @@ pub fn file_diff(
 ) -> Result<String> {
     let root = diff_root(&state, &project_id, session_id.as_deref())?;
     of_file(&root, &path, untracked)
+}
+
+#[cfg(test)]
+thread_local! {
+    static SPAWNS: std::cell::RefCell<Vec<(PathBuf, Vec<String>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn record_spawn(cwd: &Path, args: &[&str]) {
+    SPAWNS.with(|spawns| {
+        spawns.borrow_mut().push((
+            cwd.to_path_buf(),
+            args.iter().map(|arg| (*arg).to_string()).collect(),
+        ));
+    });
+}
+
+#[cfg(test)]
+fn take_spawns() -> Vec<(PathBuf, Vec<String>)> {
+    SPAWNS.with(|spawns| std::mem::take(&mut *spawns.borrow_mut()))
+}
+
+#[cfg(test)]
+fn porcelain_on(spawns: &[(PathBuf, Vec<String>)], tree: &Path) -> usize {
+    spawns
+        .iter()
+        .filter(|(cwd, args)| cwd == tree && args.iter().any(|arg| arg == "--porcelain"))
+        .count()
+}
+
+#[cfg(test)]
+fn name_only_on(spawns: &[(PathBuf, Vec<String>)], tree: &Path) -> usize {
+    spawns
+        .iter()
+        .filter(|(cwd, args)| cwd == tree && args.iter().any(|arg| arg == "--name-only"))
+        .count()
 }
 
 #[cfg(test)]
@@ -931,5 +1066,101 @@ mod tests {
             &[peer("bbbbbbbb-cccc-dddd-eeee-ffffffffffff", "Reviewer", b)],
         );
         assert!(overlaps.is_empty(), "got {overlaps:?}");
+    }
+
+    #[test]
+    fn overlap_reuses_ours_porcelain_instead_of_running_status_again() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        std::fs::write(a.join("agent.rs"), "fn a() {}\n").unwrap();
+        std::fs::write(b.join("agent.rs"), "fn b() {}\n").unwrap();
+
+        let _ = take_spawns();
+        let diff = state_of(&a).unwrap();
+        let after_state = take_spawns();
+        assert_eq!(porcelain_on(&after_state, &a), 1);
+
+        let overlaps = overlaps_against(
+            &a,
+            dir.path(),
+            &[peer(
+                "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+                "Reviewer",
+                b.clone(),
+            )],
+            Some(porcelain_paths_of(&diff)),
+        );
+        let after_overlap = take_spawns();
+
+        assert_eq!(overlaps.len(), 1, "got {overlaps:?}");
+        assert_eq!(overlaps[0].path, "agent.rs");
+        assert_eq!(
+            porcelain_on(&after_overlap, &a),
+            0,
+            "ours porcelain was already paid for by state_of, got {after_overlap:?}"
+        );
+        assert_eq!(porcelain_on(&after_overlap, &b), 1);
+    }
+
+    #[test]
+    fn committed_paths_are_not_respawned_while_head_is_unchanged() {
+        let dir = repo();
+        commit(dir.path(), "README.md", "hello\n");
+        let a = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let b = checkout(&dir, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
+        commit(&a, "agent.rs", "fn a() {}\n");
+        commit(&b, "agent.rs", "fn b() {}\n");
+
+        let _ = take_spawns();
+        let first = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer(
+                "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+                "Reviewer",
+                b.clone(),
+            )],
+        );
+        let after_first = take_spawns();
+        let second = overlaps_with(
+            &a,
+            dir.path(),
+            &[peer(
+                "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+                "Reviewer",
+                b.clone(),
+            )],
+        );
+        let after_second = take_spawns();
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 1);
+        assert!(
+            name_only_on(&after_first, &a) >= 1 && name_only_on(&after_first, &b) >= 1,
+            "first pass must ask git for committed names, got {after_first:?}"
+        );
+        assert_eq!(
+            name_only_on(&after_second, &a) + name_only_on(&after_second, &b),
+            0,
+            "HEAD has not moved, so committed names stay cached, got {after_second:?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_git_spawn_forgets_the_cached_binary() {
+        let real = program::find("git").expect("these tests need git");
+        program::seed_cache("git", real);
+        assert!(program::cached("git").is_some());
+
+        let decoy = tempfile::NamedTempFile::new().unwrap();
+        let err = git(
+            decoy.path().to_str().unwrap(),
+            decoy.path().parent().unwrap(),
+            &["status"],
+        );
+        assert!(err.is_err(), "a regular file is not git");
+        assert_eq!(program::cached("git"), None);
     }
 }
