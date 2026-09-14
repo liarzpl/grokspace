@@ -168,8 +168,13 @@ function TaskCard({
   const commitDescription = () => {
     const next = editingDesc;
     setEditingDesc(null);
-    if (next !== null && next.trim() !== (task.description ?? "")) {
-      void editTask(task.id, { description: next });
+    if (next === null) return;
+    // Trim so whitespace-only becomes the `""` clear sentinel `update_task`
+    // treats as SQL NULL. Sending the untrimmed string would also clear, but
+    // the board's comparison is on the trimmed value, so send that.
+    const trimmed = next.trim();
+    if (trimmed !== (task.description ?? "")) {
+      void editTask(task.id, { description: trimmed });
     }
   };
 
