@@ -180,9 +180,23 @@ pub fn get(conn: &Connection, id: &str) -> Result<Session> {
     .ok_or_else(|| Error::SessionNotFound(id.to_string()))
 }
 
+/// Sessions currently sitting in this pane of this project. There should be at
+/// most one; the schema does not enforce it, so `start` closes every occupant
+/// before inserting a replacement.
+fn sessions_for_pane(conn: &Connection, project_id: &str, pane_id: &str) -> Result<Vec<Session>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLUMNS} FROM sessions WHERE project_id = ?1 AND pane_id = ?2
+         ORDER BY created_at ASC"
+    ))?;
+    let sessions = stmt
+        .query_map(rusqlite::params![project_id, pane_id], from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(sessions)
+}
+
 /// `pane_id` is absent for an agent, which occupies no pane. Nothing else in the
 /// app has to special-case that: a session with no pane is simply never the one
-/// `session_for_pane` finds.
+/// `sessions_for_pane` finds.
 ///
 /// `role` is what a session was started as - Planner, Reviewer, and so on - and is
 /// absent for one started by hand. It is a label plus the brief the caller sends;
@@ -727,6 +741,19 @@ fn isolate_agent(
 fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) -> Result<Session> {
     let launch = command_for(request.kind)?;
 
+    // The schema does not unique `pane_id`. A Start that races `loadSessions`
+    // (or a second Start on a pane that already has a row) would otherwise
+    // leave a live pty the UI can no longer see.
+    if let Some(pane_id) = request.pane_id.as_deref() {
+        let occupants = {
+            let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+            sessions_for_pane(&conn, &request.project_id, pane_id)?
+        };
+        for occupant in occupants {
+            close_with(state, &occupant.id, WorktreeTeardown::Remove)?;
+        }
+    }
+
     let (session, project_path, remembered) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
         let project = project::get(&conn, &request.project_id)?;
@@ -1254,6 +1281,80 @@ mod tests {
         assert_eq!(session.kind, SessionKind::Grok);
         assert_eq!(session.pane_id.as_deref(), Some("1"));
         assert_eq!(session.exit_code, None);
+    }
+
+    #[test]
+    fn sessions_for_pane_returns_every_occupant_of_that_pane() {
+        let (conn, project_id) = fixture();
+        let first = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "First",
+            None,
+        )
+        .unwrap();
+        let second = insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Shell,
+            "Second",
+            None,
+        )
+        .unwrap();
+        insert(
+            &conn,
+            &project_id,
+            Some("1"),
+            SessionKind::Grok,
+            "Other pane",
+            None,
+        )
+        .unwrap();
+        insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+
+        let ids: Vec<_> = sessions_for_pane(&conn, &project_id, "0")
+            .unwrap()
+            .into_iter()
+            .map(|session| session.id)
+            .collect();
+        assert_eq!(ids, vec![first.id, second.id]);
+        assert!(sessions_for_pane(&conn, &project_id, "9")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn sessions_for_pane_does_not_cross_projects() {
+        let (conn, project_id) = fixture();
+        let other = project::upsert_by_path(&conn, "/tmp/other-pane", "other-pane").unwrap();
+        insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Here",
+            None,
+        )
+        .unwrap();
+        insert(
+            &conn,
+            &other.id,
+            Some("0"),
+            SessionKind::Grok,
+            "There",
+            None,
+        )
+        .unwrap();
+
+        let titles: Vec<_> = sessions_for_pane(&conn, &project_id, "0")
+            .unwrap()
+            .into_iter()
+            .filter_map(|session| session.title)
+            .collect();
+        assert_eq!(titles, vec!["Here"]);
     }
 
     #[test]
