@@ -64,13 +64,22 @@ fn ask(
     let summary = if collapsed.chars().count() <= MAX_SUMMARY_CHARS {
         collapsed
     } else {
-        format!("{}…", collapsed.chars().take(MAX_SUMMARY_CHARS).collect::<String>())
+        format!(
+            "{}…",
+            collapsed
+                .chars()
+                .take(MAX_SUMMARY_CHARS)
+                .collect::<String>()
+        )
     };
     PermissionHeatAsk {
         request_id,
         summary,
         chip: ledger::chip_for(allow, option_id).to_string(),
-        step_id: step_id.map(str::trim).filter(|id| !id.is_empty()).map(str::to_string),
+        step_id: step_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string),
     }
 }
 
@@ -97,13 +106,19 @@ fn write_asks(path: &Path, asks: &[PermissionHeatAsk]) -> Result<()> {
         fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, serde_json::to_vec(&serde_json::json!({ "asks": asks }))?)?;
+    fs::write(
+        &tmp,
+        serde_json::to_vec(&serde_json::json!({ "asks": asks }))?,
+    )?;
     fs::rename(&tmp, path)?;
     Ok(())
 }
 
 fn upsert_ask(mut asks: Vec<PermissionHeatAsk>, next: PermissionHeatAsk) -> Vec<PermissionHeatAsk> {
-    if let Some(existing) = asks.iter_mut().find(|item| item.request_id == next.request_id) {
+    if let Some(existing) = asks
+        .iter_mut()
+        .find(|item| item.request_id == next.request_id)
+    {
         *existing = next;
     } else {
         asks.push(next);
@@ -133,7 +148,10 @@ pub fn record_answer(
     let path = dir.join(sidecar_file_name(session_id));
     let _ = write_asks(
         &path,
-        &upsert_ask(read_asks(&path), ask(request_id, summary, allow, option_id, step_id)),
+        &upsert_ask(
+            read_asks(&path),
+            ask(request_id, summary, allow, option_id, step_id),
+        ),
     );
 }
 
@@ -193,7 +211,15 @@ mod tests {
 
     const GRAPH: &str = r#"{"id":"g","nodes":[{"id":"a","label":"A"}]}"#;
 
-    fn record(project: &Path, id: &str, request_id: u64, summary: &str, allow: bool, option: Option<&str>, step: Option<&str>) {
+    fn record(
+        project: &Path,
+        id: &str,
+        request_id: u64,
+        summary: &str,
+        allow: bool,
+        option: Option<&str>,
+        step: Option<&str>,
+    ) {
         record_answer(project, id, request_id, summary, allow, option, step);
     }
 
@@ -205,12 +231,39 @@ mod tests {
         fs::write(&graph_path, GRAPH).expect("graph");
         let before = fs::read(&graph_path).expect("read");
 
-        record(project.path(), "s1", 9, "Edit src/lib.rs\nsecret", true, None, Some("step-a"));
-        record(project.path(), "s1", 9, "Edit src/lib.rs", false, None, Some("step-a"));
-        record(project.path(), "s1", 2, "always", true, Some("allow-always"), None);
+        record(
+            project.path(),
+            "s1",
+            9,
+            "Edit src/lib.rs\nsecret",
+            true,
+            None,
+            Some("step-a"),
+        );
+        record(
+            project.path(),
+            "s1",
+            9,
+            "Edit src/lib.rs",
+            false,
+            None,
+            Some("step-a"),
+        );
+        record(
+            project.path(),
+            "s1",
+            2,
+            "always",
+            true,
+            Some("allow-always"),
+            None,
+        );
 
         assert_eq!(fs::read(&graph_path).expect("reread"), before);
-        assert_eq!(graph::snapshot(project.path(), "s1").json.as_deref(), Some(GRAPH));
+        assert_eq!(
+            graph::snapshot(project.path(), "s1").json.as_deref(),
+            Some(GRAPH)
+        );
         let heat = snapshot(project.path(), "s1");
         assert!(heat.path.ends_with("s1.permissions.json"));
         assert_eq!(heat.asks.len(), 2);
