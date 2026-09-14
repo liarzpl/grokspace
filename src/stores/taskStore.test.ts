@@ -36,7 +36,7 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { dispatchPrompt, tasksInColumn, useTaskStore } = await import("./taskStore");
+const { dispatchPrompt, tasksForProject, tasksInColumn, useTaskStore } = await import("./taskStore");
 const { useSessionStore } = await import("./sessionStore");
 const { useStepStore } = await import("./stepStore");
 
@@ -113,6 +113,85 @@ describe("loadTasks", () => {
 
     expect(useTaskStore.getState().tasks).toEqual([]);
   });
+
+  it("clears leftover cards even when no project has been recorded yet", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    let resolveNext: (tasks: Task[]) => void = () => {};
+    listTasks.mockImplementation(
+      () =>
+        new Promise<Task[]>((resolve) => {
+          resolveNext = resolve;
+        }),
+    );
+
+    const pending = useTaskStore.getState().loadTasks("p2");
+
+    expect(useTaskStore.getState().tasks).toEqual([]);
+
+    resolveNext([]);
+    await pending;
+  });
+
+  it("empties the previous project's board before the next list arrives", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1", dispatching: { t1: true } });
+    let resolveNext: (tasks: Task[]) => void = () => {};
+    listTasks.mockImplementation(
+      () =>
+        new Promise<Task[]>((resolve) => {
+          resolveNext = resolve;
+        }),
+    );
+
+    const pending = useTaskStore.getState().loadTasks("p2");
+
+    expect(useTaskStore.getState().tasks).toEqual([]);
+    expect(useTaskStore.getState().dispatching).toEqual({});
+    expect(useTaskStore.getState().projectId).toBe("p2");
+    expect(useTaskStore.getState().isLoading).toBe(true);
+
+    resolveNext([task({ id: "t2", projectId: "p2" })]);
+    await pending;
+
+    expect(useTaskStore.getState().tasks.map((item) => item.id)).toEqual(["t2"]);
+  });
+
+  it("does not blank the current project's board while re-reading it", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    let resolveList: (tasks: Task[]) => void = () => {};
+    listTasks.mockImplementation(
+      () =>
+        new Promise<Task[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+
+    const pending = useTaskStore.getState().loadTasks("p1");
+
+    expect(useTaskStore.getState().tasks.map((item) => item.id)).toEqual(["t1"]);
+
+    resolveList([task()]);
+    await pending;
+  });
+
+  it("lets the later load win when two complete out of order", async () => {
+    let resolveFirst: (tasks: Task[]) => void = () => {};
+    listTasks.mockImplementation((projectId: string) => {
+      if (projectId === "p1") {
+        return new Promise<Task[]>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return Promise.resolve([task({ id: "t2", projectId: "p2" })]);
+    });
+
+    const first = useTaskStore.getState().loadTasks("p1");
+    const second = useTaskStore.getState().loadTasks("p2");
+    await second;
+    resolveFirst([task({ id: "t1", projectId: "p1" })]);
+    await first;
+
+    expect(useTaskStore.getState().tasks.map((item) => item.id)).toEqual(["t2"]);
+  });
 });
 
 describe("createTask", () => {
@@ -133,6 +212,43 @@ describe("createTask", () => {
     expect(created).toBeNull();
     expect(useTaskStore.getState().tasks).toEqual([]);
     expect(useTaskStore.getState().error).toBe("a task needs a title");
+  });
+
+  it("does not keep a create that returns after the project has changed", async () => {
+    useTaskStore.setState({ projectId: "p1" });
+    let resolveCreate: (created: Task) => void = () => {};
+    createTask.mockImplementation(
+      () =>
+        new Promise<Task>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const pending = useTaskStore.getState().createTask("p1", "Write the docs");
+    useTaskStore.setState({ projectId: "p2", tasks: [] });
+    resolveCreate(task({ id: "t2", title: "Write the docs" }));
+    const created = await pending;
+
+    expect(created).toBeNull();
+    expect(useTaskStore.getState().tasks).toEqual([]);
+  });
+
+  it("does not surface a refused create after the project has changed", async () => {
+    useTaskStore.setState({ projectId: "p1" });
+    let rejectCreate: (reason: unknown) => void = () => {};
+    createTask.mockImplementation(
+      () =>
+        new Promise<Task>((_, reject) => {
+          rejectCreate = reject;
+        }),
+    );
+
+    const pending = useTaskStore.getState().createTask("p1", "Write the docs");
+    useTaskStore.setState({ projectId: "p2" });
+    rejectCreate("a task needs a title");
+    await pending;
+
+    expect(useTaskStore.getState().error).toBeNull();
   });
 });
 
@@ -158,6 +274,24 @@ describe("editTask", () => {
       null,
     ]);
   });
+
+  it("does not surface a refused edit after the project has changed", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    let rejectEdit: (reason: unknown) => void = () => {};
+    updateTask.mockImplementation(
+      () =>
+        new Promise<Task>((_, reject) => {
+          rejectEdit = reject;
+        }),
+    );
+
+    const pending = useTaskStore.getState().editTask("t1", { title: "Renamed" });
+    useTaskStore.setState({ projectId: "p2", tasks: [] });
+    rejectEdit("database is locked");
+    await pending;
+
+    expect(useTaskStore.getState().error).toBeNull();
+  });
 });
 
 describe("moveTask", () => {
@@ -169,6 +303,42 @@ describe("moveTask", () => {
 
     expect(updateTask).toHaveBeenCalledWith("t1", { status: "review" });
     expect(useTaskStore.getState().tasks.map((t) => t.status)).toEqual(["review", "backlog"]);
+  });
+
+  it("drops a move that returns after the project has changed", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    let resolveMove: (moved: Task) => void = () => {};
+    updateTask.mockImplementation(
+      () =>
+        new Promise<Task>((resolve) => {
+          resolveMove = resolve;
+        }),
+    );
+
+    const pending = useTaskStore.getState().moveTask("t1", "review");
+    useTaskStore.setState({ projectId: "p2", tasks: [task({ id: "t9", projectId: "p2" })] });
+    resolveMove(task({ status: "review" }));
+    await pending;
+
+    expect(useTaskStore.getState().tasks.map((item) => item.id)).toEqual(["t9"]);
+  });
+
+  it("does not surface a refused move after the project has changed", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    let rejectMove: (reason: unknown) => void = () => {};
+    updateTask.mockImplementation(
+      () =>
+        new Promise<Task>((_, reject) => {
+          rejectMove = reject;
+        }),
+    );
+
+    const pending = useTaskStore.getState().moveTask("t1", "review");
+    useTaskStore.setState({ projectId: "p2", tasks: [] });
+    rejectMove("database is locked");
+    await pending;
+
+    expect(useTaskStore.getState().error).toBeNull();
   });
 });
 
@@ -189,6 +359,43 @@ describe("removeTask", () => {
     await useTaskStore.getState().removeTask("t1");
 
     expect(useTaskStore.getState().tasks).toHaveLength(1);
+  });
+
+  it("drops a delete that returns after the project has changed", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    let resolveRemove: () => void = () => {};
+    removeTask.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveRemove = resolve;
+        }),
+    );
+
+    const pending = useTaskStore.getState().removeTask("t1");
+    useTaskStore.setState({ projectId: "p2", tasks: [task({ id: "t1", projectId: "p2" })] });
+    resolveRemove();
+    await pending;
+
+    expect(useTaskStore.getState().tasks).toHaveLength(1);
+    expect(useTaskStore.getState().tasks[0]?.projectId).toBe("p2");
+  });
+
+  it("does not surface a refused delete after the project has changed", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    let rejectRemove: (reason: unknown) => void = () => {};
+    removeTask.mockImplementation(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectRemove = reject;
+        }),
+    );
+
+    const pending = useTaskStore.getState().removeTask("t1");
+    useTaskStore.setState({ projectId: "p2", tasks: [] });
+    rejectRemove("no task found with id t1");
+    await pending;
+
+    expect(useTaskStore.getState().error).toBeNull();
   });
 });
 
@@ -291,6 +498,28 @@ describe("dispatch", () => {
     expect(useTaskStore.getState().tasks[0]?.status).toBe("backlog");
     expect(useTaskStore.getState().tasks[0]?.assignedSessionId).toBeNull();
     expect(useTaskStore.getState().error).toBe("that session is no longer running");
+  });
+
+  it("does not surface a refused dispatch after the project has changed", async () => {
+    useTaskStore.setState({ tasks: [task()], projectId: "p1" });
+    useSessionStore.setState({ sessions: [session()] });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    let rejectWrite: (reason: unknown) => void = () => {};
+    writeSession.mockImplementation(
+      () =>
+        new Promise<void>((_, reject) => {
+          rejectWrite = reject;
+        }),
+    );
+    undispatchTask.mockResolvedValue(task({ status: "backlog", assignedSessionId: null }));
+
+    const pending = useTaskStore.getState().dispatch("t1", "s1");
+    await Promise.resolve();
+    useTaskStore.setState({ projectId: "p2", tasks: [] });
+    rejectWrite("that session is no longer running");
+    await pending;
+
+    expect(useTaskStore.getState().error).toBeNull();
   });
 
   it("refuses a session that has stopped", async () => {
@@ -425,5 +654,15 @@ describe("tasksInColumn", () => {
 
     expect(tasksInColumn(tasks, "backlog").map((t) => t.id)).toEqual(["a", "c"]);
     expect(tasksInColumn(tasks, "review")).toEqual([]);
+  });
+});
+
+describe("tasksForProject", () => {
+  it("hides another project's cards from the board and the header tally", () => {
+    const tasks = [task(), task({ id: "t2", projectId: "p2" })];
+
+    expect(tasksForProject(tasks, "p1").map((item) => item.id)).toEqual(["t1"]);
+    expect(tasksForProject(tasks, "p2").map((item) => item.id)).toEqual(["t2"]);
+    expect(tasksForProject(tasks, "p2")).toHaveLength(1);
   });
 });

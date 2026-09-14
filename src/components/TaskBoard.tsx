@@ -13,7 +13,7 @@ import { sessionsWithSteps, stepProgress } from "../lib/steps";
 import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
-import { tasksInColumn, useTaskStore } from "../stores/taskStore";
+import { tasksInColumn, useTaskStore, useTasksForProject } from "../stores/taskStore";
 import {
   type PermissionRequest,
   type Project,
@@ -402,7 +402,7 @@ function TaskColumn({
         <span className="font-mono text-[10px] text-ink-faint">{tasks.length}</span>
       </div>
 
-      {status === "backlog" && <NewTaskForm projectId={projectId} />}
+      {status === "backlog" && <NewTaskForm key={projectId} projectId={projectId} />}
 
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
         {tasks.map((task) => (
@@ -603,7 +603,7 @@ function CardStepTally({ sessionId }: { sessionId: string }) {
 }
 
 export default function TaskBoard({ project }: { project: Project }) {
-  const tasks = useTaskStore((state) => state.tasks);
+  const tasks = useTasksForProject(project.id);
   const sessions = useSessionsForProject(project.id);
   const [dragging, setDragging] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);

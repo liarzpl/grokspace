@@ -3,7 +3,14 @@ import { useState } from "react";
 import { MAX_MEMORY_CHARS } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { moveSegmented } from "../lib/segmented";
-import { entriesOfType, MEMORY_TYPES, memorySize, useMemoryStore } from "../stores/memoryStore";
+import {
+  entriesOfType,
+  MEMORY_TYPES,
+  memoryFilePathFor,
+  memorySize,
+  useEntriesForProject,
+  useMemoryStore,
+} from "../stores/memoryStore";
 import type { MemoryEntry, MemoryEntryType, Project } from "../types";
 import { SkillHint } from "./SkillHint";
 import { QuietButton } from "./ui";
@@ -166,8 +173,10 @@ function NewEntryForm({ projectId }: { projectId: string }) {
  * project folder that will not take the file is not a reason to refuse a note, so
  * this is how its absence stays discoverable.
  */
-function MemoryFooter() {
-  const filePath = useMemoryStore((state) => state.filePath);
+function MemoryFooter({ projectId }: { projectId: string }) {
+  const filePath = useMemoryStore((state) =>
+    memoryFilePathFor(state.filePath, state.projectId, projectId),
+  );
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-3 py-2">
@@ -192,12 +201,12 @@ function MemoryFooter() {
 }
 
 export default function MemoryPanel({ project }: { project: Project }) {
-  const entries = useMemoryStore((state) => state.entries);
+  const entries = useEntriesForProject(project.id);
   const size = memorySize(entries);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <NewEntryForm projectId={project.id} />
+      <NewEntryForm key={project.id} projectId={project.id} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
         {entries.length === 0 && (
@@ -217,7 +226,7 @@ export default function MemoryPanel({ project }: { project: Project }) {
                 <span className="text-[10px] text-ink-faint">{hint}</span>
               </div>
               {ofType.map((entry) => (
-                <EntryRow key={entry.key} entry={entry} projectId={project.id} />
+                <EntryRow key={`${project.id}:${entry.key}`} entry={entry} projectId={project.id} />
               ))}
             </section>
           );
@@ -232,7 +241,7 @@ export default function MemoryPanel({ project }: { project: Project }) {
         )}
       </div>
 
-      <MemoryFooter />
+      <MemoryFooter projectId={project.id} />
     </div>
   );
 }
