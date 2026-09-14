@@ -3,6 +3,7 @@
  */
 
 import { useSessionStore } from "../stores/sessionStore";
+import { useUiStore } from "../stores/uiStore";
 import { api, errorMessage } from "./api";
 
 /** Always written. `ledger-tail.jsonl` is omitted when FEAT-015 has no file yet. */
@@ -47,7 +48,7 @@ export function capHandoffTranscript(text: string): string {
 /** Palette already closed. Cancel is a silent `null` from the native picker. */
 export async function exportHandoffPack(sessionId: string): Promise<void> {
   const transcript = capHandoffTranscript(
-    formatTranscriptMd(useSessionStore.getState().transcript[sessionId] ?? []),
+    formatTranscriptMd(useUiStore.getState().transcript[sessionId] ?? []),
   );
   try {
     await api.exportSessionPack(sessionId, transcript);

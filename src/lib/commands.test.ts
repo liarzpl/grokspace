@@ -698,10 +698,12 @@ describe("running a command", () => {
 
   it("exports a pack with the capped transcript and closes the palette", async () => {
     exportSessionPack.mockResolvedValue("/tmp/handoff-reviewer");
-    useUiStore.setState({ isPaletteOpen: true });
+    useUiStore.setState({
+      isPaletteOpen: true,
+      transcript: { s1: [{ kind: "message", text: "hello from the agent" }] },
+    });
     useSessionStore.setState({
       sessions: [session({ id: "s1", title: "Reviewer", kind: "agent", paneId: null })],
-      transcript: { s1: [{ kind: "message", text: "hello from the agent" }] },
     });
 
     commands(project()).find((command) => command.id === "export-pack-s1")?.run();
