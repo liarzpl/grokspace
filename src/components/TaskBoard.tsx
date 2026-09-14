@@ -15,12 +15,12 @@ import { tasksInColumn, useTaskStore } from "../stores/taskStore";
 import {
   type PermissionRequest,
   type Project,
-  type SessionStatus,
   type Task,
   type TaskStatus,
 } from "../types";
 import { PermissionActions } from "./PermissionActions";
 import { SessionStepsRail } from "./SessionSteps";
+import { QuietButton, StatusDot } from "./ui";
 
 /** The four columns, left to right. */
 const COLUMNS: readonly { status: TaskStatus; label: string }[] = [
@@ -46,13 +46,6 @@ const DRAG_MIME = "text/plain";
 
 /** A stable empty array, so a card with no permissions does not resubscribe forever. */
 const EMPTY_PERMISSIONS: readonly PermissionRequest[] = [];
-
-const STATUS_TONE: Record<SessionStatus, string> = {
-  running: "bg-accent",
-  needs_input: "bg-warning",
-  idle: "bg-success",
-  stopped: "bg-line-strong",
-};
 
 /**
  * Whether a drag that is leaving actually left.
@@ -112,30 +105,6 @@ function NewTaskForm({ projectId }: { projectId: string }) {
         </>
       )}
     </form>
-  );
-}
-
-function CardButton({
-  label,
-  title,
-  onClick,
-  disabled,
-}: {
-  label: string;
-  title?: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className="rounded-sm px-1 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-30 disabled:hover:bg-transparent"
-    >
-      {label}
-    </button>
   );
 }
 
@@ -258,7 +227,7 @@ function TaskCard({
 
       {assigned !== undefined && (
         <p className="mt-1.5 flex items-center gap-1 text-[10px] text-ink-muted">
-          <span className={`size-1.5 shrink-0 rounded-full ${STATUS_TONE[assigned.status]}`} />
+          <StatusDot status={assigned.status} />
           <span className="min-w-0 truncate">
             {targetLabel({ kind: "session", session: assigned })}
           </span>
@@ -300,13 +269,13 @@ function TaskCard({
         {/* The keyboard-reachable way to change column. Dragging is nicer when it
             works, but it is the one interaction here that depends on the webview's
             drag support, so it must not be the only way across. */}
-        <CardButton
+        <QuietButton
           label="◀"
           title={column > 0 ? `Move to ${COLUMNS[column - 1]?.label}` : "Already leftmost"}
           disabled={column <= 0}
           onClick={() => moveBy(-1)}
         />
-        <CardButton
+        <QuietButton
           label="▶"
           title={
             column < COLUMNS.length - 1
@@ -319,12 +288,12 @@ function TaskCard({
 
         <div className="flex-1" />
 
-        <CardButton
+        <QuietButton
           label={busy ? "Dispatching…" : choosing ? "Cancel" : "Dispatch"}
           disabled={busy}
           onClick={() => setChoosing(!choosing)}
         />
-        <CardButton label="Delete" onClick={() => void removeTask(task.id)} />
+        <QuietButton label="Delete" onClick={() => void removeTask(task.id)} />
       </div>
 
       {choosing && (
@@ -335,7 +304,7 @@ function TaskCard({
             </p>
           ) : (
             targets.map((target) => (
-              <CardButton
+              <QuietButton
                 key={targetKey(target)}
                 label={targetLabel(target)}
                 onClick={() => send(target)}
@@ -633,3 +602,5 @@ export default function TaskBoard({ project }: { project: Project }) {
     </div>
   );
 }
+
+export { TaskBoard };

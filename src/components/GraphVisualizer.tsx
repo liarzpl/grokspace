@@ -24,6 +24,7 @@ import GraphNodeCard, {
 } from "./graph/GraphNode";
 import { graphTheme } from "../lib/theme";
 import NodeInspector from "./graph/NodeInspector";
+import { TextButton } from "./ui";
 
 /** Module scope on purpose: React Flow warns when this object's identity changes. */
 const nodeTypes = { graphNode: GraphNodeCard };
@@ -48,33 +49,6 @@ function Centred({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
       <div className="max-w-sm text-center">{children}</div>
     </div>
-  );
-}
-
-function TextButton({
-  label,
-  onClick,
-  disabled,
-  primary,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  primary?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={
-        primary
-          ? "rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
-          : "rounded-md border border-line-strong px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink disabled:opacity-50"
-      }
-    >
-      {label}
-    </button>
   );
 }
 
@@ -393,3 +367,5 @@ export default function GraphVisualizer({
     />
   );
 }
+
+export { GraphVisualizer };

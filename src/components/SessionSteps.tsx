@@ -13,13 +13,7 @@ import { useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session, SessionStep, StepStatus } from "../types";
 import AgentTranscript from "./AgentTranscript";
-
-const STATUS_TONE: Record<Session["status"], string> = {
-  running: "bg-accent",
-  needs_input: "bg-warning",
-  idle: "bg-success",
-  stopped: "bg-line-strong",
-};
+import { QuietButton, StatusDot, TextButton } from "./ui";
 
 const STEP_MARK: Record<StepStatus, { glyph: string; tone: string; title: string }> = {
   pending: { glyph: "○", tone: "text-ink-faint", title: "Pending" },
@@ -32,36 +26,6 @@ function nextStatus(status: StepStatus): StepStatus {
   if (status === "pending") return "doing";
   if (status === "doing") return "done";
   return "pending";
-}
-
-function StepButton({
-  label,
-  title,
-  onClick,
-  disabled,
-  primary,
-}: {
-  label: string;
-  title?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  primary?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className={
-        primary === true
-          ? "rounded-md bg-accent px-2 py-0.5 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-40"
-          : "rounded-sm px-1 py-0.5 text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted disabled:opacity-30 disabled:hover:bg-transparent"
-      }
-    >
-      {label}
-    </button>
-  );
 }
 
 function SkillHint() {
@@ -86,7 +50,7 @@ function SkillHint() {
 
   return (
     <div className="flex flex-col items-start gap-1">
-      <StepButton
+      <QuietButton
         label={
           isInstalling
             ? "Installing…"
@@ -185,24 +149,24 @@ function StepRow({
       )}
 
       <div className="flex shrink-0 items-center">
-        <StepButton
+        <QuietButton
           label="▲"
           title="Move up"
           disabled={index === 0}
           onClick={() => move(-1)}
         />
-        <StepButton
+        <QuietButton
           label="▼"
           title="Move down"
           disabled={index >= total - 1}
           onClick={() => move(1)}
         />
-        <StepButton
+        <QuietButton
           label="Skip"
           disabled={step.status === "skipped"}
           onClick={() => void update(step.id, { status: "skipped" })}
         />
-        <StepButton label="×" title="Delete" onClick={() => void remove(step.id)} />
+        <QuietButton label="×" title="Delete" onClick={() => void remove(step.id)} />
       </div>
     </li>
   );
@@ -303,7 +267,7 @@ export default function SessionSteps({
         )}
         <div className="flex-1" />
         {entry.phase === "proposed" && entry.steps.length > 0 && (
-          <StepButton
+          <TextButton
             primary
             label={approving ? "Approving…" : "Approve"}
             disabled={!canApprove || approving}
@@ -378,7 +342,7 @@ export function SessionStepsRail({
                   : "border-line text-ink-faint hover:border-line-strong hover:text-ink-muted"
               }`}
             >
-              <span className={`size-1.5 shrink-0 rounded-full ${STATUS_TONE[session.status]}`} />
+              <StatusDot status={session.status} />
               <span className="min-w-0 flex-1 truncate">{sessionLabel(session)}</span>
               {session.kind === "agent" && (
                 <span className="shrink-0 font-mono text-[10px] text-ink-faint">
@@ -414,3 +378,5 @@ function StepTally({ sessionId }: { sessionId: string }) {
     </span>
   );
 }
+
+export { SessionSteps };
