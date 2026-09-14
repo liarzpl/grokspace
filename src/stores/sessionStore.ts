@@ -503,12 +503,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   askPermission: (id, request) =>
     set((state) => {
       if (!state.sessions.some((session) => session.id === id)) return state;
+      const existing = state.permissions[id] ?? [];
+      const index = existing.findIndex((item) => item.requestId === request.requestId);
+      // Distinct requestIds stay queued — an agent can be blocked on more than
+      // one. The same id after loadSessions REPLACE must not stack a second chip.
+      const next =
+        index === -1
+          ? [...existing, request]
+          : existing.map((item, i) => (i === index ? request : item));
       return {
         permissions: {
           ...state.permissions,
-          // Appended rather than replaced: an agent can be blocked on more than one,
-          // and each has its own id to answer.
-          [id]: [...(state.permissions[id] ?? []), request],
+          [id]: next,
         },
       };
     }),

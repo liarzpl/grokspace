@@ -435,12 +435,40 @@ describe("markStatus", () => {
 describe("permissions", () => {
   const asked = { requestId: 9, summary: "Run `git push`" };
 
-  it("keeps one per request, since an agent can be blocked on several", () => {
+    it("keeps one per request, since an agent can be blocked on several", () => {
     useSessionStore.setState({ sessions: [session({ kind: "agent", paneId: null })] });
     useSessionStore.getState().askPermission("s1", asked);
     useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
 
     expect(useSessionStore.getState().permissions["s1"]).toHaveLength(2);
+  });
+
+  it("upserts a late session-permission so the same requestId cannot stack", async () => {
+    listSessions.mockResolvedValue([
+      session({
+        id: "s1",
+        kind: "agent",
+        paneId: null,
+        pendingPermissions: [{ requestId: 9, summary: "Run `git push`" }],
+      }),
+    ]);
+    await useSessionStore.getState().loadSessions("p1");
+
+    useSessionStore.getState().askPermission("s1", {
+      requestId: 9,
+      summary: "Run `git push` (again)",
+      options: [{ optionId: "allow_once", name: "Allow", kind: "allow_once" }],
+    });
+    useSessionStore.getState().askPermission("s1", {
+      requestId: 9,
+      summary: "Run `git push` (latest)",
+    });
+    useSessionStore.getState().askPermission("s1", { requestId: 10, summary: "Write a file" });
+
+    expect(useSessionStore.getState().permissions["s1"]).toEqual([
+      { requestId: 9, summary: "Run `git push` (latest)" },
+      { requestId: 10, summary: "Write a file" },
+    ]);
   });
 
   it("drops only the one that was answered", async () => {
