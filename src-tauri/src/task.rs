@@ -14,16 +14,27 @@ use crate::AppState;
 /// Emitted when idle review moves cards, so the board reloads without polling.
 pub const CHANGE_EVENT: &str = "tasks-changed";
 
-/// The assigned session is resolved through a subquery rather than read straight
+/// The assigned session is resolved against `sessions` rather than read straight
 /// out of the column. `assigned_session_id` has no foreign key — SQLite cannot add
 /// one to a table that already exists, and the migrations are append-only — so a
 /// closed session would otherwise leave a dangling id behind for the frontend to
 /// puzzle over. A task whose session has gone reads as unassigned, which is also
 /// the kinder answer: a task outlives the terminal that happened to be on it.
+///
+/// Single-row reads keep the correlated subquery (one PK lookup). `list` joins
+/// once for the whole board instead of paying that lookup per card.
 const COLUMNS: &str = "id, project_id, title, description, status, \
                        (SELECT s.id FROM sessions s WHERE s.id = tasks.assigned_session_id) \
                        AS assigned_session_id, \
                        priority, created_at, updated_at";
+
+const LIST_SQL: &str = "SELECT t.id, t.project_id, t.title, t.description, t.status, \
+                               s.id AS assigned_session_id, \
+                               t.priority, t.created_at, t.updated_at \
+                          FROM tasks t \
+                     LEFT JOIN sessions s ON s.id = t.assigned_session_id \
+                         WHERE t.project_id = ?1 \
+                      ORDER BY t.priority DESC, t.created_at ASC";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -112,11 +123,7 @@ fn clean_title(title: &str) -> Result<String> {
 /// Highest priority first, and within one priority the order they were added, so a
 /// column reads the same on every load.
 pub fn list(conn: &Connection, project_id: &str) -> Result<Vec<Task>> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {COLUMNS} FROM tasks
-          WHERE project_id = ?1
-          ORDER BY priority DESC, created_at ASC"
-    ))?;
+    let mut stmt = conn.prepare(LIST_SQL)?;
     let tasks = stmt
         .query_map([project_id], from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -366,6 +373,20 @@ mod tests {
         let project = project::upsert_by_path(&conn, "/tmp/grokspace-test", "grokspace-test")
             .expect("project should be created");
         (conn, project.id)
+    }
+
+    #[test]
+    fn assigned_session_id_is_indexed() {
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                  WHERE type = 'index' AND name = 'idx_tasks_assigned_session_id'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exists, 1);
     }
 
     #[test]

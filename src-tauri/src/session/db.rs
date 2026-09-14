@@ -298,10 +298,18 @@ fn attach_permissions(conn: &Connection, sessions: &mut [Session]) -> Result<()>
     if sessions.is_empty() {
         return Ok(());
     }
-    let mut stmt = conn.prepare(
-        "SELECT session_id, request_id, summary, options FROM session_permissions ORDER BY request_id ASC",
-    )?;
-    let rows = stmt.query_map([], |row| {
+    // Only the sessions being listed. The table is not project-scoped, so a
+    // full scan would walk every live agent's prompts on every project switch.
+    let placeholders = sessions.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let sql = format!(
+        "SELECT session_id, request_id, summary, options
+           FROM session_permissions
+          WHERE session_id IN ({placeholders})
+          ORDER BY request_id ASC"
+    );
+    let ids: Vec<&str> = sessions.iter().map(|session| session.id.as_str()).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(ids), |row| {
         let options_json: String = row.get(3)?;
         Ok((
             row.get::<_, String>(0)?,
