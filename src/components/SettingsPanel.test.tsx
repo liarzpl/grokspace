@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PermissionPolicy, WorktreeGcEntry } from "../types";
+import type { PermissionPolicy, ProjectHooksStatus, WorktreeGcEntry } from "../types";
 import { project } from "../test/fixtures";
 
 const readPermissionPolicy = vi.fn();
@@ -10,6 +10,9 @@ const writePermissionPolicy = vi.fn();
 const previewWorktreeGc = vi.fn();
 const gcOrphanWorktrees = vi.fn();
 const listPermissionLedger = vi.fn();
+const projectTrust = vi.fn();
+const setProjectTrust = vi.fn();
+const projectHooksStatus = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -21,6 +24,9 @@ vi.mock("../lib/api", async () => {
       previewWorktreeGc,
       gcOrphanWorktrees,
       listPermissionLedger,
+      projectTrust,
+      setProjectTrust,
+      projectHooksStatus,
     },
   };
 });
@@ -51,6 +57,18 @@ beforeEach(() => {
   previewWorktreeGc.mockResolvedValue([]);
   gcOrphanWorktrees.mockResolvedValue([]);
   listPermissionLedger.mockResolvedValue([]);
+  projectTrust.mockResolvedValue("unknown");
+  setProjectTrust.mockResolvedValue("folder");
+  projectHooksStatus.mockResolvedValue(hooksStatus());
+});
+
+const hooksStatus = (overrides: Partial<ProjectHooksStatus> = {}): ProjectHooksStatus => ({
+  hostTrust: "unknown",
+  hooksAllowed: false,
+  hookFiles: [".grok/hooks/lint.json"],
+  grokTrustFile: "/home/me/.grok/trusted_folders.toml",
+  grokListsFolder: false,
+  ...overrides,
 });
 
 describe("SettingsPanel permission policy", () => {
@@ -133,6 +151,60 @@ describe("SettingsPanel worktree GC", () => {
     expect(screen.getByText("stale")).toBeInTheDocument();
     expect(screen.queryByText("orphan")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove 0 clean" })).toBeDisabled();
+  });
+});
+
+describe("SettingsPanel project hooks", () => {
+  it("asks for a project when none is open", async () => {
+    render(<SettingsPanel />);
+    expect(
+      await screen.findByText("Open a project to see whether its hooks are trusted."),
+    ).toBeInTheDocument();
+    expect(projectHooksStatus).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Trust this folder" })).not.toBeInTheDocument();
+  });
+
+  it("shows untrusted hooks and records Trust this folder without Allow forever", async () => {
+    const user = userEvent.setup();
+    useProjectStore.setState({
+      projects: [project()],
+      activeProjectId: "p1",
+      folderTrust: { p1: "unknown" },
+    });
+    projectHooksStatus.mockResolvedValue(hooksStatus());
+
+    render(<SettingsPanel />);
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Not decided — setup and project hooks stay off",
+    );
+    expect(screen.getByRole("list", { name: "Project hook files" })).toHaveTextContent(
+      ".grok/hooks/lint.json",
+    );
+    expect(screen.getByText(/does not list this folder/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /allow forever/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Trust this folder" }));
+    await waitFor(() => {
+      expect(setProjectTrust).toHaveBeenCalledWith("p1", "folder");
+    });
+  });
+
+  it("hides trust buttons once the folder is trusted", async () => {
+    projectTrust.mockResolvedValue("folder");
+    useProjectStore.setState({
+      projects: [project()],
+      activeProjectId: "p1",
+      folderTrust: { p1: "folder" },
+    });
+    projectHooksStatus.mockResolvedValue(
+      hooksStatus({ hostTrust: "folder", hooksAllowed: true, grokListsFolder: true }),
+    );
+
+    render(<SettingsPanel />);
+    expect(await screen.findByRole("status")).toHaveTextContent("This folder is trusted");
+    expect(screen.getByText(/also lists this folder/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Deny" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Trust this folder" })).not.toBeInTheDocument();
   });
 });
 

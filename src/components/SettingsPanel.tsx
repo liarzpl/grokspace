@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, errorMessage } from "../lib/api";
+import { hostHooksStatusLabel } from "../lib/hooksTrust";
 import { subscribeOverlay } from "../lib/overlay";
 import { homeRelative } from "../lib/paths";
 import { useProjectStore } from "../stores/projectStore";
@@ -12,10 +13,12 @@ import {
   PERMISSION_POLICY_ACTIONS,
   WORKSPACE_TABS,
   WORKTREE_SETUP,
+  type FolderTrustDecision,
   type PermissionLedgerEntry,
   type PermissionPolicy,
   type PermissionPolicyAction,
   type PermissionPolicyRule,
+  type ProjectHooksStatus,
   type Settings,
   type WorktreeGcEntry,
 } from "../types";
@@ -120,6 +123,8 @@ export default function SettingsPanel() {
             onChoose={(value) => void setSetting("inboxZeroGate", value)}
           />
 
+          <ProjectHooksTrust />
+
           <PermissionPolicyEditor />
 
           <WorktreeGcEditor />
@@ -132,14 +137,121 @@ export default function SettingsPanel() {
             yanking you to another panel mid-thought would be the wrong kind of helpful.
             Dispatch only reorders what is offered; it never picks a target for you.
             Worktree setup stays off until you turn it on and trust the folder —
-            a clone must not run that script for you. Inbox-zero gate stays off until
-            you turn it on — a default-on pause would block dispatch. The escape is
-            typing dispatch anyway, not a checkbox. Permission globs: Deny wins;
-            allow-once-similar is never Always.
+            a clone must not run that script for you. Project hooks use that same
+            host gate; GrokSpace does not run grok /hooks-trust. Inbox-zero gate
+            stays off until you turn it on — a default-on pause would block dispatch.
+            The escape is typing dispatch anyway, not a checkbox. Permission globs:
+            Deny wins; allow-once-similar is never Always.
             Orphan worktrees are a dry-run; dirty trees stay.
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProjectHooksTrust() {
+  const projectId = useProjectStore((state) => state.activeProjectId);
+  const hostTrust = useProjectStore((state) =>
+    projectId === null ? undefined : state.folderTrust[projectId],
+  );
+  const loadFolderTrust = useProjectStore((state) => state.loadFolderTrust);
+  const setFolderTrust = useProjectStore((state) => state.setFolderTrust);
+  const [status, setStatus] = useState<ProjectHooksStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!projectId) {
+      setStatus(null);
+      setError(null);
+      return;
+    }
+    void loadFolderTrust(projectId);
+    void api
+      .projectHooksStatus(projectId)
+      .then((next) => {
+        setStatus(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)));
+  }, [projectId, loadFolderTrust]);
+
+  const decide = (decision: FolderTrustDecision) => {
+    if (!projectId) return;
+    void setFolderTrust(projectId, decision).then(() => {
+      void api
+        .projectHooksStatus(projectId)
+        .then((next) => {
+          setStatus(next);
+          setError(null);
+        })
+        .catch((reason: unknown) => setError(errorMessage(reason)));
+    });
+  };
+
+  const trust = hostTrust ?? status?.hostTrust;
+  const empty = !projectId ? "Open a project to see whether its hooks are trusted." : null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[12px] font-medium text-ink">Project hooks</h3>
+        <span className="text-[10px] text-ink-faint">Host gate · grok is not spawned</span>
+      </div>
+      {empty ? (
+        <p className="text-[11px] text-ink-faint">{empty}</p>
+      ) : (
+        <>
+          <p role="status" className="text-[11px] text-ink">
+            {hostHooksStatusLabel(trust)}
+          </p>
+          {(status?.hookFiles.length ?? 0) > 0 && (
+            <ul aria-label="Project hook files" className="flex flex-col gap-0.5">
+              {status?.hookFiles.map((file) => (
+                <li key={file} className="min-w-0 truncate font-mono text-[10px] text-ink-faint">
+                  {file}
+                </li>
+              ))}
+            </ul>
+          )}
+          {status !== null && (status.hookFiles.length === 0) && (
+            <p className="text-[10px] text-ink-faint">No project hook files in this folder</p>
+          )}
+          {status !== null && (
+            <p className="text-[10px] leading-relaxed text-ink-faint">
+              {status.grokListsFolder
+                ? "Grok's ~/.grok/trusted_folders.toml also lists this folder."
+                : "Grok's ~/.grok/trusted_folders.toml does not list this folder."}{" "}
+              Grok still needs /hooks-trust in a grok pane to load project hooks. GrokSpace
+              does not run that, and does not add HTTP hooks.
+            </p>
+          )}
+          {trust !== "folder" && (
+            <div className="flex flex-wrap items-center gap-1">
+              <QuietButton
+                label="Deny"
+                title="Keep setup and project hooks off"
+                onClick={() => decide("denied")}
+              />
+              <QuietButton
+                label="Trust once"
+                title="Allow setup and hooks until quit"
+                onClick={() => decide("once")}
+              />
+              <QuietButton
+                label="Trust this folder"
+                title="Remember this path in ~/.grokspace"
+                onClick={() => decide("folder")}
+              />
+            </div>
+          )}
+        </>
+      )}
+      {error !== null && (
+        <p role="alert" className="text-[10px] text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

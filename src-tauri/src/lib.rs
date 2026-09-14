@@ -7,6 +7,7 @@ mod edges;
 mod error;
 mod graph;
 mod handoff;
+mod hooks;
 mod ledger;
 mod log;
 mod memory;
@@ -106,6 +107,7 @@ pub fn run() {
             project::remove_project,
             project::project_trust,
             project::set_project_trust,
+            hooks::project_hooks_status,
             session::list_sessions,
             session::create_session,
             session::attach_session,

@@ -14,6 +14,7 @@ import type {
   PermissionPolicy,
   PermissionPolicyRule,
   Project,
+  ProjectHooksStatus,
   ProjectSettings,
   Session,
   SessionKind,
@@ -71,6 +72,10 @@ export const api = {
   /** Deny / Trust once / Trust this folder. Only `folder` is written to ~/.grokspace. */
   setProjectTrust: (id: string, decision: FolderTrustDecision): Promise<FolderTrust> =>
     invoke<FolderTrust>("set_project_trust", { id, decision }),
+
+  /** Host trust + hook files + grok toml listing. Does not spawn grok. */
+  projectHooksStatus: (id: string): Promise<ProjectHooksStatus> =>
+    invoke<ProjectHooksStatus>("project_hooks_status", { id }),
 
   listSessions: (projectId: string): Promise<Session[]> =>
     invoke<Session[]>("list_sessions", { projectId }),
