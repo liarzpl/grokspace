@@ -17,7 +17,6 @@ import {
 } from "../lib/permissionLease";
 import { batonPrompt, briefPrompt, sourceGraphFile, type Role } from "../lib/roles";
 import { talkToSession, transcriptExcerpt } from "../lib/talkToSession";
-import { foldUpdate } from "../lib/transcript";
 import type {
   AgentUpdate,
   PermissionRequest,
@@ -275,16 +274,6 @@ interface SessionState {
   sessions: Session[];
   /** Panes with a start or restart in flight, so the UI can show progress. */
   busyPanes: Record<string, boolean>;
-  /**
-   * What each agent is blocked on, keyed by session. Only ACP sessions ever have
-   * any: a terminal has no way to ask.
-   */
-  permissions: Record<string, PermissionRequest[]>;
-  /**
-   * Visible ACP output, keyed by session. Survives a project switch so coming
-   * back does not blank a conversation that is still running.
-   */
-  transcript: Record<string, AgentUpdate[]>;
   /** Consecutive identical tool texts, keyed by session. */
   toolRepeats: Record<string, ToolRepeat>;
   /**
@@ -408,8 +397,6 @@ interface SessionState {
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessions: [],
   busyPanes: {},
-  permissions: {},
-  transcript: {},
   toolRepeats: {},
   doomLoops: {},
   isolationReasons: {},
@@ -440,10 +427,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   forgetSessions: (ids, clearWorkspace) => {
     for (const id of ids) forgetSessionFiles(id);
     const forgotten = new Set(ids);
+    const ui = useUiStore.getState();
+    ui.forgetTranscript(forgotten);
+    if (clearWorkspace) {
+      ui.replacePermissions({});
+      ui.resetPaneChrome();
+    }
     set((state) => ({
-      transcript: Object.fromEntries(
-        Object.entries(state.transcript).filter(([sessionId]) => !forgotten.has(sessionId)),
-      ),
       toolRepeats: Object.fromEntries(
         Object.entries(state.toolRepeats).filter(([sessionId]) => !forgotten.has(sessionId)),
       ),
@@ -453,11 +443,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       permissionModes: Object.fromEntries(
         Object.entries(state.permissionModes).filter(([sessionId]) => !forgotten.has(sessionId)),
       ),
-      ...(clearWorkspace ? { sessions: [], permissions: {}, permissionModes: {} } : {}),
+      ...(clearWorkspace ? { sessions: [], permissionModes: {} } : {}),
     }));
-    if (clearWorkspace) {
-      useUiStore.getState().resetPaneChrome();
-    }
   },
 
   loadSessions: async (projectId) => {
@@ -469,14 +456,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // that then sits on the wrong folder. Drop them now; a same-project reload
     // must not, or overlapping graphs and live xterms go blank.
     const switching = leaving.some((session) => session.projectId !== projectId);
-    useUiStore.getState().resetPaneChrome();
+    const ui = useUiStore.getState();
+    ui.resetPaneChrome();
+    if (switching) ui.replacePermissions({});
     set({
       isLoading: true,
       error: null,
       ...(switching
         ? {
             sessions: [],
-            permissions: {},
             permissionModes: {},
             busyPanes: {},
             mergeReasons: {},
@@ -508,25 +496,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for (const departing of get().sessions) {
         if (!arriving.has(departing.id)) forgetSessionFiles(departing.id);
       }
+      const liveIds = new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]);
+      ui.replacePermissions(permissionsFrom(listed));
+      ui.keepTranscript(liveIds);
       set((state) => ({
         sessions: listed,
-        permissions: permissionsFrom(listed),
         isLoading: false,
         isolationReasons: isolationFrom(listed, state.isolationReasons),
         // Live conversations survive a project switch so coming back is not blank.
         // Stopped ones do not: those strings plus xterm instances were unbounded.
-        transcript: keepOnly(
-          state.transcript,
-          new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
-        ),
-        toolRepeats: keepOnly(
-          state.toolRepeats,
-          new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
-        ),
-        doomLoops: keepOnly(
-          state.doomLoops,
-          new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
-        ),
+        toolRepeats: keepOnly(state.toolRepeats, liveIds),
+        doomLoops: keepOnly(state.doomLoops, liveIds),
         mergeReasons: keepOnly(state.mergeReasons, arriving),
         permissionModes: keepOnly(state.permissionModes, arriving),
       }));
@@ -541,11 +521,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for (const departing of get().sessions) {
         forgetSessionFiles(departing.id);
       }
+      ui.replacePermissions({});
       set({
         error: errorMessage(error),
         isLoading: false,
         sessions: [],
-        permissions: {},
         permissionModes: {},
         mergeReasons: {},
       });
@@ -562,7 +542,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set((state) => ({
       ...busy(true),
       error: options?.keepError ? state.error : null,
-      permissions: state.permissions,
     }));
     try {
       const { allowUnisolated, ...rest } = input;
@@ -681,7 +660,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       role,
       sourceGraphPath: sourceGraphFile(sourceId, projectPath, storedPath),
       approvedTitles,
-      excerpt: transcriptExcerpt(get().transcript[sourceId] ?? []),
+      excerpt: transcriptExcerpt(useUiStore.getState().transcript[sourceId] ?? []),
     });
 
     const idle = get().sessions.find(
@@ -740,6 +719,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       releaseTerminal(id);
       forgetSessionFiles(id);
       forgetInspect(id);
+      useUiStore.getState().dropTranscript(id);
       set((state) => {
         const sessions = replaceInPane(
           state.sessions.filter((existing) => existing.id !== id),
@@ -748,7 +728,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         return {
           sessions,
           isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
-          transcript: without(state.transcript, id),
           ...dropDoom(state, id),
           mergeReasons: without(state.mergeReasons, id),
           permissionModes: without(state.permissionModes, id),
@@ -780,10 +759,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       releaseTerminal(id);
       forgetSessionFiles(id);
       forgetInspect(id);
+      const ui = useUiStore.getState();
+      ui.dropSessionPermissions(id);
+      ui.dropTranscript(id);
       set((state) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
-        permissions: without(state.permissions, id),
-        transcript: without(state.transcript, id),
         ...dropDoom(state, id),
         isolationReasons: without(state.isolationReasons, id),
         mergeReasons: without(state.mergeReasons, id),
@@ -868,7 +848,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
    * stopped are already gone from the list, and their late exit event is a
    * no-op here.
    */
-  markExited: (id, exitCode) =>
+  markExited: (id, exitCode) => {
+    useUiStore.getState().dropSessionPermissions(id);
     set((state) => {
       const sessions = state.sessions.map((session) =>
         session.id === id
@@ -879,11 +860,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         sessions,
         isolationReasons: isolationFrom(sessions, state.isolationReasons),
         // Nothing can answer what a session that has gone was asking.
-        permissions: without(state.permissions, id),
         ...dropDoom(state, id),
         permissionModes: without(state.permissionModes, id),
       };
-    }),
+    });
+  },
 
   markStatus: (id, status) =>
     set((state) => {
@@ -915,55 +896,29 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         try {
           await api.answerSessionPermission(id, request.requestId, true);
         } catch (error) {
-          set((current) => {
-            if (!current.sessions.some((session) => session.id === id)) {
-              return { error: errorMessage(error) };
-            }
-            const existing = current.permissions[id] ?? [];
-            if (existing.some((item) => item.requestId === request.requestId)) {
-              return { error: errorMessage(error) };
-            }
-            return {
-              error: errorMessage(error),
-              permissions: {
-                ...current.permissions,
-                [id]: [...existing, request],
-              },
-            };
-          });
+          const message = errorMessage(error);
+          if (!get().sessions.some((session) => session.id === id)) {
+            set({ error: message });
+            return;
+          }
+          const existing = useUiStore.getState().permissions[id] ?? [];
+          if (!existing.some((item) => item.requestId === request.requestId)) {
+            useUiStore.getState().upsertPermission(id, request);
+          }
+          set({ error: message });
         }
       })();
       return;
     }
-    set((current) => {
-      const existing = current.permissions[id] ?? [];
-      const index = existing.findIndex((item) => item.requestId === request.requestId);
-      // Distinct requestIds stay queued — an agent can be blocked on more than
-      // one. The same id after loadSessions REPLACE must not stack a second chip.
-      const next =
-        index === -1
-          ? [...existing, request]
-          : existing.map((item, i) => (i === index ? request : item));
-      return {
-        permissions: {
-          ...current.permissions,
-          [id]: next,
-        },
-      };
-    });
+    // Distinct requestIds stay queued — an agent can be blocked on more than
+    // one. The same id after loadSessions REPLACE must not stack a second chip.
+    useUiStore.getState().upsertPermission(id, request);
   },
 
   answerPermission: async (id, requestId, allow, optionId) => {
     try {
       await api.answerSessionPermission(id, requestId, allow, optionId);
-      set((state) => ({
-        permissions: {
-          ...state.permissions,
-          [id]: (state.permissions[id] ?? []).filter(
-            (request) => request.requestId !== requestId,
-          ),
-        },
-      }));
+      useUiStore.getState().dropPermissionRequest(id, requestId);
     } catch (error) {
       // Left in place, so the answer can be tried again. The agent is still
       // waiting either way.
@@ -979,26 +934,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }));
   },
 
-  appendUpdate: (id, update) =>
+  appendUpdate: (id, update) => {
+    useUiStore.getState().appendTranscript(id, update);
+    if (update.kind !== "tool") return;
     set((state) => {
-      const transcript = {
-        ...state.transcript,
-        [id]: foldUpdate(state.transcript[id] ?? [], update),
-      };
-      if (update.kind !== "tool") {
-        return { transcript };
-      }
       const repeat = noteToolRepeat(state.toolRepeats[id], update.text);
       const already = state.doomLoops[id] !== undefined;
       return {
-        transcript,
         toolRepeats: { ...state.toolRepeats, [id]: repeat },
         doomLoops:
           !already && doomLoopTripped(repeat, DEFAULT_DOOM_LOOP_THRESHOLD)
             ? { ...state.doomLoops, [id]: repeat }
             : state.doomLoops,
       };
-    }),
+    });
+  },
 
   promptSession: async (id, text) => {
     const trimmed = text.trim();

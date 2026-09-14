@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-import { DEFAULT_TAB, WORKSPACE_TABS, type WorkspaceTab } from "../types";
+import { foldUpdate } from "../lib/transcript";
+import {
+  DEFAULT_TAB,
+  WORKSPACE_TABS,
+  type AgentUpdate,
+  type PermissionRequest,
+  type WorkspaceTab,
+} from "../types";
 
 /**
  * The bits of interface state that more than one component needs.
@@ -9,8 +16,9 @@ import { DEFAULT_TAB, WORKSPACE_TABS, type WorkspaceTab } from "../types";
  * while it was the only thing that switched it. The command palette can switch it
  * too, and two components cannot share a `useState`.
  *
- * Pane faces and which pane is maximised live here with the tab: they are chrome,
- * not process state. The session store keeps the live sessions themselves.
+ * Pane faces, the Graph-tab selection, transcripts, and pending permission chips
+ * live here with the tab: they are chrome, not process state. The session store
+ * keeps the live sessions themselves and writes these maps as they change.
  */
 
 export type { WorkspaceTab };
@@ -32,6 +40,23 @@ export const TABS: readonly { id: WorkspaceTab; label: string }[] = WORKSPACE_TA
   label: TAB_LABELS[id],
 }));
 
+/** A copy without one session's entry. */
+function without<T>(bySession: Record<string, T>, id: string): Record<string, T> {
+  if (!(id in bySession)) return bySession;
+  const next = { ...bySession };
+  delete next[id];
+  return next;
+}
+
+/** Drops keys that are not in `ids`. */
+function keepOnly<T>(bySession: Record<string, T>, ids: ReadonlySet<string>): Record<string, T> {
+  const next: Record<string, T> = {};
+  for (const [id, value] of Object.entries(bySession)) {
+    if (ids.has(id)) next[id] = value;
+  }
+  return next;
+}
+
 interface UiState {
   tab: WorkspaceTab;
   /**
@@ -49,11 +74,29 @@ interface UiState {
    * the palette and inbox keys need this without sharing WorkspaceShell state.
    */
   graphSessionId: string | null;
+  /**
+   * What each agent is blocked on, keyed by session. Only ACP sessions ever have
+   * any: a terminal has no way to ask.
+   */
+  permissions: Record<string, PermissionRequest[]>;
+  /**
+   * Visible ACP output, keyed by session. Survives a project switch so coming
+   * back does not blank a conversation that is still running.
+   */
+  transcript: Record<string, AgentUpdate[]>;
 
   setTab: (tab: WorkspaceTab) => void;
   setPaneView: (paneId: string, view: PaneView) => void;
   toggleMaximized: (paneId: string) => void;
   selectGraph: (sessionId: string) => void;
+  replacePermissions: (permissions: Record<string, PermissionRequest[]>) => void;
+  upsertPermission: (id: string, request: PermissionRequest) => void;
+  dropPermissionRequest: (id: string, requestId: number) => void;
+  dropSessionPermissions: (id: string) => void;
+  appendTranscript: (id: string, update: AgentUpdate) => void;
+  keepTranscript: (ids: ReadonlySet<string>) => void;
+  dropTranscript: (id: string) => void;
+  forgetTranscript: (ids: ReadonlySet<string>) => void;
   /** Project switch and forget drop chrome that is keyed by reused pane ids. */
   resetPaneChrome: () => void;
   /**
@@ -76,6 +119,8 @@ export const useUiStore = create<UiState>((set) => ({
   paneViews: {},
   maximizedPane: null,
   graphSessionId: null,
+  permissions: {},
+  transcript: {},
 
   // Closing the palette on its way out of every command, so a command that changes
   // the tab does not leave the palette sitting over the thing it just revealed.
@@ -85,6 +130,38 @@ export const useUiStore = create<UiState>((set) => ({
   toggleMaximized: (paneId) =>
     set((state) => ({ maximizedPane: state.maximizedPane === paneId ? null : paneId })),
   selectGraph: (sessionId) => set({ graphSessionId: sessionId }),
+  replacePermissions: (permissions) => set({ permissions }),
+  upsertPermission: (id, request) =>
+    set((state) => {
+      const existing = state.permissions[id] ?? [];
+      const index = existing.findIndex((item) => item.requestId === request.requestId);
+      const next =
+        index === -1
+          ? [...existing, request]
+          : existing.map((item, i) => (i === index ? request : item));
+      return { permissions: { ...state.permissions, [id]: next } };
+    }),
+  dropPermissionRequest: (id, requestId) =>
+    set((state) => ({
+      permissions: {
+        ...state.permissions,
+        [id]: (state.permissions[id] ?? []).filter((request) => request.requestId !== requestId),
+      },
+    })),
+  dropSessionPermissions: (id) =>
+    set((state) => ({ permissions: without(state.permissions, id) })),
+  appendTranscript: (id, update) =>
+    set((state) => ({
+      transcript: { ...state.transcript, [id]: foldUpdate(state.transcript[id] ?? [], update) },
+    })),
+  keepTranscript: (ids) => set((state) => ({ transcript: keepOnly(state.transcript, ids) })),
+  dropTranscript: (id) => set((state) => ({ transcript: without(state.transcript, id) })),
+  forgetTranscript: (ids) =>
+    set((state) => ({
+      transcript: Object.fromEntries(
+        Object.entries(state.transcript).filter(([sessionId]) => !ids.has(sessionId)),
+      ),
+    })),
   resetPaneChrome: () => set({ paneViews: {}, maximizedPane: null, graphSessionId: null }),
   applyOpeningTab: (tab) =>
     set((state) => {

@@ -19,15 +19,17 @@ vi.mock("../lib/api", async () => {
 const { default: AgentTranscript } = await import("./AgentTranscript");
 const { useMemoryStore } = await import("../stores/memoryStore");
 const { useSessionStore } = await import("../stores/sessionStore");
+const { useUiStore } = await import("../stores/uiStore");
 
 const initialMemory = useMemoryStore.getState();
 const initialSessions = useSessionStore.getState();
+const initialUi = useUiStore.getState();
 const agent = session({ kind: "agent", status: "idle", title: "Coder" });
 
 function show(lines: AgentUpdate[], entries: MemoryEntry[] = []) {
   const createEntry = vi.fn().mockResolvedValue(true);
   useMemoryStore.setState({ createEntry, projectId: "p1", entries });
-  useSessionStore.setState({ transcript: { s1: lines } });
+  useUiStore.setState({ transcript: { s1: lines } });
   render(<AgentTranscript session={agent} />);
   return createEntry;
 }
@@ -37,6 +39,7 @@ describe("AgentTranscript memory chip", () => {
     vi.clearAllMocks();
     useMemoryStore.setState(initialMemory, true);
     useSessionStore.setState(initialSessions, true);
+    useUiStore.setState(initialUi, true);
   });
 
   it("calls createEntry with projectId and the named key", async () => {
@@ -109,6 +112,7 @@ describe("AgentTranscript window", () => {
     vi.clearAllMocks();
     useMemoryStore.setState(initialMemory, true);
     useSessionStore.setState(initialSessions, true);
+    useUiStore.setState(initialUi, true);
   });
 
   it("mounts only the newest window of a long transcript", () => {

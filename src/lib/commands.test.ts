@@ -105,6 +105,8 @@ function waitingAgent(withChip: boolean) {
         status: "needs_input",
       }),
     ],
+  });
+  useUiStore.setState({
     permissions: withChip
       ? {
           wait: [
