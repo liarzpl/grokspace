@@ -73,7 +73,12 @@ describe("settings", () => {
   it("report a refused write and change nothing", async () => {
     writeSetting.mockRejectedValue("`9x9` is not one of the values `defaultLayout` can take");
 
-    await useSettingsStore.getState().setSetting("defaultLayout", "9x9");
+    // `9x9` is not a PaneLayout; the assertion is the backend path, which still
+    // has to refuse a value that slipped past a caller TypeScript cannot see.
+    await useSettingsStore.getState().setSetting(
+      "defaultLayout",
+      "9x9" as Settings["defaultLayout"],
+    );
 
     expect(useSettingsStore.getState().settings.defaultLayout).toBe("2x2");
     expect(useSettingsStore.getState().error).toContain("9x9");

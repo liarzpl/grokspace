@@ -18,10 +18,10 @@ import { useTaskStore } from "./stores/taskStore";
 import { useDiffStore } from "./stores/diffStore";
 import { firstSkillError, useSkillStore } from "./stores/skillStore";
 import { useSettingsStore } from "./stores/settingsStore";
-import { TABS, useUiStore } from "./stores/uiStore";
+import { useUiStore } from "./stores/uiStore";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
 import { runGlobalShortcut, shortcutFor } from "./lib/shortcuts";
-import type { PermissionRequest, SessionStatus, AgentUpdateKind } from "./types";
+import { WORKSPACE_TABS, type AgentUpdateKind, type PermissionRequest, type SessionStatus } from "./types";
 
 const dockAttention = createDockTracker();
 
@@ -125,7 +125,7 @@ export default function App() {
       .getState()
       .loadSettings()
       .then((settings) => {
-        if (TABS.some((tab) => tab.id === settings.openingTab)) {
+        if (WORKSPACE_TABS.includes(settings.openingTab)) {
           useUiStore.getState().setTab(settings.openingTab);
         }
       });

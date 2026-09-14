@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import { DEFAULT_TAB, WORKSPACE_TABS, type WorkspaceTab } from "../types";
+
 /**
  * The bits of interface state that more than one component needs.
  *
@@ -11,16 +13,21 @@ import { create } from "zustand";
  * selected all stay where they are: nothing outside their own component asks.
  */
 
-/** The panels the workspace switches between while working. */
-export type WorkspaceTab = "terminals" | "graph" | "tasks" | "memory" | "diff";
+export type { WorkspaceTab };
 
-export const TABS: readonly { id: WorkspaceTab; label: string }[] = [
-  { id: "terminals", label: "Terminals" },
-  { id: "graph", label: "Graph" },
-  { id: "tasks", label: "Tasks" },
-  { id: "memory", label: "Memory" },
-  { id: "diff", label: "Diff" },
-];
+const TAB_LABELS: Record<WorkspaceTab, string> = {
+  terminals: "Terminals",
+  graph: "Graph",
+  tasks: "Tasks",
+  memory: "Memory",
+  diff: "Diff",
+};
+
+/** Labels over the shared tab list; the ids themselves live on `WorkspaceTab`. */
+export const TABS: readonly { id: WorkspaceTab; label: string }[] = WORKSPACE_TABS.map((id) => ({
+  id,
+  label: TAB_LABELS[id],
+}));
 
 interface UiState {
   tab: WorkspaceTab;
@@ -41,7 +48,7 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>((set) => ({
-  tab: "terminals",
+  tab: DEFAULT_TAB,
   isSettingsOpen: false,
   isPaletteOpen: false,
 
