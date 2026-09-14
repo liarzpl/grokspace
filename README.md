@@ -164,6 +164,11 @@ replays the last 20). Nothing is uploaded.
   already lists the folder. GrokSpace does not spawn `grok` or run
   `/hooks-trust`. Use a grok pane if you want grok itself to load project
   hooks. HTTP hooks and a host hook that can block tools are out of scope.
+  Settings → MCP lists servers from grok's local config (`~/.grok/config.toml`,
+  `~/.claude.json`, project `.mcp.json` / `.cursor/mcp.json` / `.grok/config.toml`).
+  **MCP is loaded by grok, not GrokSpace.** An untrusted folder keeps project
+  MCP off. GrokSpace does not spawn MCP servers, fetch a marketplace, or send
+  its own `mcpServers` — ACP `session/new` still passes `[]`.
 - **Attention inbox** — a strip above the workspace lists **Needs you** (an ACP
   agent on `needs_input` or a pending permission), **Review** (idle, with
   approved steps or an isolated worktree), and **Merge** (stopped, isolated, and
@@ -519,6 +524,8 @@ Trust this folder is stored by path in `~/.grokspace`. Forgetting a project
 does not drop trust. Untrusted folders keep setup and project hooks off.
 Settings → Project hooks shows the same host trust (and grok's toml, read-only).
 GrokSpace does not spawn `grok` or write `~/.grok/trusted_folders.toml`.
+Settings → MCP is the same gate for project `.mcp.json`: a read-only list.
+GrokSpace does not start those servers.
 The command is logged (and named in the skip reason). `$GROKSPACE_WORKTREE` is
 the dest; a `worktree-setup` file also gets dest as `$1`. Timeout is two
 minutes. Fail or timeout skips isolation rather than leaving a silent tree.

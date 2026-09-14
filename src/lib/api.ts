@@ -16,6 +16,7 @@ import type {
   PermissionPolicy,
   PermissionPolicyRule,
   Project,
+  McpVisibility,
   ProjectHooksStatus,
   ProjectSettings,
   Session,
@@ -78,6 +79,10 @@ export const api = {
   /** Host trust + hook files + grok toml listing. Does not spawn grok. */
   projectHooksStatus: (id: string): Promise<ProjectHooksStatus> =>
     invoke<ProjectHooksStatus>("project_hooks_status", { id }),
+
+  /** Read-only grok MCP list. Null id = user config only. Does not spawn servers. */
+  mcpVisibility: (id?: string | null): Promise<McpVisibility> =>
+    invoke<McpVisibility>("mcp_visibility", { id: id ?? null }),
 
   listSessions: (projectId: string): Promise<Session[]> =>
     invoke<Session[]>("list_sessions", { projectId }),

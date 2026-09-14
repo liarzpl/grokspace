@@ -52,6 +52,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `project_trust` | Folder trust for setup / project hooks: `unknown` / `denied` / `once` / `folder` |
 | `set_project_trust` | Deny, Trust once, or Trust this folder. Only `folder` is persisted by path in `~/.grokspace` |
 | `project_hooks_status` | Host trust, project hook files, and whether `~/.grok/trusted_folders.toml` lists the folder. Does not spawn grok |
+| `mcp_visibility` | Read-only list of grok MCP servers from local config. Optional project `id`; untrusted folder holds project MCP off. Does not spawn servers or fill `session/new` `mcpServers` |
 
 ### Sessions — `session.rs`
 

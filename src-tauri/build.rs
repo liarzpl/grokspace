@@ -13,6 +13,7 @@ const APP_COMMANDS: &[&str] = &[
     "project_trust",
     "set_project_trust",
     "project_hooks_status",
+    "mcp_visibility",
     "list_sessions",
     "create_session",
     "attach_session",

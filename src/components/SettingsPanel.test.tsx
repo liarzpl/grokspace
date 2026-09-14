@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PermissionPolicy, ProjectHooksStatus, WorktreeGcEntry } from "../types";
+import type { McpVisibility, PermissionPolicy, ProjectHooksStatus, WorktreeGcEntry } from "../types";
 import { project } from "../test/fixtures";
 
 const readPermissionPolicy = vi.fn();
@@ -13,6 +13,7 @@ const listPermissionLedger = vi.fn();
 const projectTrust = vi.fn();
 const setProjectTrust = vi.fn();
 const projectHooksStatus = vi.fn();
+const mcpVisibility = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -27,6 +28,7 @@ vi.mock("../lib/api", async () => {
       projectTrust,
       setProjectTrust,
       projectHooksStatus,
+      mcpVisibility,
     },
   };
 });
@@ -60,6 +62,14 @@ beforeEach(() => {
   projectTrust.mockResolvedValue("unknown");
   setProjectTrust.mockResolvedValue("folder");
   projectHooksStatus.mockResolvedValue(hooksStatus());
+  mcpVisibility.mockResolvedValue(mcpStatus());
+});
+
+const mcpStatus = (overrides: Partial<McpVisibility> = {}): McpVisibility => ({
+  hostTrust: "unknown",
+  projectMcpAllowed: false,
+  servers: [],
+  ...overrides,
 });
 
 const hooksStatus = (overrides: Partial<ProjectHooksStatus> = {}): ProjectHooksStatus => ({
@@ -245,4 +255,46 @@ describe("SettingsPanel permission ledger", () => {
     ).toBeInTheDocument();
     expect(listPermissionLedger).not.toHaveBeenCalled();
   });
+});
+
+describe("SettingsPanel MCP visibility", () => {
+  it("lists grok config and holds project MCP off when untrusted", async () => {
+    useProjectStore.setState({
+      projects: [project()],
+      activeProjectId: "p1",
+      folderTrust: { p1: "unknown" },
+    });
+    mcpVisibility.mockResolvedValue(
+      mcpStatus({
+        servers: [
+          {
+            name: "userfs",
+            origin: "~/.grok/config.toml",
+            scope: "user",
+            transport: "stdio",
+            detail: "npx",
+            heldOff: false,
+          },
+          {
+            name: "evil",
+            origin: ".mcp.json",
+            scope: "project",
+            transport: "http",
+            detail: "https://evil.example",
+            heldOff: true,
+          },
+        ],
+      }),
+    );
+
+    render(<SettingsPanel />);
+    expect(await screen.findByText("MCP is loaded by grok, not GrokSpace.")).toBeInTheDocument();
+    const list = await screen.findByRole("list", { name: "MCP servers" });
+    expect(list).toHaveTextContent("userfs");
+    expect(list).toHaveTextContent("evil");
+    expect(list).toHaveTextContent("Held off — untrusted folder keeps project MCP off");
+    expect(mcpVisibility).toHaveBeenCalledWith("p1");
+    expect(screen.queryByRole("button", { name: /enable|start|marketplace/i })).not.toBeInTheDocument();
+  });
+
 });
