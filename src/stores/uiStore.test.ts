@@ -129,4 +129,16 @@ describe("transcript and permissions", () => {
     expect(useUiStore.getState().permissions["s1"]).toEqual([{ requestId: 1, summary: "x" }]);
     expect(useUiStore.getState().graphSessionId).toBeNull();
   });
+
+  it("keeps snooze beside permissions and does not drop it with pane chrome", () => {
+    useUiStore.getState().setSnooze("s1", 9);
+    useUiStore.getState().replacePermissions({ s1: [{ requestId: 1, summary: "x" }] });
+    useUiStore.getState().resetPaneChrome();
+
+    expect(useUiStore.getState().snoozedUntil).toEqual({ s1: 9 });
+    expect(useUiStore.getState().permissions["s1"]).toEqual([{ requestId: 1, summary: "x" }]);
+
+    useUiStore.getState().dropExpiredSnooze(10);
+    expect(useUiStore.getState().snoozedUntil).toEqual({});
+  });
 });

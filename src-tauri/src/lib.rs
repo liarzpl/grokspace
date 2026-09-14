@@ -18,6 +18,7 @@ mod pty;
 mod session;
 mod settings;
 mod skill;
+mod snooze;
 mod steps;
 mod task;
 mod watch;
@@ -145,6 +146,8 @@ pub fn run() {
             ledger::list_permission_ledger,
             playbook::save_playbook,
             playbook::read_playbook,
+            snooze::read_inbox_snooze,
+            snooze::write_inbox_snooze,
             graph::read_session_graph,
             graph::list_session_graphs,
             graph::watch_project_graphs,

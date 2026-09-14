@@ -65,7 +65,8 @@ function firstFreePane(project: Project): string | undefined {
 function inboxFor(project: Pick<Project, "id">): InboxItem[] {
   const sessions = sessionsForProject(useSessionStore.getState().sessions, project.id);
   const tasks = tasksForProject(useTaskStore.getState().tasks, project.id);
-  return inboxItems(sessions, tasks, useUiStore.getState().permissions, {});
+  const ui = useUiStore.getState();
+  return inboxItems(sessions, tasks, ui.permissions, {}, ui.snoozedUntil);
 }
 
 function firstNeedsYou(project: Pick<Project, "id">): InboxItem | undefined {

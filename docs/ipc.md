@@ -114,6 +114,13 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `write_permission_policy` | Replace that file. Empty patterns, unusable globs, and `*` allow-once-similar are refused |
 | `list_permission_ledger` | Last N answered chips for a project (`~/.grokspace/ledgers/<id>.jsonl`). Missing file is `[]`. No upload |
 
+### Inbox snooze — `snooze.rs`
+
+| Command | What it does |
+| --- | --- |
+| `read_inbox_snooze` | `~/.grokspace/inbox-snooze.json` until timestamps. Missing or junk file is `{}`. Never answers a permission |
+| `write_inbox_snooze` | Replace that file. Path-like session ids are dropped |
+
 ### Handoff — `handoff.rs`
 
 | Command | What it does |
