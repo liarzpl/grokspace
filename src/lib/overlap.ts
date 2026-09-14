@@ -8,6 +8,19 @@ export function overlapsOf(diff: DiffState): PathOverlap[] {
   return [];
 }
 
+/** Paths from a loaded diff that another tree also touched. */
+export function overlapPathsOf(diff: DiffState): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  for (const item of overlapsOf(diff)) {
+    const path = item.path.trim();
+    if (path === "" || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
+}
+
 export function overlapFor(overlaps: PathOverlap[], path: string): PathOverlap | undefined {
   return overlaps.find((item) => item.path === path);
 }
