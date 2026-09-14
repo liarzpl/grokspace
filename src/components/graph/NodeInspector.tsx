@@ -42,7 +42,7 @@ export default function NodeInspector({
       }`}
     >
       <header className="flex items-start gap-2 border-b border-line px-3 py-2.5">
-        <span className={`mt-1.5 size-1.5 shrink-0 rounded-full ${status.dot}`} />
+        <span aria-hidden="true" className={`mt-1.5 size-1.5 shrink-0 rounded-full ${status.dot}`} />
         <div className="min-w-0 flex-1">
           <h3 className="text-[13px] font-semibold tracking-tight break-words">{node.label}</h3>
           <p className="mt-0.5 font-mono text-[10px] text-ink-faint">

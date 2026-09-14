@@ -1,5 +1,5 @@
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -11,11 +11,12 @@ import {
 } from "@xyflow/react";
 
 import { errorMessage } from "../lib/api";
-import { inferDirection, type GraphDocument } from "../lib/graph";
+import { inferDirection, type GraphDocument, type GraphNode } from "../lib/graph";
 import { prefersReducedMotion } from "../lib/motion";
 import { askForGraph, canAskForGraph } from "../lib/graphAsk";
 import { openArtifactInDiff } from "../lib/graphArtifact";
 import { homeRelative } from "../lib/paths";
+import { graphNodeA11yLabel, nodeStatusLabel } from "../lib/statusText";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type { Session } from "../types";
@@ -157,6 +158,87 @@ function UnreadableGraph({ error, path }: { error: string; path: string }) {
   );
 }
 
+/**
+ * Keyboard path into the inspector (A11Y-005). The canvas is pointer-first;
+ * this list (or the compact <select>) is what Tab can actually operate.
+ */
+function GraphNodePicker({
+  nodes,
+  selectedId,
+  onSelect,
+  compact,
+}: {
+  nodes: GraphNode[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  compact: boolean;
+}) {
+  const selectId = useId();
+
+  if (compact) {
+    return (
+      <div className="shrink-0 border-b border-line bg-panel px-2 py-1">
+        <label htmlFor={selectId} className="sr-only">
+          Graph nodes
+        </label>
+        <select
+          id={selectId}
+          value={selectedId ?? ""}
+          onChange={(event) => onSelect(event.target.value === "" ? null : event.target.value)}
+          className="w-full bg-transparent text-[11px] text-ink"
+        >
+          <option value="">Select a node</option>
+          {nodes.map((node) => (
+            <option key={node.id} value={node.id}>
+              {graphNodeA11yLabel(node)}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  return (
+    <nav
+      aria-label="Graph nodes"
+      className="flex w-44 shrink-0 flex-col overflow-y-auto border-r border-line bg-panel"
+    >
+      <p className="px-2 pt-2 pb-1 text-[10px] font-semibold tracking-wider text-ink-faint uppercase">
+        Nodes
+      </p>
+      {nodes.length === 0 ? (
+        <p className="px-2 text-[11px] text-ink-faint">No nodes</p>
+      ) : (
+        <ul className="flex flex-col px-1 pb-1">
+          {nodes.map((node) => {
+            const selected = node.id === selectedId;
+            return (
+              <li key={node.id}>
+                <button
+                  type="button"
+                  aria-current={selected ? "true" : undefined}
+                  aria-label={graphNodeA11yLabel(node)}
+                  onClick={() => onSelect(selected ? null : node.id)}
+                  className={`flex w-full items-center gap-1.5 rounded-sm px-1.5 py-1 text-left text-[11px] ${
+                    selected
+                      ? "bg-accent-soft text-ink"
+                      : "text-ink-muted hover:bg-elevated hover:text-ink"
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{node.label}</span>
+                  <span className="shrink-0 font-mono text-[9px] text-ink-muted">
+                    {nodeStatusLabel(node.status)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </nav>
+  );
+}
+
 function GraphCanvas({
   graph,
   warnings,
@@ -196,6 +278,7 @@ function GraphCanvas({
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
         data: { node, direction },
+        ariaLabel: graphNodeA11yLabel(node),
       })),
     [graph.nodes, direction],
   );
@@ -233,7 +316,23 @@ function GraphCanvas({
 
   return (
     <div className="relative flex min-h-0 flex-1">
+      {!compact && (
+        <GraphNodePicker
+          nodes={graph.nodes}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          compact={false}
+        />
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
+        {compact && (
+          <GraphNodePicker
+            nodes={graph.nodes}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            compact
+          />
+        )}
         <div className="relative min-h-0 flex-1">
           {/* Absolute fill: React Flow needs a parent it can measure. */}
           <div className="absolute inset-0">
@@ -348,7 +447,18 @@ export default function GraphVisualizer({
   if (entry.error !== null) return <UnreadableGraph error={entry.error} path={entry.path} />;
   if (entry.graph === null) {
     // Saying "no graph" before the first read has finished would be a guess.
-    if (entry.isLoading) return <div className="min-h-0 flex-1" />;
+    if (entry.isLoading) {
+      return (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center"
+          role="status"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          <p className="text-[12px] text-ink-muted">Reading graph…</p>
+        </div>
+      );
+    }
     return <AwaitingGraph session={session} path={entry.path} />;
   }
 

@@ -5,6 +5,7 @@ import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions";
+import { sessionChipA11yLabel, sessionStatusPhrase } from "../lib/statusText";
 import { moveSegmented } from "../lib/segmented";
 import {
   scheduleIdle,
@@ -147,13 +148,17 @@ const SessionChip = memo(function SessionChip({
         aria-pressed={active}
         onClick={onClick}
         title={entry.graph?.name ?? "No graph yet"}
+        aria-label={sessionChipA11yLabel(sessionLabel(session), session.status, {
+          error: entry.error !== null,
+          ...(status !== undefined ? { status } : {}),
+        })}
         className="flex items-center gap-1.5 px-1"
       >
-        <span className={`size-1.5 shrink-0 rounded-full ${tone}`} />
+        <span aria-hidden="true" className={`size-1.5 shrink-0 rounded-full ${tone}`} />
         <span className="max-w-40 truncate">{sessionLabel(session)}</span>
-        {session.kind === "agent" && (
-          <span className="shrink-0 font-mono text-[10px] text-ink-faint">{session.status}</span>
-        )}
+        <span className="shrink-0 font-mono text-[10px] text-ink-faint">
+          {sessionStatusPhrase(session.status)}
+        </span>
         {isUnisolatedAgent(session) && (
           <span
             title={isolationNotice(session, isolationReason)}

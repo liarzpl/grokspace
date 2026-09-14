@@ -14,7 +14,7 @@ export function StatusDot({
   status: SessionStatus;
   title?: string;
 }) {
-  return <span title={title} className={statusDotClass(status)} />;
+  return <span title={title} aria-hidden="true" className={statusDotClass(status)} />;
 }
 
 export function QuietButton({

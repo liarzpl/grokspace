@@ -10,6 +10,7 @@ import {
 import { isKeyboardClick } from "../lib/keyboardClick";
 import { ROLES, rolesInPlay } from "../lib/roles";
 import { sessionsWithSteps, stepProgress } from "../lib/steps";
+import { sessionStatusPhrase } from "../lib/statusText";
 import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
@@ -260,17 +261,18 @@ function TaskCard({
       )}
 
       {assigned !== undefined && (
-        <p className="mt-1.5 flex items-center gap-1 text-[10px] text-ink-muted">
+        <p
+          className="mt-1.5 flex items-center gap-1 text-[10px] text-ink-muted"
+          aria-label={`${targetLabel({ kind: "session", session: assigned })}, ${sessionStatusPhrase(assigned.status)}`}
+        >
           <StatusDot status={assigned.status} />
           <span className="min-w-0 truncate">
             {targetLabel({ kind: "session", session: assigned })}
           </span>
           <CardStepTally sessionId={assigned.id} />
-          {/* Only an agent has anything to add: a terminal reports `running` and
-              nothing else, so naming it would be noise on every card. */}
-          {assigned.kind === "agent" && (
-            <span className="shrink-0 font-mono text-ink-faint">{assigned.status}</span>
-          )}
+          <span className="shrink-0 font-mono text-ink-faint">
+            {sessionStatusPhrase(assigned.status)}
+          </span>
         </p>
       )}
 
