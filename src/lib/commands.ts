@@ -21,6 +21,7 @@ import { tasksForProject, useTaskStore } from "../stores/taskStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
 import { errorMessage } from "./api";
+import { exportHandoffPack } from "./handoffPack";
 import { inboxItems, type InboxItem } from "./inboxItems";
 import { FALLBACK_PTY_SIZE } from "./limits";
 import { ALLOW_ONCE, REJECT_ONCE, permissionChips } from "./permissions";
@@ -393,6 +394,19 @@ export function commands(project: Project | null): Command[] {
       run: () => {
         useUiStore.getState().closePalette();
         void useSessionStore.getState().closeSession(session.id);
+      },
+    });
+  }
+
+  for (const session of sessionsForProject(useSessionStore.getState().sessions, project.id)) {
+    const title = session.title ?? "Session";
+    list.push({
+      id: `export-pack-${session.id}`,
+      label: `Export pack for ${title}`,
+      group: "Session",
+      run: () => {
+        useUiStore.getState().closePalette();
+        void exportHandoffPack(session.id);
       },
     });
   }

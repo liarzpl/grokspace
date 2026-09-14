@@ -44,6 +44,7 @@
     "allow-project-diff",
     "allow-file-diff",
     "allow-reveal-artifact",
+    "allow-export-session-pack",
     "allow-read-settings",
     "allow-write-setting",
     "allow-read-permission-policy",

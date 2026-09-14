@@ -283,6 +283,13 @@ export const api = {
   /** Installs, or refreshes, a bundled skill so `grok` can see it. */
   installSkill: (id: string): Promise<SkillStatus> => invoke<SkillStatus>("install_skill", { id }),
 
+  /**
+   * Writes a handoff folder for one session. The destination is a native folder
+   * picker — the webview cannot supply a path. Cancel is `null`.
+   */
+  exportSessionPack: (sessionId: string, transcript: string): Promise<string | null> =>
+    invoke<string | null>("export_session_pack", { sessionId, transcript }),
+
   /** Reads the graph file belonging to one session, whether or not it exists. */
   readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>
     invoke<GraphSnapshot>("read_session_graph", { sessionId }),

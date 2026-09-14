@@ -92,7 +92,7 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   starts that role (or prompts an idle one) with the source graph path (read-only),
   approved step titles, and a ≤2 KiB transcript excerpt; the source is left idle.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
-  launches, Hand to Coder/Reviewer, project switches, skill installs, Merge for a stopped isolated
+  launches, Hand to Coder/Reviewer, Export pack for a session, project switches, skill installs, Merge for a stopped isolated
   agent, Allow first wait, and Jump to first Needs you from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
   and can refresh that list; there is no remote catalog. "Install or refresh

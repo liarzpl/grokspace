@@ -109,6 +109,12 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `read_permission_policy` | User `~/.grokspace/permission-policy.json` (missing file is empty rules) |
 | `write_permission_policy` | Replace that file. Empty patterns, unusable globs, and `*` allow-once-similar are refused |
 
+### Handoff — `handoff.rs`
+
+| Command | What it does |
+| --- | --- |
+| `export_session_pack` | Native folder picker; writes `graph.json`, `steps.json`, `memory.md`, capped `transcript.md`, `changes.patch`, and `ledger-tail.jsonl` when that file exists. Cancel is `null`. `.env` and `worktreeinclude` stay out of the pack. Import is not this command |
+
 ### Graphs — `graph.rs`
 
 | Command | What it does |
