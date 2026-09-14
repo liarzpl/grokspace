@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
+import { isKeyboardClick } from "../lib/keyboardClick";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import {
   attachTerminal,
@@ -228,7 +229,17 @@ export default function TerminalPane({
           <button
             type="button"
             onDoubleClick={() => session && setRenaming(true)}
-            title={session ? "Double-click to rename" : undefined}
+            onClick={(event) => {
+              if (session && isKeyboardClick(event)) setRenaming(true);
+            }}
+            onKeyDown={(event) => {
+              if (session && event.key === "F2") {
+                event.preventDefault();
+                setRenaming(true);
+              }
+            }}
+            aria-label={session ? `Rename ${session.title ?? `pane ${Number(paneId) + 1}`}` : undefined}
+            title={session ? "Rename (Enter or F2). Double-click also works." : undefined}
             className="min-w-0 flex-1 truncate text-left text-[11px] font-medium text-ink-muted"
           >
             {session?.title ?? `Pane ${Number(paneId) + 1}`}

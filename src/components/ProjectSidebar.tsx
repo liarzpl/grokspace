@@ -59,6 +59,12 @@ export default function ProjectSidebar() {
                   type="button"
                   onClick={() => void selectProject(project.id)}
                   onDoubleClick={() => setEditingId(project.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "F2") {
+                      event.preventDefault();
+                      setEditingId(project.id);
+                    }
+                  }}
                   className={`w-full rounded-md px-2 py-1.5 text-left transition-colors ${
                     isActive
                       ? "bg-accent-soft text-ink inset-ring-1 inset-ring-accent/30"
@@ -79,16 +85,28 @@ export default function ProjectSidebar() {
                       className="w-full rounded-sm border border-accent bg-canvas px-1 py-0.5 text-[13px] text-ink outline-none selectable"
                     />
                   ) : (
-                    <span className="block truncate text-[13px] font-medium">{project.name}</span>
+                    <span className="block truncate pr-10 text-[13px] font-medium">{project.name}</span>
                   )}
                   <span
                     title={project.path}
-                    className="mt-0.5 block truncate pr-5 font-mono text-[10px] text-ink-faint"
+                    className="mt-0.5 block truncate pr-10 font-mono text-[10px] text-ink-faint"
                   >
                     {homeRelative(project.path)}
                   </span>
                 </button>
 
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditingId(project.id);
+                  }}
+                  title="Rename"
+                  aria-label={`Rename ${project.name}`}
+                  className="absolute top-1.5 right-6 flex size-5 items-center justify-center rounded-sm text-[10px] text-ink-faint hover:bg-line-strong hover:text-ink"
+                >
+                  ✎
+                </button>
                 <button
                   type="button"
                   onClick={() => void forgetProject(project.id)}
