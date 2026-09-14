@@ -361,10 +361,10 @@ Putting trees under `~/.grokspace` would not.
 GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
 every extra flag is a way for a session to fail to start, which is the same
 reason graphs, memory, and roles stay out of flags. Missing git, a folder that
-  is not a repository, or a failed `worktree add` all mean the agent starts in the
-  project folder with no `worktree_path`, rather than refusing to start. The UI
-  says so in an isolation banner (and on the session chip): isolation did not
-  happen, and the agent is on the project tree.
+is not a repository, or a failed `worktree add` refuse to start unless the
+caller confirms working on the project tree (`allowUnisolated`). The UI says so
+in an isolation banner (and on the session chip): isolation did not happen, and
+a confirmed agent is on the project tree.
 
 `GROKSPACE_PROJECT_DIR`, `GROKSPACE_GRAPH_FILE`, `GROKSPACE_STEPS_FILE`, and
 `GROKSPACE_MEMORY_FILE` stay pointed at the **project**. `GROKSPACE_WORKTREE` is

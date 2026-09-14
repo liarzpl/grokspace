@@ -60,6 +60,8 @@ export const api = {
     role?: string;
     cols: number;
     rows: number;
+    /** Confirm starting an agent on the project tree when isolation skipped. */
+    allowUnisolated?: boolean;
   }): Promise<Session> =>
     invoke<Session>("create_session", { session: { ...input, role: input.role ?? null } }),
 

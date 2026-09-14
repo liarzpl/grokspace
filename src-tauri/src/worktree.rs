@@ -7,11 +7,11 @@
 //! Every extra flag is a way for a session to fail to start on a `grok` that does
 //! not recognise it — the same reason graphs, memory, and roles stay out of flags.
 //!
-//! Isolation is best-effort. Missing git, a folder that is not a repository, or a
-//! `worktree add` that fails all mean the agent starts in the project folder with
-//! no `worktree_path`, rather than refusing to start at all. The miss is a skip
-//! with a reason: silent `None` is how an agent ends up writing on the project
-//! tree without anyone being told.
+//! Isolation is fail-closed at start. Missing git, a folder that is not a
+//! repository, or a `worktree add` that fails is a skip with a reason. `start`
+//! refuses that skip unless the caller confirms working on the project tree.
+//! Silent `None` is how an agent would write on the project tree without anyone
+//! being told; a skip is never silent.
 //!
 //! Merge commits leftover files on the session branch, then merges that branch
 //! into the project. The worktree is left for the caller to remove.
