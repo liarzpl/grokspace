@@ -47,7 +47,9 @@ pub enum MemoryEntryType {
 }
 
 impl MemoryEntryType {
-    fn as_str(self) -> &'static str {
+    pub(crate) const ALL: [Self; 4] = [Self::Note, Self::Decision, Self::Context, Self::Artifact];
+
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Note => "note",
             Self::Decision => "decision",
@@ -60,12 +62,10 @@ impl MemoryEntryType {
     /// least. The schema constrains the column, so a surprise here means someone
     /// edited the database by hand.
     fn parse(value: &str) -> Self {
-        match value {
-            "decision" => Self::Decision,
-            "context" => Self::Context,
-            "artifact" => Self::Artifact,
-            _ => Self::Note,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::Note)
     }
 
     /// The order the projection reads in: what the project is, then what was

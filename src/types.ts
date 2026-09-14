@@ -1,7 +1,42 @@
 /**
  * Mirrors the Rust structs in `src-tauri/src/`, which serialize as camelCase.
  * New fields land here beside the Rust type rather than as a second model.
+ *
+ * Enum string lists come from `generated/domain.ts`, which `src-tauri/src/domain.rs`
+ * emits. The comments stay here; the allowed values do not.
  */
+
+import {
+  DEFAULT_DISPATCH,
+  DEFAULT_LAYOUT,
+  DEFAULT_TAB,
+  DISPATCH_TARGETS,
+  MEMORY_ENTRY_TYPES,
+  PANE_LAYOUTS,
+  SESSION_KINDS,
+  SESSION_STATUSES,
+  STEP_ORIGINS,
+  STEP_STATUSES,
+  STEPS_PHASES,
+  TASK_STATUSES,
+  WORKSPACE_TABS,
+} from "./generated/domain";
+
+export {
+  DEFAULT_DISPATCH,
+  DEFAULT_LAYOUT,
+  DEFAULT_TAB,
+  DISPATCH_TARGETS,
+  MEMORY_ENTRY_TYPES,
+  PANE_LAYOUTS,
+  SESSION_KINDS,
+  SESSION_STATUSES,
+  STEP_ORIGINS,
+  STEP_STATUSES,
+  STEPS_PHASES,
+  TASK_STATUSES,
+  WORKSPACE_TABS,
+};
 
 /** Per-project prefs. Only known keys; a typo must not persist as a silent fallback. */
 export interface ProjectSettings {
@@ -18,7 +53,7 @@ export interface Project {
   createdAt: number;
 }
 
-export type TaskStatus = "backlog" | "in_progress" | "review" | "done";
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Task {
   id: string;
@@ -38,14 +73,14 @@ export interface Task {
  * reachable for an `agent`, which GrokSpace drives over ACP — see
  * docs/grok-cli-integration.md for why those cannot be the same session.
  */
-export type SessionStatus = "idle" | "running" | "needs_input" | "stopped";
+export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 /**
  * `grok` runs an agent as a terminal, `shell` the user's login shell, and `agent`
  * the same Grok Build over ACP with no terminal at all — which is what buys the
  * richer status. An agent holds no pane.
  */
-export type SessionKind = "grok" | "shell" | "agent";
+export type SessionKind = (typeof SESSION_KINDS)[number];
 
 /** One choice the agent listed on a permission request. */
 export interface PermissionOption {
@@ -109,12 +144,12 @@ export interface AgentUpdate {
  * One item on a session's working list. Distinct from a board `Task`: these are
  * the breakdown the agent proposes for this run, not cards you dispatch.
  */
-export type StepStatus = "pending" | "doing" | "done" | "skipped";
+export type StepStatus = (typeof STEP_STATUSES)[number];
 
 /** Whether the list is still being edited, or locked after Approve. */
-export type StepsPhase = "none" | "proposed" | "approved";
+export type StepsPhase = (typeof STEPS_PHASES)[number];
 
-export type StepOrigin = "agent" | "user";
+export type StepOrigin = (typeof STEP_ORIGINS)[number];
 
 export interface SessionStep {
   id: string;
@@ -202,17 +237,9 @@ export type DiffState =
  * is this same list: a preference that named a sixth panel would be a control
  * that cannot open anything.
  */
-export const WORKSPACE_TABS = ["terminals", "graph", "tasks", "memory", "diff"] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 export type OpeningTab = WorkspaceTab;
-
-export const DEFAULT_TAB: OpeningTab = "terminals";
-
-/** Which new session a dispatch reaches for first. */
-export const DISPATCH_TARGETS = ["pane", "agent"] as const;
 export type DispatchTarget = (typeof DISPATCH_TARGETS)[number];
-
-export const DEFAULT_DISPATCH: DispatchTarget = "pane";
 
 /**
  * Preferences that belong to the app rather than to one project. Missing keys read
@@ -244,25 +271,14 @@ export interface SkillStatus {
 }
 
 /** Grid presets, named columns-by-rows. Freeform splits are a later phase. */
-export type PaneLayout = "1x1" | "2x1" | "2x2" | "3x2";
-
-export const PANE_LAYOUTS: readonly PaneLayout[] = ["1x1", "2x1", "2x2", "3x2"];
-
-/**
- * The layout a project falls back to when nothing else has an opinion.
- *
- * Both the frontend's settings store and `settings.rs` name the same value, and this
- * is the third place it appears — kept because the fallback chain has to end
- * somewhere that does not depend on a preference having loaded.
- */
-export const DEFAULT_LAYOUT: PaneLayout = "2x2";
+export type PaneLayout = (typeof PANE_LAYOUTS)[number];
 
 export function paneCount(layout: PaneLayout): number {
   const [cols, rows] = layout.split("x").map(Number);
   return (cols ?? 1) * (rows ?? 1);
 }
 
-export type MemoryEntryType = "note" | "decision" | "context" | "artifact";
+export type MemoryEntryType = (typeof MEMORY_ENTRY_TYPES)[number];
 
 export interface MemoryEntry {
   projectId: string;

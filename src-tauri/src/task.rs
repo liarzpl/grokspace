@@ -35,7 +35,9 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
-    fn as_str(self) -> &'static str {
+    pub(crate) const ALL: [Self; 4] = [Self::Backlog, Self::InProgress, Self::Review, Self::Done];
+
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Backlog => "backlog",
             Self::InProgress => "in_progress",
@@ -48,12 +50,10 @@ impl TaskStatus {
     /// by the schema, so a surprise here means a hand-edited database, and the
     /// leftmost column is where a task is easiest to notice and put right.
     fn parse(value: &str) -> Self {
-        match value {
-            "in_progress" => Self::InProgress,
-            "review" => Self::Review,
-            "done" => Self::Done,
-            _ => Self::Backlog,
-        }
+        Self::ALL
+            .into_iter()
+            .find(|item| item.as_str() == value)
+            .unwrap_or(Self::Backlog)
     }
 }
 

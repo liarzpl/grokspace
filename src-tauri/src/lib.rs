@@ -1,6 +1,8 @@
 mod acp;
 mod db;
 mod diff;
+#[cfg(test)]
+mod domain;
 mod error;
 mod graph;
 mod memory;
