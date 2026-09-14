@@ -37,6 +37,11 @@ jobs:
 
       - run: npm ci
 
+      # Production tree only. Dev-only advisories (Vitest mocker) are lock-fixed
+      # separately; this keeps a shipped-DMG regression from landing silent.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
       # `npm run build` is `tsc --noEmit && vite build`, so this is the type check
       # as well as the bundle.
       - name: Type-check and build
