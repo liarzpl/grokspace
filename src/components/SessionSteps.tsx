@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { errorMessage } from "../lib/api";
+import { isKeyboardClick } from "../lib/keyboardClick";
 import {
   canApproveSteps,
   MAX_STEPS,
@@ -92,17 +93,28 @@ function StepRow({
           className="selectable min-w-0 flex-1 rounded-sm border border-accent bg-canvas px-1 py-0.5 text-[11px] text-ink focus:outline-none"
         />
       ) : (
-        <p
+        <button
+          type="button"
           onDoubleClick={() => setEditing(step.title)}
-          title="Double-click to rename"
-          className={`min-w-0 flex-1 text-[11px] leading-snug ${
+          onClick={(event) => {
+            if (isKeyboardClick(event)) setEditing(step.title);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "F2") {
+              event.preventDefault();
+              setEditing(step.title);
+            }
+          }}
+          aria-label={`Rename step: ${step.title}`}
+          title="Rename (Enter or F2). Double-click also works."
+          className={`min-w-0 flex-1 text-left text-[11px] leading-snug ${
             step.status === "done" || step.status === "skipped"
               ? "text-ink-faint line-through"
               : "text-ink"
           }`}
         >
           {step.title}
-        </p>
+        </button>
       )}
 
       <div className="flex shrink-0 items-center">
@@ -118,6 +130,7 @@ function StepRow({
           disabled={index >= total - 1}
           onClick={() => move(1)}
         />
+        <QuietButton label="Edit" title="Rename this step" onClick={() => setEditing(step.title)} />
         <QuietButton
           label="Skip"
           disabled={step.status === "skipped"}

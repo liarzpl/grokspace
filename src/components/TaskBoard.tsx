@@ -7,6 +7,7 @@ import {
   targetLabel,
   type DispatchTarget,
 } from "../lib/dispatch";
+import { isKeyboardClick } from "../lib/keyboardClick";
 import { ROLES, rolesInPlay } from "../lib/roles";
 import { sessionsWithSteps, stepProgress } from "../lib/steps";
 import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
@@ -198,13 +199,24 @@ function TaskCard({
           className="selectable w-full rounded-sm border border-accent bg-canvas px-1 py-0.5 text-[11px] text-ink focus:outline-none"
         />
       ) : (
-        <p
+        <button
+          type="button"
           onDoubleClick={() => setEditing(task.title)}
-          title="Double-click to rename"
-          className="text-[11px] leading-snug text-ink"
+          onClick={(event) => {
+            if (isKeyboardClick(event)) setEditing(task.title);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "F2") {
+              event.preventDefault();
+              setEditing(task.title);
+            }
+          }}
+          aria-label={`Rename task: ${task.title}`}
+          title="Rename (Enter or F2). Double-click also works."
+          className="block w-full text-left text-[11px] leading-snug text-ink"
         >
           {task.title}
-        </p>
+        </button>
       )}
 
       {editingDesc !== null ? (
@@ -222,13 +234,24 @@ function TaskCard({
           className="selectable mt-1 w-full rounded-sm border border-accent bg-canvas px-1 py-0.5 text-[10px] text-ink focus:outline-none"
         />
       ) : (
-        <p
+        <button
+          type="button"
           onDoubleClick={() => setEditingDesc(task.description ?? "")}
-          title="Double-click to edit description"
-          className="mt-1 line-clamp-2 text-[10px] leading-snug text-ink-faint"
+          onClick={(event) => {
+            if (isKeyboardClick(event)) setEditingDesc(task.description ?? "");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "F2") {
+              event.preventDefault();
+              setEditingDesc(task.description ?? "");
+            }
+          }}
+          aria-label={`Edit description: ${task.title}`}
+          title="Edit description (Enter or F2). Double-click also works."
+          className="mt-1 line-clamp-2 w-full text-left text-[10px] leading-snug text-ink-faint"
         >
           {task.description ?? "Add description…"}
-        </p>
+        </button>
       )}
 
       {assigned !== undefined && (
@@ -294,6 +317,7 @@ function TaskCard({
 
         <div className="flex-1" />
 
+        <QuietButton label="Rename" onClick={() => setEditing(task.title)} />
         <QuietButton
           label={busy ? "Dispatching…" : choosing ? "Cancel" : "Dispatch"}
           disabled={busy}
