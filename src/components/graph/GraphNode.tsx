@@ -34,11 +34,11 @@ export const NODE_HEIGHT = 60;
 const TYPE_META: Record<GraphNodeType, { badge: string; accent: string }> = {
   orchestrator: { badge: "ORCH", accent: "text-accent" },
   agent: { badge: "AGENT", accent: "text-ink-muted" },
-  "parallel-group": { badge: "PAR", accent: "text-cyan-300" },
-  arena: { badge: "ARENA", accent: "text-fuchsia-300" },
+  "parallel-group": { badge: "PAR", accent: "text-ansi-cyan" },
+  arena: { badge: "ARENA", accent: "text-ansi-magenta" },
   verifier: { badge: "VERIFY", accent: "text-success" },
   "human-gate": { badge: "GATE", accent: "text-warning" },
-  synthesizer: { badge: "SYNTH", accent: "text-indigo-300" },
+  synthesizer: { badge: "SYNTH", accent: "text-ansi-bright-blue" },
   tool: { badge: "TOOL", accent: "text-ink-faint" },
 };
 
@@ -47,6 +47,7 @@ export const STATUS_META: Record<NodeStatus, { label: string; border: string; do
   running: { label: "Running", border: "border-accent animate-node-pulse", dot: "bg-accent" },
   completed: { label: "Completed", border: "border-success/60", dot: "bg-success" },
   failed: { label: "Failed", border: "border-danger/70", dot: "bg-danger" },
+  // Quieter border/dot, not a faded card: fading the label failed AA.
   skipped: { label: "Skipped", border: "border-line", dot: "bg-ink-faint" },
 };
 
@@ -70,9 +71,7 @@ export default function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNod
           // A gate is the one node type that stops and waits for a person, so it
           // reads as an interruption rather than as work in progress.
           node.type === "human-gate" ? "border-dashed" : ""
-        } ${node.status === "skipped" ? "opacity-45" : ""} ${
-          selected ? "ring-1 ring-accent" : ""
-        }`}
+        } ${selected ? "ring-1 ring-accent" : ""}`}
       >
         <div className="flex items-center gap-1.5">
           <span className={`size-1.5 shrink-0 rounded-full ${status.dot}`} />

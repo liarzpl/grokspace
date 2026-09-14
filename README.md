@@ -233,8 +233,10 @@ Colour works the same way. Every value the app draws is declared in
 [`src/styles.css`](src/styles.css), including the sixteen ANSI colours a terminal
 paints with. Two places cannot use Tailwind classes — xterm takes a theme object and
 React Flow takes props — so [`src/lib/theme.ts`](src/lib/theme.ts) reads the tokens
-back out of the stylesheet rather than keeping a second copy. Adding a light theme is
-a second block in one file.
+back out of the stylesheet rather than keeping a second copy. ErrorBoundary is the
+exception: it paints inline from a fallback map in that file so a missing stylesheet
+still matches the palette, and a test locks the map to `@theme`. Adding a light theme
+is a second block in one file.
 
 ### How terminals work
 
