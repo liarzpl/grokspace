@@ -1,6 +1,7 @@
-# Pin to the Cargo.toml MSRV (1.85). The tree uses edition 2024, so older
-# rustcs fail with an error that does not name the cause. Floating `stable`
-# can also break clippy `-D warnings` without a lockfile change.
+# Pin rustup to the lockfile MSRV (1.88). Edition 2024 needs ≥1.85; current
+# Cargo.lock crates (darling, icu_*, time, serde_with, plist) need ≥1.88.
+# Do not float `stable` — a new rustc can break clippy `-D warnings`
+# without a lockfile change.
 [toolchain]
-channel = "1.85"
+channel = "1.88"
 components = ["clippy", "rustfmt"]

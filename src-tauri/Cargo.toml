@@ -5,7 +5,7 @@ description = "Local-first macOS multi-agent coding workspace powered by Grok Bu
 authors = ["GrokSpace"]
 license = "MIT"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [lib]
 name = "grokspace_lib"
