@@ -17,6 +17,7 @@ const settings = (overrides: Partial<Settings> = {}): Settings => ({
   openingTab: "terminals",
   defaultDispatch: "pane",
   runWorktreeSetup: "off",
+  inboxZeroGate: "off",
   ...overrides,
 });
 
@@ -31,6 +32,7 @@ describe("settings", () => {
   it("start at the defaults, so nothing has to guard the moment before they load", () => {
     expect(useSettingsStore.getState().settings).toEqual(settings());
     expect(useSettingsStore.getState().settings.runWorktreeSetup).toBe("off");
+    expect(useSettingsStore.getState().settings.inboxZeroGate).toBe("off");
   });
 
   it("take what the backend reports", async () => {
@@ -79,6 +81,15 @@ describe("settings", () => {
 
     expect(writeSetting).toHaveBeenCalledWith("runWorktreeSetup", "on");
     expect(useSettingsStore.getState().settings.runWorktreeSetup).toBe("on");
+  });
+
+  it("writes the inbox-zero gate on only when asked, and starts off", async () => {
+    writeSetting.mockResolvedValue(settings({ inboxZeroGate: "on" }));
+
+    await useSettingsStore.getState().setSetting("inboxZeroGate", "on");
+
+    expect(writeSetting).toHaveBeenCalledWith("inboxZeroGate", "on");
+    expect(useSettingsStore.getState().settings.inboxZeroGate).toBe("on");
   });
 
   it("report a refused write and change nothing", async () => {

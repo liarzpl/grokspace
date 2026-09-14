@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { project, task } from "../test/fixtures";
+import { project, session, task } from "../test/fixtures";
 
 vi.mock("../lib/terminals", () => import("../test/terminalsMock"));
 
@@ -17,6 +17,8 @@ vi.mock("./PermissionActions", () => ({
 const updateTask = vi.fn();
 const listTasks = vi.fn();
 const createSession = vi.fn();
+const dispatchTask = vi.fn();
+const promptSession = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -27,7 +29,8 @@ vi.mock("../lib/api", async () => {
       listTasks,
       listSessions: vi.fn(),
       createSession,
-      promptSession: vi.fn(),
+      dispatchTask,
+      promptSession,
     },
   };
 });
@@ -35,13 +38,17 @@ vi.mock("../lib/api", async () => {
 const { default: TaskBoard } = await import("./TaskBoard");
 const { default: IsolationConfirm } = await import("./IsolationConfirm");
 const { useSessionStore } = await import("../stores/sessionStore");
+const { useSettingsStore } = await import("../stores/settingsStore");
 const { useTaskStore } = await import("../stores/taskStore");
+const { useUiStore } = await import("../stores/uiStore");
 
 const ISOLATION_ERR =
   "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
 
 const initialTasks = useTaskStore.getState();
 const initialSessions = useSessionStore.getState();
+const initialSettings = useSettingsStore.getState();
+const initialUi = useUiStore.getState();
 
 /** jsdom will not invent a DataTransfer; the card writes the id even though drop reads React state. */
 function transfer(): DataTransfer {
@@ -71,6 +78,8 @@ describe("TaskBoard drag and drop", () => {
     useSessionStore.getState().cancelUnisolatedStart();
     useTaskStore.setState(initialTasks, true);
     useSessionStore.setState(initialSessions, true);
+    useSettingsStore.setState(initialSettings, true);
+    useUiStore.setState(initialUi, true);
     updateTask.mockImplementation(async (id: string, changes: { status?: string }) => {
       const current = useTaskStore.getState().tasks.find((row) => row.id === id);
       if (current === undefined) throw new Error(`missing task ${id}`);
@@ -129,6 +138,8 @@ describe("TaskBoard swarm isolation", () => {
     useSessionStore.getState().cancelUnisolatedStart();
     useTaskStore.setState(initialTasks, true);
     useSessionStore.setState(initialSessions, true);
+    useSettingsStore.setState(initialSettings, true);
+    useUiStore.setState(initialUi, true);
   });
 
   it("opens a confirm dialog instead of a raw isolation banner", async () => {
@@ -149,5 +160,63 @@ describe("TaskBoard swarm isolation", () => {
     expect(useSessionStore.getState().error).toBeNull();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
+    useSessionStore.getState().cancelUnisolatedStart();
+  });
+});
+
+describe("TaskBoard inbox-zero gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSessionStore.getState().cancelUnisolatedStart();
+    useTaskStore.setState(initialTasks, true);
+    useSessionStore.setState(initialSessions, true);
+    useSettingsStore.setState(initialSettings, true);
+    useUiStore.setState(initialUi, true);
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    promptSession.mockResolvedValue(undefined);
+    createSession.mockResolvedValue(
+      session({ id: "a1", kind: "agent", paneId: null, status: "idle" }),
+    );
+  });
+
+  function waitingInbox() {
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [session({ id: "wait", kind: "agent", paneId: null, status: "running" })],
+    });
+    useUiStore.setState({
+      permissions: { wait: [{ requestId: 1, summary: "Edit src/a.ts" }] },
+    });
+  }
+
+  it("disables dispatch while Needs you is waiting and the gate is on", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },
+    });
+    waitingInbox();
+    render(<TaskBoard project={project()} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Needs you is waiting");
+    expect(screen.getByRole("button", { name: "Dispatch" })).toBeDisabled();
+    expect(dispatchTask).not.toHaveBeenCalled();
+  });
+
+  it("hands the card out after typing dispatch anyway", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },
+    });
+    waitingInbox();
+    render(<TaskBoard project={project()} />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Type dispatch anyway to hand out a card" }), {
+      target: { value: "dispatch anyway" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dispatch" }));
+    fireEvent.click(screen.getByRole("button", { name: "New agent" }));
+
+    await waitFor(() => {
+      expect(dispatchTask).toHaveBeenCalledWith("t1", "a1");
+    });
+    expect(createSession).toHaveBeenCalled();
   });
 });

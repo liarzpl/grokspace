@@ -23,6 +23,7 @@ const DEFAULTS: Settings = {
   openingTab: DEFAULT_TAB,
   defaultDispatch: DEFAULT_DISPATCH,
   runWorktreeSetup: DEFAULT_WORKTREE_SETUP,
+  inboxZeroGate: DEFAULT_WORKTREE_SETUP,
 };
 
 interface SettingsState {
