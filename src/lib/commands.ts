@@ -117,14 +117,26 @@ export function commands(project: Project | null): Command[] {
   });
 
   for (const candidate of useProjectStore.getState().projects) {
-    if (candidate.id === project?.id) continue;
+    if (candidate.id !== project?.id) {
+      list.push({
+        id: `switch-${candidate.id}`,
+        label: `Switch to ${candidate.name}`,
+        group: "Project",
+        run: () => {
+          useUiStore.getState().closePalette();
+          void useProjectStore.getState().selectProject(candidate.id);
+        },
+      });
+    }
+    // Sidebar forget used to be hover-only (display:none). The palette lists every
+    // remembered project, including the one already open.
     list.push({
-      id: `switch-${candidate.id}`,
-      label: `Switch to ${candidate.name}`,
+      id: `forget-${candidate.id}`,
+      label: `Forget ${candidate.name}`,
       group: "Project",
       run: () => {
         useUiStore.getState().closePalette();
-        void useProjectStore.getState().selectProject(candidate.id);
+        void useProjectStore.getState().forgetProject(candidate.id);
       },
     });
   }
