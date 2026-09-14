@@ -36,6 +36,7 @@ import {
 } from "./playbook";
 import { BATON_ROLES, ROLES } from "./roles";
 import type { GlobalShortcutId } from "./shortcuts";
+import { lastPlannerGraph, plannerGraphRecipe } from "./skillProvenance";
 import { canApproveSteps, sendApproval } from "./steps";
 
 export interface Command {
@@ -513,9 +514,47 @@ export function commands(project: Project | null, query = ""): Command[] {
     });
   }
 
+  addPlannerRecipeCommand(list, project, query);
   addPlaybookCommands(list, project, query);
 
   return list;
+}
+
+function addPlannerRecipeCommand(list: Command[], project: Project, query: string): void {
+  const sessions = sessionsForProject(useSessionStore.getState().sessions, project.id);
+  if (lastPlannerGraph(sessions, useGraphStore.getState().bySession) === null) return;
+  const named = playbookNameFromQuery(query);
+  list.push({
+    id: named === null ? "save-planner-graph-recipe" : `save-planner-graph-recipe-${named}`,
+    label:
+      named === null
+        ? "Save last Planner graph recipe"
+        : `Save last Planner graph recipe !${named}`,
+    group: "Skills",
+    run: () => {
+      if (named === null) {
+        useSessionStore.getState().setError("Type !name in the palette to name the skill.");
+        return;
+      }
+      useUiStore.getState().closePalette();
+      void savePlannerGraphRecipe(project.id, named);
+    },
+  });
+}
+
+async function savePlannerGraphRecipe(projectId: string, name: string): Promise<void> {
+  const sessions = sessionsForProject(useSessionStore.getState().sessions, projectId);
+  const graph = lastPlannerGraph(sessions, useGraphStore.getState().bySession);
+  const markdown = graph === null ? null : plannerGraphRecipe(name, graph);
+  if (markdown === null) {
+    useSessionStore.getState().setError("No Planner graph recipe to save yet.");
+    return;
+  }
+  try {
+    await useSkillStore.getState().saveUserSkill(name, markdown);
+  } catch (error) {
+    useSessionStore.getState().setError(errorMessage(error));
+  }
 }
 
 function playbookSource(projectId: string) {

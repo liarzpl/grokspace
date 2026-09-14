@@ -22,6 +22,7 @@ mod skill;
 mod snooze;
 mod steps;
 mod task;
+mod user_skill;
 mod watch;
 mod worktree;
 
@@ -131,6 +132,7 @@ pub fn run() {
             memory::memory_file_path,
             skill::skill_status,
             skill::install_skill,
+            user_skill::save_user_skill,
             task::list_tasks,
             task::create_task,
             task::update_task,

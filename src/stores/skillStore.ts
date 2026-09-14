@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import type { UserSkillRecord } from "../lib/skillProvenance";
 import type { SkillStatus } from "../types";
 
 export const SKILL_IDS = ["graph", "memory", "steps"] as const;
@@ -25,6 +26,8 @@ interface SkillStoreState {
   refresh: (id: SkillId) => Promise<void>;
   refreshAll: () => Promise<void>;
   install: (id: SkillId) => Promise<void>;
+  /** Writes `~/.grokspace/skills/<name>/SKILL.md`. Does not install into grok. */
+  saveUserSkill: (name: string, markdown: string) => Promise<UserSkillRecord>;
   setError: (id: SkillId, error: string) => void;
   clearError: (id?: SkillId) => void;
 }
@@ -72,6 +75,8 @@ export const useSkillStore = create<SkillStoreState>((set, get) => ({
       write(set, id, { isInstalling: false });
     }
   },
+
+  saveUserSkill: (name, markdown) => api.saveUserSkill({ name, markdown }),
 
   setError: (id, error) => write(set, id, { error }),
 

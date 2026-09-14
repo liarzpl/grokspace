@@ -1,6 +1,7 @@
 import { invoke, type Channel } from "@tauri-apps/api/core";
 
 import type { PlaybookRecord } from "./playbook";
+import type { UserSkillRecord } from "./skillProvenance";
 import type {
   DiffState,
   EdgesSnapshot,
@@ -347,6 +348,13 @@ export const api = {
 
   /** Installs, or refreshes, a bundled skill so `grok` can see it. */
   installSkill: (id: string): Promise<SkillStatus> => invoke<SkillStatus>("install_skill", { id }),
+
+  /**
+   * Writes `~/.grokspace/skills/<name>/SKILL.md`. Does not copy into
+   * `~/.grok/skills/` — grok will not see it until someone copies it there.
+   */
+  saveUserSkill: (input: { name: string; markdown: string }): Promise<UserSkillRecord> =>
+    invoke<UserSkillRecord>("save_user_skill", input),
 
   /**
    * Writes a handoff folder for one session. The destination is a native folder
