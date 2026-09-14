@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import { subscribeOverlay } from "../lib/overlay";
 import { homeRelative } from "../lib/paths";
+import { useProjectStore } from "../stores/projectStore";
 import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import {
@@ -15,6 +16,7 @@ import {
   type PermissionPolicyAction,
   type PermissionPolicyRule,
   type Settings,
+  type WorktreeGcEntry,
 } from "../types";
 import { Choice, QuietButton } from "./ui";
 
@@ -111,6 +113,8 @@ export default function SettingsPanel() {
 
           <PermissionPolicyEditor />
 
+          <WorktreeGcEditor />
+
           <p className="text-[10px] leading-relaxed text-ink-faint">
             Changing the default layout does not move a project that has already picked
             one. Changing what the workspace opens on takes effect next launch, not now —
@@ -118,6 +122,7 @@ export default function SettingsPanel() {
             Dispatch only reorders what is offered; it never picks a target for you.
             Worktree setup stays off until you turn it on — a clone must not run that
             script for you. Permission globs: Deny wins; allow-once-similar is never Always.
+            Orphan worktrees are a dry-run; dirty trees stay.
           </p>
         </div>
       </div>
@@ -206,6 +211,81 @@ function PermissionPolicyEditor() {
           className="selectable min-w-0 flex-1 rounded-sm border border-line bg-canvas px-1 py-0.5 text-[11px] text-ink focus:outline-none"
         />
         <QuietButton label="Add" title="Add a user glob. Deny wins." onClick={add} />
+      </div>
+      {error !== null && (
+        <p role="alert" className="text-[10px] text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function WorktreeGcEditor() {
+  const projectId = useProjectStore((state) => state.activeProjectId);
+  const [entries, setEntries] = useState<WorktreeGcEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = (action: "scan" | "remove") => {
+    if (projectId === null) return;
+    setBusy(true);
+    const request =
+      action === "scan" ? api.previewWorktreeGc(projectId) : api.gcOrphanWorktrees(projectId);
+    void request
+      .then((next) => {
+        setEntries(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)))
+      .finally(() => setBusy(false));
+  };
+
+  const removable = entries?.filter((entry) => entry.removable).length ?? 0;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[12px] font-medium text-ink">Orphan worktrees</h3>
+        <span className="text-[10px] text-ink-faint">No session row. Dirty stays.</span>
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {(entries ?? []).map((entry) => (
+          <li
+            key={entry.path}
+            className="flex min-w-0 items-center gap-1 text-[11px]"
+            title={entry.skipReason ?? entry.path}
+          >
+            <code className="min-w-0 flex-1 truncate font-mono text-[10px]">{entry.sessionId}</code>
+            <span className="shrink-0 text-ink-faint">{formatBytes(entry.sizeBytes)}</span>
+            <span className="shrink-0 text-ink-faint">
+              {entry.dirty ? "dirty" : entry.removable ? "clean" : "skip"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {entries !== null && entries.length === 0 && (
+        <p className="text-[10px] text-ink-faint">No leftover worktrees</p>
+      )}
+      <div className="flex flex-wrap items-center gap-1">
+        <QuietButton
+          label="Scan leftovers"
+          title={projectId === null ? "Open a project first" : "Dry-run sizes. Nothing is deleted."}
+          disabled={busy || projectId === null}
+          onClick={() => run("scan")}
+        />
+        <QuietButton
+          label={removable === 1 ? "Remove 1 clean" : `Remove ${removable} clean`}
+          title="Remove only clean orphans. Dirty trees are never force-deleted."
+          disabled={busy || removable === 0}
+          onClick={() => run("remove")}
+        />
       </div>
       {error !== null && (
         <p role="alert" className="text-[10px] text-danger">

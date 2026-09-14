@@ -110,6 +110,8 @@ pub fn run() {
             session::discard_session_worktree,
             session::merge_session_worktree,
             session::session_merge_readiness,
+            session::preview_worktree_gc,
+            session::gc_orphan_worktrees,
             session::prompt_session,
             session::cancel_session,
             session::answer_session_permission,

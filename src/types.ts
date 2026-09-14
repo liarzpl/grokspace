@@ -120,6 +120,16 @@ export interface PermissionPolicy {
   rules: PermissionPolicyRule[];
 }
 
+/** A leftover `.grokspace/worktrees/<id>` with no session row. */
+export interface WorktreeGcEntry {
+  path: string;
+  sessionId: string;
+  sizeBytes: number;
+  dirty: boolean;
+  removable: boolean;
+  skipReason?: string | null;
+}
+
 export interface Session {
   id: string;
   projectId: string;

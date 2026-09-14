@@ -18,6 +18,7 @@ import type {
   StepStatus,
   Task,
   TaskStatus,
+  WorktreeGcEntry,
 } from "../types";
 
 /**
@@ -122,6 +123,20 @@ export const api = {
    */
   sessionMergeReadiness: (id: string): Promise<string | null> =>
     invoke<string | null>("session_merge_readiness", { id }),
+
+  /**
+   * Leftover worktrees with no session row, plus sizes. Dirty trees are listed
+   * so Settings can show them; they are not removable.
+   */
+  previewWorktreeGc: (projectId: string): Promise<WorktreeGcEntry[]> =>
+    invoke<WorktreeGcEntry[]>("preview_worktree_gc", { projectId }),
+
+  /**
+   * Removes clean orphan worktrees after Settings confirm. Dirty trees stay.
+   * Returns what is still leftover.
+   */
+  gcOrphanWorktrees: (projectId: string): Promise<WorktreeGcEntry[]> =>
+    invoke<WorktreeGcEntry[]>("gc_orphan_worktrees", { projectId }),
 
   /**
    * Sends a prompt to an `agent` session. `writeSession` is the terminal

@@ -22,6 +22,8 @@ const APP_COMMANDS: &[&str] = &[
     "discard_session_worktree",
     "merge_session_worktree",
     "session_merge_readiness",
+    "preview_worktree_gc",
+    "gc_orphan_worktrees",
     "prompt_session",
     "cancel_session",
     "answer_session_permission",

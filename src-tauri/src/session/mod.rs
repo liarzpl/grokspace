@@ -235,6 +235,25 @@ pub fn session_merge_readiness(state: State<'_, AppState>, id: String) -> Result
     worktree_cmds::merge_readiness(&state, &id)
 }
 
+/// Leftover `.grokspace/worktrees/` directories with no session row, plus sizes.
+/// Dirty trees are listed so Settings can show them; they are not removable.
+#[tauri::command]
+pub fn preview_worktree_gc(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<worktree_cmds::WorktreeGcEntry>> {
+    worktree_cmds::preview_gc(&state, &project_id)
+}
+
+/// Removes clean orphan worktrees after Settings confirm. Never `--force`.
+#[tauri::command]
+pub fn gc_orphan_worktrees(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<worktree_cmds::WorktreeGcEntry>> {
+    worktree_cmds::remove_clean_orphans(&state, &project_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::db::{
