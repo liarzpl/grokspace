@@ -73,6 +73,32 @@ fn is_repo(git_path: &str, project_path: &Path) -> bool {
     .is_some_and(|output| output.status.success())
 }
 
+/// Whether `path` is the root of its own checkout, not a leftover folder
+/// sitting inside the project tree (`rev-parse --is-inside-work-tree` is true
+/// for those too).
+fn is_worktree_root(git_path: &str, path: &Path) -> bool {
+    let Ok(output) = git(git_path, path, &["rev-parse", "--show-toplevel"]) else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let toplevel = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    let (Ok(toplevel), Ok(path)) = (toplevel.canonicalize(), path.canonicalize()) else {
+        return false;
+    };
+    toplevel == path
+}
+
+/// Whether `path` is a real git checkout GrokSpace can reuse, not a leftover
+/// directory from a failed add or a partial teardown.
+pub fn is_checkout(path: &Path) -> bool {
+    let Some(git_path) = program::find("git") else {
+        return false;
+    };
+    path.is_dir() && is_worktree_root(&git_path, path)
+}
+
 /// Why an ACP agent started in the project folder instead of its own checkout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IsolationSkip {
@@ -127,7 +153,8 @@ fn worktree_stderr(output: &std::process::Output) -> String {
 }
 
 /// Creates a clean checkout of `HEAD` for this session, or a skip when isolation
-/// is not possible. An existing directory is reused: Restart keeps the files.
+/// is not possible. An existing git checkout is reused: Restart keeps the files.
+/// A leftover directory that is not a worktree is replaced.
 pub fn add(project_path: &Path, session_id: &str) -> Isolation {
     let Some(git_path) = program::find("git") else {
         return Isolation::Skipped(IsolationSkip::GitMissing);
@@ -138,7 +165,16 @@ pub fn add(project_path: &Path, session_id: &str) -> Isolation {
 
     let dest = path_for(project_path, session_id);
     if dest.is_dir() {
-        return Isolation::Isolated(dest);
+        if is_worktree_root(&git_path, &dest) {
+            return Isolation::Isolated(dest);
+        }
+        // A failed add or partial teardown leaves a folder that is not a
+        // checkout. Reusing it made Diff/Merge no-ops while the UI said Isolated.
+        if let Err(error) = std::fs::remove_dir_all(&dest) {
+            return add_failed(format!(
+                "could not replace a leftover worktree directory: {error}"
+            ));
+        }
     }
 
     let Some(parent) = dest.parent() else {
@@ -517,6 +553,24 @@ mod tests {
             .expect("reuse rather than fail");
         assert_eq!(first, second);
         assert_eq!(fs::read_to_string(first.join("kept.rs")).unwrap(), "keep\n");
+        assert!(is_checkout(&first));
+    }
+
+    #[test]
+    fn add_replaces_a_leftover_directory_that_is_not_a_checkout() {
+        let dir = repo();
+        let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let dest = path_for(dir.path(), session);
+        fs::create_dir_all(&dest).unwrap();
+        fs::write(dest.join("stale.txt"), "leftover\n").unwrap();
+
+        let tree = add(dir.path(), session)
+            .path()
+            .expect("recreate rather than trust the leftover");
+        assert_eq!(tree, dest);
+        assert!(tree.join("README.md").is_file());
+        assert!(!tree.join("stale.txt").exists());
+        assert!(is_checkout(&tree));
     }
 
     #[test]
