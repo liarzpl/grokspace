@@ -371,6 +371,13 @@ pub fn reconcile_on_start(conn: &Connection) -> Result<usize> {
           WHERE status <> 'stopped'",
         [now_ms()],
     )?;
+    // Same cleanup as `set_status(Stopped)`. A crash leaves permission rows
+    // that `list` would otherwise attach as Allow/Deny on a dead process.
+    conn.execute(
+        "DELETE FROM session_permissions
+          WHERE session_id IN (SELECT id FROM sessions WHERE status = 'stopped')",
+        [],
+    )?;
     Ok(affected)
 }
 
@@ -1363,6 +1370,37 @@ mod tests {
             reloaded.process_id, None,
             "a stale pid must not be shown as if it were live"
         );
+    }
+
+    #[test]
+    fn startup_drops_pending_permissions() {
+        let (conn, project_id) = fixture();
+        let live = insert(&conn, &project_id, None, SessionKind::Agent, "Live", None).unwrap();
+        record_permission(&conn, &live.id, 9, "Write a file", &[]).unwrap();
+
+        let already = insert(
+            &conn,
+            &project_id,
+            None,
+            SessionKind::Agent,
+            "Already",
+            None,
+        )
+        .unwrap();
+        set_status(&conn, &already.id, SessionStatus::Stopped, None).unwrap();
+        // The old reconcile path left these; answering them is SessionNotRunning.
+        record_permission(&conn, &already.id, 10, "Run a command", &[]).unwrap();
+
+        reconcile_on_start(&conn).unwrap();
+
+        for session in list(&conn, &project_id).unwrap() {
+            assert!(
+                session.pending_permissions.is_empty(),
+                "{} still has {:?}",
+                session.title.unwrap_or_default(),
+                session.pending_permissions
+            );
+        }
     }
 
     #[test]
