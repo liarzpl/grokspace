@@ -9,6 +9,7 @@ use tauri::State;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
+use crate::session::{self, SessionKind, SessionStatus};
 use crate::steps;
 use crate::AppState;
 
@@ -217,12 +218,38 @@ pub fn update(
     get(conn, id)
 }
 
+/// Whether this session can be handed a task: live (running or idle), not a
+/// shell, and on the same project as the card.
+///
+/// `assigned_session_id` has no foreign key. Writing a ghost, foreign, or
+/// stopped id would move the card to `in_progress` and leave it there: a
+/// missing session reloads as unassigned (the read subquery), and idle-review
+/// never fires for a session that is not live.
+fn require_dispatchable(task: &Task, session: &session::Session) -> Result<()> {
+    if session.project_id != task.project_id {
+        return Err(Error::Invalid(
+            "that session belongs to another project".into(),
+        ));
+    }
+    if session.kind == SessionKind::Shell {
+        return Err(Error::Invalid("a shell cannot take a task".into()));
+    }
+    match session.status {
+        SessionStatus::Running | SessionStatus::Idle => Ok(()),
+        _ => Err(Error::SessionNotRunning),
+    }
+}
+
 /// Hands a task to a session and moves it to `in_progress` in one statement.
 ///
 /// The two belong together: a task being worked on is a task in that column, and
 /// splitting them would leave a window where the board disagrees with itself. It
 /// is also why this is not part of `update`, which has no way to say "no session".
 pub fn dispatch(conn: &Connection, id: &str, session_id: &str) -> Result<Task> {
+    let task = get(conn, id)?;
+    let session = session::get(conn, session_id)?;
+    require_dispatchable(&task, &session)?;
+
     let affected = conn.execute(
         "UPDATE tasks
             SET assigned_session_id = ?2,
@@ -593,6 +620,107 @@ mod tests {
             snap.steps.is_empty(),
             "a new dispatch is a new list, not the last job's leftovers"
         );
+    }
+
+    fn still_unassigned(conn: &Connection, task_id: &str) {
+        let leftover = get(conn, task_id).unwrap();
+        assert_eq!(leftover.status, TaskStatus::Backlog);
+        assert_eq!(leftover.assigned_session_id, None);
+    }
+
+    #[test]
+    fn dispatching_to_an_unknown_session_is_refused() {
+        let (conn, project_id) = fixture();
+        let task = insert(&conn, &project_id, "Ship it", None).unwrap();
+
+        assert!(matches!(
+            dispatch(&conn, &task.id, "ghost"),
+            Err(Error::SessionNotFound(_))
+        ));
+        still_unassigned(&conn, &task.id);
+    }
+
+    #[test]
+    fn dispatching_to_a_session_on_another_project_is_refused() {
+        let (conn, project_id) = fixture();
+        let other =
+            project::upsert_by_path(&conn, "/tmp/other-dispatch", "other-dispatch").unwrap();
+        let foreign =
+            session::insert(&conn, &other.id, Some("0"), SessionKind::Grok, "Grok", None).unwrap();
+        let task = insert(&conn, &project_id, "Ship it", None).unwrap();
+
+        assert!(matches!(
+            dispatch(&conn, &task.id, &foreign.id),
+            Err(Error::Invalid(_))
+        ));
+        still_unassigned(&conn, &task.id);
+    }
+
+    #[test]
+    fn dispatching_to_a_session_that_cannot_take_work_is_refused() {
+        let (conn, project_id) = fixture();
+        let stopped = session::insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        session::set_status(&conn, &stopped.id, session::SessionStatus::Stopped, Some(0)).unwrap();
+        let blocked =
+            session::insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        session::set_status(&conn, &blocked.id, session::SessionStatus::NeedsInput, None).unwrap();
+        let task = insert(&conn, &project_id, "Ship it", None).unwrap();
+
+        assert!(matches!(
+            dispatch(&conn, &task.id, &stopped.id),
+            Err(Error::SessionNotRunning)
+        ));
+        assert!(matches!(
+            dispatch(&conn, &task.id, &blocked.id),
+            Err(Error::SessionNotRunning)
+        ));
+        still_unassigned(&conn, &task.id);
+    }
+
+    #[test]
+    fn dispatching_to_a_shell_is_refused() {
+        let (conn, project_id) = fixture();
+        let shell = session::insert(
+            &conn,
+            &project_id,
+            Some("0"),
+            SessionKind::Shell,
+            "Shell",
+            None,
+        )
+        .unwrap();
+        let task = insert(&conn, &project_id, "Ship it", None).unwrap();
+
+        assert!(matches!(
+            dispatch(&conn, &task.id, &shell.id),
+            Err(Error::Invalid(_))
+        ));
+        still_unassigned(&conn, &task.id);
+    }
+
+    #[test]
+    fn dispatching_to_an_idle_session_is_allowed() {
+        let (conn, project_id) = fixture();
+        let session =
+            session::insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        session::set_status(&conn, &session.id, session::SessionStatus::Idle, None).unwrap();
+        let task = insert(&conn, &project_id, "Ship it", None).unwrap();
+
+        let dispatched = dispatch(&conn, &task.id, &session.id).unwrap();
+
+        assert_eq!(
+            dispatched.assigned_session_id.as_deref(),
+            Some(session.id.as_str())
+        );
+        assert_eq!(dispatched.status, TaskStatus::InProgress);
     }
 
     #[test]
