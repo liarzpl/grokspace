@@ -620,14 +620,34 @@ describe("launchSwarm", () => {
       1,
       expect.objectContaining({ paneId: null, kind: "agent", role: "Planner" }),
     );
-    expect(promptSession).toHaveBeenNthCalledWith(1, "s-Planner", expect.stringContaining("planner"));
+    expect(promptSession).toHaveBeenCalledWith("s-Planner", expect.stringContaining("planner"));
     // The memory is named in every brief, since the file always exists for a session
     // GrokSpace started.
-    expect(promptSession).toHaveBeenNthCalledWith(
-      2,
+    expect(promptSession).toHaveBeenCalledWith(
       "s-Reviewer",
       expect.stringContaining("GROKSPACE_MEMORY_FILE"),
     );
+  });
+
+  it("starts a later role before an earlier start finishes", async () => {
+    let releasePlanner: (value: Session) => void = () => {};
+    createSession.mockImplementation((input: { role?: string }) => {
+      if (input.role === "Planner") {
+        return new Promise<Session>((resolve) => {
+          releasePlanner = resolve;
+        });
+      }
+      return Promise.resolve(session({ id: "s-reviewer", kind: "agent", paneId: null }));
+    });
+    promptSession.mockResolvedValue(undefined);
+
+    const pending = useSessionStore.getState().launchSwarm("p1", roles);
+    await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+    releasePlanner(session({ id: "s-planner", kind: "agent", paneId: null }));
+    const failed = await pending;
+
+    expect(failed).toEqual([]);
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ role: "Reviewer" }));
   });
 
   it("keeps going when one role will not start, and says which", async () => {
