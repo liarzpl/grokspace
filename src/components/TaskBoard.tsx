@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 
 import {
   dispatchTargets,
@@ -14,7 +14,15 @@ import { sessionStatusPhrase } from "../lib/statusText";
 import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
-import { tasksInColumn, useTaskStore, useTasksForProject } from "../stores/taskStore";
+import {
+  DISPATCH_ANYWAY,
+  inboxZeroBlockReason,
+  needsYouWaiting,
+  tasksInColumn,
+  typedDispatchAnyway,
+  useTaskStore,
+  useTasksForProject,
+} from "../stores/taskStore";
 import { useUiStore } from "../stores/uiStore";
 import {
   type PermissionRequest,
@@ -50,6 +58,23 @@ const DRAG_MIME = "text/plain";
 
 /** A stable empty array, so a card with no permissions does not resubscribe forever. */
 const EMPTY_PERMISSIONS: readonly PermissionRequest[] = [];
+
+/** Shared by cards and the drop row so a typed override is one field, not a checkbox. */
+type DispatchGate = {
+  blocked: boolean;
+  blockReason: string | null;
+  anyway: boolean;
+  onDispatched: () => void;
+};
+
+const OPEN_GATE: DispatchGate = {
+  blocked: false,
+  blockReason: null,
+  anyway: false,
+  onDispatched: () => {},
+};
+
+const DispatchGateContext = createContext<DispatchGate>(OPEN_GATE);
 
 /**
  * Whether a drag that is leaving actually left.
@@ -125,6 +150,7 @@ function TaskCard({
   onDragStart: (taskId: string) => void;
   onDragEnd: () => void;
 }) {
+  const { blocked, blockReason, anyway, onDispatched } = useContext(DispatchGateContext);
   const dispatch = useTaskStore((state) => state.dispatch);
   const dispatchToNewSession = useTaskStore((state) => state.dispatchToNewSession);
   const editTask = useTaskStore((state) => state.editTask);
@@ -153,10 +179,13 @@ function TaskCard({
   };
 
   const send = (target: DispatchTarget) => {
+    if (blocked) return;
     setChoosing(false);
-    if (target.kind === "session") void dispatch(task.id, target.session.id);
+    const options = { anyway };
+    onDispatched();
+    if (target.kind === "session") void dispatch(task.id, target.session.id, options);
     // A null pane is what asks for an agent rather than a terminal.
-    else void dispatchToNewSession(task.id, task.projectId, paneOf(target));
+    else void dispatchToNewSession(task.id, task.projectId, paneOf(target), options);
   };
 
   const commitTitle = () => {
@@ -329,7 +358,8 @@ function TaskCard({
         <QuietButton label="Rename" onClick={() => setEditing(task.title)} />
         <QuietButton
           label={busy ? "Dispatching…" : choosing ? "Cancel" : "Dispatch"}
-          disabled={busy}
+          title={blocked ? (blockReason ?? undefined) : undefined}
+          disabled={busy || (blocked && !choosing)}
           onClick={() => setChoosing(!choosing)}
         />
         <QuietButton label="Delete" onClick={() => void removeTask(task.id)} />
@@ -346,6 +376,8 @@ function TaskCard({
               <QuietButton
                 key={targetKey(target)}
                 label={targetLabel(target)}
+                title={blocked ? (blockReason ?? undefined) : undefined}
+                disabled={blocked}
                 onClick={() => send(target)}
               />
             ))
@@ -439,6 +471,7 @@ function DispatchRow({
   targets: DispatchTarget[];
   draggingId: string | null;
 }) {
+  const { blocked, blockReason, anyway, onDispatched } = useContext(DispatchGateContext);
   const dispatch = useTaskStore((state) => state.dispatch);
   const dispatchToNewSession = useTaskStore((state) => state.dispatchToNewSession);
   const [over, setOver] = useState<string | null>(null);
@@ -446,8 +479,11 @@ function DispatchRow({
   if (targets.length === 0) return null;
 
   const drop = (target: DispatchTarget, taskId: string) => {
-    if (target.kind === "session") void dispatch(taskId, target.session.id);
-    else void dispatchToNewSession(taskId, project.id, paneOf(target));
+    if (blocked) return;
+    const options = { anyway };
+    onDispatched();
+    if (target.kind === "session") void dispatch(taskId, target.session.id, options);
+    else void dispatchToNewSession(taskId, project.id, paneOf(target), options);
   };
 
   return (
@@ -461,16 +497,17 @@ function DispatchRow({
             onDragEnter={() => draggingId !== null && setOver(key)}
             onDragLeave={(event) => reallyLeft(event) && setOver(null)}
             onDragOver={(event) => {
-              if (draggingId === null) return;
+              if (draggingId === null || blocked) return;
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
             }}
             onDrop={(event) => {
               setOver(null);
-              if (draggingId === null) return;
+              if (draggingId === null || blocked) return;
               event.preventDefault();
               drop(target, draggingId);
             }}
+            title={blocked ? (blockReason ?? undefined) : undefined}
             className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] transition-colors ${
               over === key
                 ? "border-accent bg-accent-soft text-ink"
@@ -595,6 +632,31 @@ function SwarmLauncher({ project }: { project: Project }) {
   );
 }
 
+function InboxZeroBanner({
+  reason,
+  phrase,
+  onPhrase,
+}: {
+  reason: string;
+  phrase: string;
+  onPhrase: (value: string) => void;
+}) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-3 py-1.5">
+      <p role="status" className="min-w-0 flex-1 text-[10px] leading-snug text-ink-muted">
+        {reason}
+      </p>
+      <input
+        aria-label="Type dispatch anyway to hand out a card"
+        value={phrase}
+        onChange={(event) => onPhrase(event.target.value)}
+        placeholder={DISPATCH_ANYWAY}
+        className="selectable w-44 rounded-md border border-line bg-canvas px-2 py-0.5 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+      />
+    </div>
+  );
+}
+
 function CardStepTally({ sessionId }: { sessionId: string }) {
   const steps = useStepStore((state) => stepsFor(state.bySession, sessionId).steps);
   const progress = stepProgress(steps);
@@ -609,37 +671,52 @@ function CardStepTally({ sessionId }: { sessionId: string }) {
 export default function TaskBoard({ project }: { project: Project }) {
   const tasks = useTasksForProject(project.id);
   const sessions = useSessionsForProject(project.id);
+  const permissions = useUiStore((state) => state.permissions);
+  const inboxZeroGate = useSettingsStore((state) => state.settings.inboxZeroGate);
   const [dragging, setDragging] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [anywayPhrase, setAnywayPhrase] = useState("");
 
   const defaultDispatch = useSettingsStore((state) => state.settings.defaultDispatch);
   const targets = dispatchTargets(project, sessions, defaultDispatch);
   const capable = sessionsWithSteps(sessions);
   const selected =
     capable.find((session) => session.id === selectedId) ?? capable[0] ?? undefined;
+  const waiting = needsYouWaiting(sessions, tasks, permissions, project.id);
+  const anyway = typedDispatchAnyway(anywayPhrase);
+  const blockReason = inboxZeroBlockReason(inboxZeroGate, waiting, false);
+  const blocked = blockReason !== null && !anyway;
+  const clearAnyway = () => setAnywayPhrase("");
 
   return (
     <div className="flex min-h-0 flex-1">
       <SessionStepsRail sessions={sessions} selected={selected} onSelect={setSelectedId} />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <DispatchRow project={project} targets={targets} draggingId={dragging} />
+        {blockReason !== null && (
+          <InboxZeroBanner reason={blockReason} phrase={anywayPhrase} onPhrase={setAnywayPhrase} />
+        )}
+        <DispatchGateContext.Provider
+          value={{ blocked, blockReason, anyway, onDispatched: clearAnyway }}
+        >
+          <DispatchRow project={project} targets={targets} draggingId={dragging} />
 
-        <div className="grid min-h-0 flex-1 grid-cols-4 gap-2 p-2">
-          {COLUMNS.map(({ status, label }) => (
-            <TaskColumn
-              key={status}
-              status={status}
-              label={label}
-              tasks={tasksInColumn(tasks, status)}
-              targets={targets}
-              draggingId={dragging}
-              onDragStart={setDragging}
-              onDragEnd={() => setDragging(null)}
-              projectId={project.id}
-            />
-          ))}
-        </div>
+          <div className="grid min-h-0 flex-1 grid-cols-4 gap-2 p-2">
+            {COLUMNS.map(({ status, label }) => (
+              <TaskColumn
+                key={status}
+                status={status}
+                label={label}
+                tasks={tasksInColumn(tasks, status)}
+                targets={targets}
+                draggingId={dragging}
+                onDragStart={setDragging}
+                onDragEnd={() => setDragging(null)}
+                projectId={project.id}
+              />
+            ))}
+          </div>
+        </DispatchGateContext.Provider>
       </div>
     </div>
   );

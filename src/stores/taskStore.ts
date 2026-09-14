@@ -4,10 +4,13 @@ import { create } from "zustand";
 import { api, errorMessage } from "../lib/api";
 import { talkToSession } from "../lib/talkToSession";
 import { sessionCanTakeWork } from "../lib/dispatch";
+import { inboxItems } from "../lib/inboxItems";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
-import type { Task, TaskStatus } from "../types";
+import type { PermissionRequest, Session, Settings, Task, TaskStatus } from "../types";
 import { useSessionStore } from "./sessionStore";
+import { useSettingsStore } from "./settingsStore";
 import { useStepStore } from "./stepStore";
+import { useUiStore } from "./uiStore";
 
 /**
  * The task board, and the one action that reaches outside it.
@@ -36,6 +39,59 @@ export function dispatchPrompt(task: Task): string {
   const work = context === "" ? goal : `${goal} — ${context}`;
   const gated = /[.!?]$/.test(work) ? work : `${work}.`;
   return `${gated} Write your steps to $GROKSPACE_STEPS_FILE first, then wait.`;
+}
+
+/**
+ * Phrase that must be typed to hand out a card while the inbox-zero gate is on.
+ *
+ * Exact after trim: a checkbox or a fuzzy match would be the default-on escape
+ * the setting exists to avoid.
+ */
+export const DISPATCH_ANYWAY = "dispatch anyway";
+
+export function typedDispatchAnyway(value: string): boolean {
+  return value.trim() === DISPATCH_ANYWAY;
+}
+
+/** How many Needs you items the attention rail would list for this project. */
+export function needsYouWaiting(
+  sessions: readonly Pick<
+    Session,
+    "id" | "kind" | "status" | "title" | "worktreePath" | "projectId"
+  >[],
+  tasks: readonly Pick<Task, "id" | "assignedSessionId" | "projectId">[],
+  permissions: Readonly<Record<string, readonly PermissionRequest[] | undefined>>,
+  projectId: string,
+): number {
+  return inboxItems(
+    sessions.filter((session) => session.projectId === projectId),
+    tasks.filter((task) => task.projectId === projectId),
+    permissions,
+    {},
+  ).filter((item) => item.split === "needs_you").length;
+}
+
+/**
+ * Why dispatch is paused, or null when the setting is off, the inbox is empty,
+ * or the human typed the override.
+ */
+export function inboxZeroBlockReason(
+  gate: Settings["inboxZeroGate"],
+  waiting: number,
+  anyway: boolean,
+): string | null {
+  if (gate !== "on" || waiting === 0 || anyway) return null;
+  const who = waiting === 1 ? "Needs you is waiting" : `${waiting} Needs you waits`;
+  return `${who}. Answer before handing out another card, or type dispatch anyway.`;
+}
+
+function refuseInboxZero(projectId: string, tasks: Task[], anyway: boolean): string | null {
+  const { sessions } = useSessionStore.getState();
+  return inboxZeroBlockReason(
+    useSettingsStore.getState().settings.inboxZeroGate,
+    needsYouWaiting(sessions, tasks, useUiStore.getState().permissions, projectId),
+    anyway,
+  );
 }
 
 /** Newest tasks last within a column, matching the backend's ordering. */
@@ -69,7 +125,11 @@ interface TaskState {
   moveTask: (id: string, status: TaskStatus) => Promise<void>;
   removeTask: (id: string) => Promise<void>;
   /** Sends a task to a session that is already running an agent. */
-  dispatch: (taskId: string, sessionId: string) => Promise<boolean>;
+  dispatch: (
+    taskId: string,
+    sessionId: string,
+    options?: { anyway?: boolean },
+  ) => Promise<boolean>;
   /**
    * Starts something to do the work and sends the task to it. A `paneId` starts a
    * Grok terminal in that pane; omitting one starts an ACP agent, which needs no
@@ -79,6 +139,7 @@ interface TaskState {
     taskId: string,
     projectId: string,
     paneId: string | null,
+    options?: { anyway?: boolean },
   ) => Promise<boolean>;
   clearError: () => void;
 }
@@ -168,10 +229,15 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 
-  dispatch: async (taskId, sessionId) => {
+  dispatch: async (taskId, sessionId, options) => {
     const task = get().tasks.find((candidate) => candidate.id === taskId);
     if (!task) return false;
     const origin = task.projectId;
+    const blocked = refuseInboxZero(origin, get().tasks, options?.anyway === true);
+    if (blocked !== null) {
+      set({ error: blocked });
+      return false;
+    }
 
     const session = useSessionStore
       .getState()
@@ -222,7 +288,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 
-  dispatchToNewSession: async (taskId, projectId, paneId) => {
+  dispatchToNewSession: async (taskId, projectId, paneId, options) => {
+    const blocked = refuseInboxZero(projectId, get().tasks, options?.anyway === true);
+    if (blocked !== null) {
+      set({ error: blocked });
+      return false;
+    }
     const session = await useSessionStore.getState().startSession({
       projectId,
       paneId,
@@ -232,7 +303,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     // startSession has already put its own failure on the session store's error,
     // which the shell surfaces; repeating it here would show it twice.
     if (!session) return false;
-    return get().dispatch(taskId, session.id);
+    return get().dispatch(taskId, session.id, options);
   },
 
   editTask: (id, changes) => get().updateTask(id, changes),

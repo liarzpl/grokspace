@@ -112,6 +112,14 @@ export default function SettingsPanel() {
             onChoose={(value) => void setSetting("runWorktreeSetup", value)}
           />
 
+          <Choice
+            label="Inbox-zero gate"
+            hint="When on, do not hand out a card while Needs you is waiting. Off unless you want that pause"
+            options={WORKTREE_SETUP}
+            value={settings.inboxZeroGate}
+            onChoose={(value) => void setSetting("inboxZeroGate", value)}
+          />
+
           <PermissionPolicyEditor />
 
           <WorktreeGcEditor />
@@ -124,7 +132,9 @@ export default function SettingsPanel() {
             yanking you to another panel mid-thought would be the wrong kind of helpful.
             Dispatch only reorders what is offered; it never picks a target for you.
             Worktree setup stays off until you turn it on and trust the folder —
-            a clone must not run that script for you. Permission globs: Deny wins;
+            a clone must not run that script for you. Inbox-zero gate stays off until
+            you turn it on — a default-on pause would block dispatch. The escape is
+            typing dispatch anyway, not a checkbox. Permission globs: Deny wins;
             allow-once-similar is never Always.
             Orphan worktrees are a dry-run; dirty trees stay.
           </p>

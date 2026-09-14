@@ -36,9 +36,12 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { dispatchPrompt, tasksForProject, tasksInColumn, useTaskStore } = await import("./taskStore");
+const { dispatchPrompt, inboxZeroBlockReason, tasksForProject, tasksInColumn, useTaskStore } =
+  await import("./taskStore");
 const { useSessionStore } = await import("./sessionStore");
+const { useSettingsStore } = await import("./settingsStore");
 const { useStepStore } = await import("./stepStore");
+const { useUiStore } = await import("./uiStore");
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -75,7 +78,9 @@ function session(overrides: Partial<Session> = {}): Session {
 
 const initialState = useTaskStore.getState();
 const initialSessionState = useSessionStore.getState();
+const initialSettingsState = useSettingsStore.getState();
 const initialStepState = useStepStore.getState();
+const initialUiState = useUiStore.getState();
 
 const ISOLATION_ERR =
   "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
@@ -85,7 +90,9 @@ beforeEach(() => {
   useSessionStore.getState().cancelUnisolatedStart();
   useTaskStore.setState(initialState, true);
   useSessionStore.setState(initialSessionState, true);
+  useSettingsStore.setState(initialSettingsState, true);
   useStepStore.setState(initialStepState, true);
+  useUiStore.setState(initialUiState, true);
 });
 
 describe("loadTasks", () => {
@@ -425,6 +432,25 @@ describe("dispatchPrompt", () => {
   });
 });
 
+describe("inboxZeroBlockReason", () => {
+  it("does nothing while the setting is off, even with a waiting inbox", () => {
+    expect(inboxZeroBlockReason("off", 2, false)).toBeNull();
+  });
+
+  it("does nothing when Needs you is empty", () => {
+    expect(inboxZeroBlockReason("on", 0, false)).toBeNull();
+  });
+
+  it("names the wait when the gate is on", () => {
+    expect(inboxZeroBlockReason("on", 1, false)).toContain("Needs you is waiting");
+    expect(inboxZeroBlockReason("on", 2, false)).toContain("2 Needs you waits");
+  });
+
+  it("lets a typed override through", () => {
+    expect(inboxZeroBlockReason("on", 1, true)).toBeNull();
+  });
+});
+
 describe("dispatch", () => {
   it("records the assignment, then types the task into the agent", async () => {
     const order: string[] = [];
@@ -591,6 +617,82 @@ describe("dispatch", () => {
     expect(ok).toBe(false);
     expect(promptSession).not.toHaveBeenCalled();
   });
+
+  it("refuses a new card while Needs you is waiting and the gate is on", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },
+    });
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [
+        session(),
+        session({ id: "wait", kind: "agent", paneId: null, status: "running" }),
+      ],
+    });
+    useUiStore.setState({
+      permissions: { wait: [{ requestId: 1, summary: "Edit src/a.ts" }] },
+    });
+
+    const ok = await useTaskStore.getState().dispatch("t1", "s1");
+
+    expect(ok).toBe(false);
+    expect(dispatchTask).not.toHaveBeenCalled();
+    expect(useTaskStore.getState().error).toContain("Needs you is waiting");
+  });
+
+  it("hands the card over after a typed dispatch anyway", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },
+    });
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [
+        session(),
+        session({ id: "wait", kind: "agent", paneId: null, status: "running" }),
+      ],
+    });
+    useUiStore.setState({
+      permissions: { wait: [{ requestId: 1, summary: "Edit src/a.ts" }] },
+    });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    writeSession.mockResolvedValue(undefined);
+
+    const ok = await useTaskStore.getState().dispatch("t1", "s1", { anyway: true });
+
+    expect(ok).toBe(true);
+    expect(dispatchTask).toHaveBeenCalledWith("t1", "s1");
+  });
+
+  it("still dispatches when the inbox is empty and the gate is on", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },
+    });
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({ sessions: [session()] });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    writeSession.mockResolvedValue(undefined);
+
+    expect(await useTaskStore.getState().dispatch("t1", "s1")).toBe(true);
+    expect(dispatchTask).toHaveBeenCalled();
+  });
+
+  it("does not gate while the setting is off, even with a pending permission", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [
+        session(),
+        session({ id: "wait", kind: "agent", paneId: null, status: "running" }),
+      ],
+    });
+    useUiStore.setState({
+      permissions: { wait: [{ requestId: 1, summary: "Edit src/a.ts" }] },
+    });
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "s1" }));
+    writeSession.mockResolvedValue(undefined);
+
+    expect(await useTaskStore.getState().dispatch("t1", "s1")).toBe(true);
+    expect(dispatchTask).toHaveBeenCalled();
+  });
 });
 
 describe("dispatchToNewSession", () => {
@@ -664,6 +766,24 @@ describe("dispatchToNewSession", () => {
       2,
       expect.objectContaining({ allowUnisolated: true }),
     );
+  });
+
+  it("does not start an agent when the inbox-zero gate refuses", async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, inboxZeroGate: "on" },
+    });
+    useTaskStore.setState({ tasks: [task()] });
+    useSessionStore.setState({
+      sessions: [session({ id: "wait", kind: "agent", paneId: null, status: "running" })],
+    });
+    useUiStore.setState({
+      permissions: { wait: [{ requestId: 1, summary: "Edit src/a.ts" }] },
+    });
+
+    const ok = await useTaskStore.getState().dispatchToNewSession("t1", "p1", null);
+
+    expect(ok).toBe(false);
+    expect(createSession).not.toHaveBeenCalled();
   });
 });
 

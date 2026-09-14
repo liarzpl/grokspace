@@ -165,6 +165,9 @@ pub struct Settings {
     /// Run the project's worktree setup script after a fresh `git worktree add`.
     /// Default off. Also requires folder trust (Deny / Trust once / Trust this folder).
     pub run_worktree_setup: WorktreeSetup,
+    /// When `on`, refuse to dispatch a card while Needs you is waiting.
+    /// Off by default. A default-on gate would block every busy workspace.
+    pub inbox_zero_gate: WorktreeSetup,
 }
 
 impl Settings {
@@ -193,6 +196,12 @@ impl Settings {
                 WorktreeSetup::from_str,
                 WorktreeSetup::DEFAULT,
                 "runWorktreeSetup",
+            )?,
+            inbox_zero_gate: stored_or_default(
+                rows.get("inboxZeroGate"),
+                WorktreeSetup::from_str,
+                WorktreeSetup::DEFAULT,
+                "inboxZeroGate",
             )?,
         })
     }
@@ -240,6 +249,7 @@ pub fn put(conn: &Connection, key: &str, value: &str) -> Result<Settings> {
         "openingTab" => WorkspaceTab::from_str(value).is_some(),
         "defaultDispatch" => DispatchTarget::from_str(value).is_some(),
         "runWorktreeSetup" => WorktreeSetup::from_str(value).is_some(),
+        "inboxZeroGate" => WorktreeSetup::from_str(value).is_some(),
         _ => return Err(Error::Invalid(format!("`{key}` is not a setting"))),
     };
     if !known {
@@ -286,6 +296,7 @@ mod tests {
         assert_eq!(settings.opening_tab, WorkspaceTab::DEFAULT);
         assert_eq!(settings.default_dispatch, DispatchTarget::DEFAULT);
         assert_eq!(settings.run_worktree_setup, WorktreeSetup::Off);
+        assert_eq!(settings.inbox_zero_gate, WorktreeSetup::Off);
     }
 
     #[test]
@@ -298,6 +309,7 @@ mod tests {
         assert_eq!(after.default_layout, PaneLayout::DEFAULT);
         assert_eq!(after.default_dispatch, DispatchTarget::DEFAULT);
         assert_eq!(after.run_worktree_setup, WorktreeSetup::Off);
+        assert_eq!(after.inbox_zero_gate, WorktreeSetup::Off);
     }
 
     #[test]
@@ -336,6 +348,10 @@ mod tests {
             put(&conn, "runWorktreeSetup", "always"),
             Err(Error::Invalid(_))
         ));
+        assert!(matches!(
+            put(&conn, "inboxZeroGate", "always"),
+            Err(Error::Invalid(_))
+        ));
     }
 
     #[test]
@@ -360,6 +376,18 @@ mod tests {
         assert_eq!(get(&conn).unwrap().run_worktree_setup, WorktreeSetup::On);
         let off = put(&conn, "runWorktreeSetup", "off").unwrap();
         assert_eq!(off.run_worktree_setup, WorktreeSetup::Off);
+    }
+
+    #[test]
+    fn inbox_zero_gate_is_off_until_written_on() {
+        let conn = conn();
+
+        let after = put(&conn, "inboxZeroGate", "on").unwrap();
+
+        assert_eq!(after.inbox_zero_gate, WorktreeSetup::On);
+        assert_eq!(get(&conn).unwrap().inbox_zero_gate, WorktreeSetup::On);
+        let off = put(&conn, "inboxZeroGate", "off").unwrap();
+        assert_eq!(off.inbox_zero_gate, WorktreeSetup::Off);
     }
 
     #[test]

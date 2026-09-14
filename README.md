@@ -104,12 +104,14 @@ replays the last 20). Nothing is uploaded.
   empty-state button still installs graph alone.
   Search matches a subsequence, so `sgr` finds "Start Grok in the first free pane".
 - **Settings** — a default pane layout for projects that have never chosen one, which
-  panel the workspace opens on, which new session a dispatch reaches for first, and a
-  named permission-policy file of user globs. Shared by every project, and refused
-  rather than stored when a value is not one this build knows. The dispatch
-  preference reorders what is offered and never picks a target: a setting that
-  chose for you would be one that sends work somewhere nobody looked. Policy Deny
-  wins over ask and over allow-once-similar; Allow is never inferred as Always.
+  panel the workspace opens on, which new session a dispatch reaches for first, an
+  inbox-zero gate on dispatch (off by default), and a named permission-policy file of
+  user globs. Shared by every project, and refused rather than stored when a value is
+  not one this build knows. The dispatch preference reorders what is offered and never
+  picks a target: a setting that chose for you would be one that sends work somewhere
+  nobody looked. Inbox-zero stays off until you turn it on; the escape is typing
+  **dispatch anyway**, not a checkbox. Policy Deny wins over ask and over
+  allow-once-similar; Allow is never inferred as Always.
 - **A diff panel** — what changed, read out of `git`. The default view is the
   project's tree. An ACP agent that isolated into a worktree appears as a chip, and
   picking it reads that checkout. Modified, new, deleted and renamed files, with each
@@ -149,7 +151,9 @@ replays the last 20). Nothing is uploaded.
   the graph. With the inbox or a permission chip focused (not a terminal),
   `A` allows once, `D` denies, `O` opens the pane or card, and `G` shows the
   graph. The palette has **Allow first wait** and **Jump to first Needs you**.
-  Dispatch is not gated on an empty inbox.
+  Dispatch is not gated unless Settings → Inbox-zero gate is **on** (off by
+  default). Then a waiting Needs you disables Dispatch until you type
+  **dispatch anyway**.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on

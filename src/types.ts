@@ -319,6 +319,11 @@ export interface Settings {
    * folder must also be trusted.
    */
   runWorktreeSetup: RunWorktreeSetup;
+  /**
+   * When on, refuse to hand out a new card while Needs you is waiting.
+   * Off by default — a default-on gate would block every busy workspace.
+   */
+  inboxZeroGate: RunWorktreeSetup;
 }
 
 /** The value `writeSetting` will accept for a given key. */
