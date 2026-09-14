@@ -237,6 +237,9 @@ pub fn ingest_json(
     }
 }
 
+/// Combined read+ingest. Watch and idle review read first, then lock
+/// (PERF-005); this stays as the off-mutex entry point for tests.
+#[allow(dead_code)]
 pub fn ingest_from_disk(
     conn: &Connection,
     project_path: &Path,
@@ -263,6 +266,9 @@ pub(crate) fn ingest_if_none_json(
     ingest_json(conn, session_id, json)
 }
 
+/// Combined read+ingest gated on `none`. Production uses
+/// [`ingest_if_none_json`] after an off-mutex read.
+#[allow(dead_code)]
 pub(crate) fn ingest_if_none(
     conn: &Connection,
     project_path: &Path,
