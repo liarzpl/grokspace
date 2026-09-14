@@ -1,6 +1,6 @@
 //! Session step rows in SQLite, plus the on-disk file paths they pair with.
 //!
-//! Ingest and the watcher live in [`super`].
+//! Ingest lives in [`super::ingest`]; the watcher lives in [`super::watch`].
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
