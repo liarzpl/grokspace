@@ -14,7 +14,7 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { graphFor, useGraphStore } = await import("./graphStore");
+const { graphFor, stabilizeGraph, useGraphStore } = await import("./graphStore");
 
 function snapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
   return {
@@ -113,6 +113,66 @@ describe("load", () => {
     await inFlight;
 
     expect(entry("s1").graph?.name).toBe("Replanned");
+  });
+
+  it("does not replace a graph whose file mtime and size are unchanged", async () => {
+    readSessionGraph.mockResolvedValue(snapshot());
+    await useGraphStore.getState().load("s1");
+    const first = entry("s1").graph;
+
+    await useGraphStore.getState().load("s1");
+
+    expect(entry("s1").graph).toBe(first);
+    expect(readSessionGraph).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses unchanged nodes when only one status flips", async () => {
+    readSessionGraph.mockResolvedValue(snapshot());
+    await useGraphStore.getState().load("s1");
+    const firstOrch = entry("s1").graph?.nodes.find((node) => node.id === "orch");
+
+    const next = structuredClone(SAMPLE_GRAPH) as {
+      nodes: Array<{ id: string; status: string }>;
+    };
+    const other = next.nodes.find((node) => node.id === "tool-search");
+    if (other) other.status = "running";
+    readSessionGraph.mockResolvedValue(snapshot({ json: JSON.stringify(next), updatedAt: 2000 }));
+
+    await useGraphStore.getState().load("s1");
+
+    expect(entry("s1").graph?.nodes.find((node) => node.id === "orch")).toBe(firstOrch);
+    expect(entry("s1").graph?.nodes.find((node) => node.id === "tool-search")?.status).toBe(
+      "running",
+    );
+  });
+
+  it("keeps the last drawable graph when a live rewrite is huge", async () => {
+    readSessionGraph.mockResolvedValue(snapshot());
+    await useGraphStore.getState().load("s1");
+    const first = entry("s1").graph;
+
+    readSessionGraph.mockResolvedValue(
+      snapshot({
+        json: `{"name":"huge","nodes":[{"id":"a"}]}`.padEnd(512 * 1024 + 8, " "),
+        updatedAt: 3000,
+      }),
+    );
+
+    await useGraphStore.getState().load("s1");
+
+    expect(entry("s1").graph).toBe(first);
+    expect(entry("s1").updatedAt).toBe(3000);
+  });
+});
+
+describe("stabilizeGraph", () => {
+  it("returns the previous document when nothing material changed", async () => {
+    readSessionGraph.mockResolvedValue(snapshot());
+    await useGraphStore.getState().load("s1");
+    const graph = entry("s1").graph;
+    expect(graph).not.toBeNull();
+    if (graph === null) return;
+    expect(stabilizeGraph(graph, structuredClone(graph))).toBe(graph);
   });
 });
 
