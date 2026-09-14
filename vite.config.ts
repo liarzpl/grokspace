@@ -26,12 +26,31 @@ export default defineConfig({
     sourcemap: Boolean(process.env.TAURI_ENV_DEBUG),
   },
   test: {
-    environment: "node",
-    // `scripts/` is here for the release workflow's shell. That workflow cannot be run
-    // to find out whether it works — it needs a macOS runner, Apple credentials and a
-    // tag it would then publish — so the parts of it that decide anything live in
-    // scripts and are tested like anything else. One test command for the repository.
-    include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+    // One command still runs everything. Component files need a DOM (TEST-001);
+    // store/lib tests stay on node so they do not grow a `window` they were
+    // written without. `scripts/` is here for the release workflow's shell —
+    // that workflow cannot be run to find out whether it works (macOS runner,
+    // Apple credentials, a tag it would then publish), so the parts that decide
+    // anything live in scripts and are tested like anything else.
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "unit",
+          environment: "node",
+          include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "components",
+          environment: "jsdom",
+          include: ["src/**/*.test.tsx"],
+          setupFiles: ["./src/test/setup.ts"],
+        },
+      },
+    ],
     // HTML report only (TEST-010). Do not add a coverage.thresholds gate: a
     // drop must not fail CI. Scope is the already-tested lib/stores surface;
     // components wait on TEST-001.
