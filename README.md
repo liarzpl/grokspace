@@ -217,7 +217,9 @@ Three bundled skills. Source directory, install directory, and frontmatter
 | Steps | `src-tauri/skills/grokspace-steps/` | `~/.grok/skills/grokspace-steps/` | `grokspace-steps` |
 
 The frontend never spells out raw command names: every backend call goes
-through a typed wrapper in [`src/lib/api.ts`](src/lib/api.ts).
+through a typed wrapper in [`src/lib/api.ts`](src/lib/api.ts). The command and
+event inventory — and the spawn environment — is
+[`docs/ipc.md`](docs/ipc.md).
 
 Colour works the same way. Every value the app draws is declared in
 [`src/styles.css`](src/styles.css), including the sixteen ANSI colours a terminal
