@@ -1,7 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  grantSessionLease,
+  resetSessionLeases,
+} from "../lib/permissionLease";
 import { session } from "../test/fixtures";
 import type { PermissionRequest, SessionStep } from "../types";
 import { PermissionActions } from "./PermissionActions";
@@ -38,6 +42,7 @@ const initialDiff = useDiffStore.getState();
 
 describe("PermissionActions", () => {
   beforeEach(() => {
+    resetSessionLeases();
     useSessionStore.setState(initialSessions, true);
     useStepStore.setState(initialSteps, true);
     useDiffStore.setState(initialDiff, true);
@@ -133,5 +138,75 @@ describe("PermissionActions", () => {
     await user.click(screen.getByRole("button", { name: "Allow" }));
     expect(onAnswer).toHaveBeenCalledWith(true, undefined);
     expect(screen.queryByTestId("permission-why")).not.toBeInTheDocument();
+  });
+
+  it("offers a session lease and answers the next match as allow_once", async () => {
+    const user = userEvent.setup();
+    const onAnswer = vi.fn();
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", paneId: null, kind: "agent", status: "needs_input" })],
+    });
+
+    render(
+      <PermissionActions request={request} sessionId="s1" onAnswer={onAnswer} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Also this session: Edit src/**" }),
+    );
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer).toHaveBeenCalledWith(true);
+    expect(onAnswer.mock.calls[0]?.[1]).toBeUndefined();
+
+    const next: PermissionRequest = {
+      ...request,
+      requestId: 2,
+      summary: "Edit src/lib/permissions.ts",
+      options: [
+        { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+        { optionId: "always", name: "Always allow", kind: "allow_always" },
+        { optionId: "reject-once", name: "Deny", kind: "reject_once" },
+      ],
+    };
+    const auto = vi.fn();
+    render(<PermissionActions request={next} sessionId="s1" onAnswer={auto} />);
+
+    await waitFor(() => {
+      expect(auto).toHaveBeenCalledTimes(1);
+    });
+    expect(auto).toHaveBeenCalledWith(true);
+    expect(auto.mock.calls[0]?.[1]).toBeUndefined();
+    expect(screen.getByTestId("permission-lease-auto")).toHaveTextContent(
+      "Allowing Edit src/** this session",
+    );
+  });
+
+  it("does not auto-answer when the agent only offered allow_always", () => {
+    grantSessionLease("s1", { tool: "Edit", prefix: "src/" });
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", paneId: null, kind: "agent", status: "needs_input" })],
+    });
+    const onAnswer = vi.fn();
+
+    render(
+      <PermissionActions
+        request={{
+          requestId: 3,
+          summary: "Edit src/auth.ts",
+          options: [
+            { optionId: "always", name: "Always allow", kind: "allow_always" },
+            { optionId: "reject-once", name: "Deny", kind: "reject_once" },
+          ],
+        }}
+        sessionId="s1"
+        onAnswer={onAnswer}
+      />,
+    );
+
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("permission-lease-auto")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Also this session: Edit src/**" }),
+    ).not.toBeInTheDocument();
   });
 });
