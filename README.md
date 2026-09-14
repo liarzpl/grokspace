@@ -59,7 +59,9 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   before chips appear. Deny wins; allow-once-similar cannot widen a deny and
   never becomes Always. A bad glob is skipped, not treated as Always. Deny is a reject-once chip. Its words, thoughts, tools,
   and plans surface as a transcript on the Graph tab and the Tasks rail, with
-  Cancel while it is working and a follow-up field while it is idle. Five
+  Cancel while it is working and a follow-up field while it is idle. A long
+  transcript keeps the latest rows on screen; earlier lines unmount until you
+  ask for them. Five
   identical tool calls in a row (same text — different args do not count)
   raise a host Pause / Continue strip: Pause cancels the turn, Continue
   dismisses the strip and resets the count. A terminal can

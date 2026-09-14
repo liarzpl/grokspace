@@ -10,6 +10,12 @@ import {
   type MemoryProposeType,
 } from "../lib/memoryPropose";
 import { moveSegmented } from "../lib/segmented";
+import {
+  growTranscriptWindow,
+  transcriptRowKey,
+  TRANSCRIPT_WINDOW,
+  windowTranscript,
+} from "../lib/transcript";
 import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { useSessionStore } from "../stores/sessionStore";
 import type { AgentUpdate, AgentUpdateKind, Session } from "../types";
@@ -141,6 +147,30 @@ function MemoryProposeChip({ projectId, text }: { projectId: string; text: strin
   );
 }
 
+function EarlierRows({
+  hidden,
+  visible,
+  total,
+  onMore,
+}: {
+  hidden: number;
+  visible: number;
+  total: number;
+  onMore: () => void;
+}) {
+  if (hidden <= 0) return null;
+  const next = growTranscriptWindow(visible, total) - visible;
+  return (
+    <button
+      type="button"
+      onClick={onMore}
+      className="mb-1 block w-full rounded-sm px-1.5 py-1 text-left text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+    >
+      Show {next} earlier {next === 1 ? "line" : "lines"} ({hidden} hidden)
+    </button>
+  );
+}
+
 function TranscriptLine({
   entry,
   offerMemory,
@@ -173,15 +203,20 @@ export default function AgentTranscript({ session }: { session: Session }) {
   const promptSession = useSessionStore((state) => state.promptSession);
   const cancelSession = useSessionStore((state) => state.cancelSession);
   const [draft, setDraft] = useState("");
+  const [limit, setLimit] = useState(TRANSCRIPT_WINDOW);
   const scroller = useRef<HTMLDivElement>(null);
+  const windowed = windowTranscript(entries, limit);
+  const followingTail = limit <= TRANSCRIPT_WINDOW;
 
   useEffect(() => {
+    if (!followingTail) return;
     const element = scroller.current;
     if (element) element.scrollTop = element.scrollHeight;
-  }, [entries]);
+  }, [entries, followingTail]);
 
   useEffect(() => {
     setDraft("");
+    setLimit(TRANSCRIPT_WINDOW);
   }, [session.id]);
 
   const idle = session.status === "idle";
@@ -216,14 +251,23 @@ export default function AgentTranscript({ session }: { session: Session }) {
           <p className="text-[11px] text-ink-faint">The agent has not said anything yet.</p>
         ) : (
           <div className="flex flex-col gap-1 py-0.5">
-            {entries.map((entry, index) => (
-              <TranscriptLine
-                key={`${index}-${entry.kind}`}
-                entry={entry}
-                projectId={session.projectId}
-                offerMemory={offersMemoryChip(entry, index === entries.length - 1)}
-              />
-            ))}
+            <EarlierRows
+              hidden={windowed.hidden}
+              visible={windowed.shown.length}
+              total={entries.length}
+              onMore={() => setLimit((current) => growTranscriptWindow(current, entries.length))}
+            />
+            {windowed.shown.map((entry, index) => {
+              const absolute = windowed.offset + index;
+              return (
+                <TranscriptLine
+                  key={transcriptRowKey(absolute, entry.kind)}
+                  entry={entry}
+                  projectId={session.projectId}
+                  offerMemory={offersMemoryChip(entry, absolute === entries.length - 1)}
+                />
+              );
+            })}
           </div>
         )}
       </div>

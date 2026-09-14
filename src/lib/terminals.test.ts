@@ -218,7 +218,7 @@ describe("acquireTerminal / mountTerminal", () => {
 });
 
 describe("attachTerminal", () => {
-  it("writes ArrayBuffer, view, and number[] payloads as Uint8Array", async () => {
+  it("writes ArrayBuffer, view, and number[] payloads as one Uint8Array per burst", async () => {
     await attachTerminal("s1");
     const term = termOf("s1");
     const channel = lastChannel();
@@ -228,16 +228,27 @@ describe("attachTerminal", () => {
     channel.onmessage(raw.buffer.slice(1, 4));
     channel.onmessage(raw.subarray(1, 4));
     channel.onmessage([65, 66]);
+    await settleBackground();
+
+    expect(term.write).toHaveBeenCalledOnce();
+    const [chunk] = term.write.mock.calls[0] ?? [];
+    expect(chunk).toBeInstanceOf(Uint8Array);
+    expect([...(chunk as Uint8Array)]).toEqual([10, 20, 30, 10, 20, 30, 65, 66]);
+  });
+
+  it("flushes a later burst as its own write", async () => {
+    await attachTerminal("s1");
+    const term = termOf("s1");
+    const channel = lastChannel();
+    if (!channel.onmessage) throw new Error("channel onmessage unset");
+
+    channel.onmessage([1]);
+    await settleBackground();
+    channel.onmessage([2]);
+    await settleBackground();
 
     const written = term.write.mock.calls.map(([chunk]) => [...(chunk as Uint8Array)]);
-    expect(written).toEqual([
-      [10, 20, 30],
-      [10, 20, 30],
-      [65, 66],
-    ]);
-    for (const [chunk] of term.write.mock.calls) {
-      expect(chunk).toBeInstanceOf(Uint8Array);
-    }
+    expect(written).toEqual([[1], [2]]);
   });
 
   it("is a no-op while attached, and retries after attachSession fails", async () => {
