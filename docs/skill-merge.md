@@ -104,13 +104,18 @@ changed rather than the answer:
 Both had survived the merge because they came from opposite sides of it: the cadence from
 GrokSpace's skill, the napkin test from the hand-written one.
 
-## What the merge does not fix
+## What the merge does not fix (2026-08)
 
-- **`grokspace-memory` is not installed on that machine**, though
-  `GROKSPACE_MEMORY_FILE` is exported for every session. Grok cannot follow a skill
-  the host did not install, so the memory panel's contents were being ignored — not
-  through any fault in the skill. Installing it is one button in the Memory panel, or
-  one command in the palette.
+This section is a diary of the host the two graph skills were merged on, not a
+current product gap.
+
+- **`grokspace-memory` was not installed on that machine (2026-08)**, though
+  `GROKSPACE_MEMORY_FILE` was already exported for every session. Grok cannot
+  follow a skill the host did not install, so the memory panel's contents were
+  being ignored — not through any fault in the skill. The app now bundles that
+  skill: source `src-tauri/skills/project-memory/`, frontmatter and install dir
+  `grokspace-memory`. The Memory panel button, or the palette's "Install or
+  refresh GrokSpace skills", writes `~/.grok/skills/grokspace-memory`.
 - **"Workers never write this file" cannot be enforced across turns.** Each turn is a
   new orchestrator, and it overwrites. Single-writer is a convention within a run, and
   the merged contract says so rather than implying a guarantee.
