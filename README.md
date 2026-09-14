@@ -102,7 +102,8 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   `<project>/.grokspace/worktrees/<session-id>/`, on a branch named
   `grokspace/<short-id>`. Grok panes and shells stay on the project folder. Graphs,
   steps, and memory still live under the project, via absolute environment variables.
-  If isolation is skipped, a banner says the agent is on the project tree. Close
+  If isolation is skipped, a dialog asks before start (Cancel / Start on the
+  project tree); after confirm, a banner says the agent is on the project tree. Close
   refuses while that checkpoint is dirty; Discard reverts it (force-remove).
   Merge, on a stopped agent, commits leftover files and lands the branch on
   the project.
@@ -396,10 +397,11 @@ Putting trees under `~/.grokspace` would not.
 GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
 every extra flag is a way for a session to fail to start, which is the same
 reason graphs, memory, and roles stay out of flags. Missing git, a folder that
-is not a repository, or a failed `worktree add` refuse to start unless the
-caller confirms working on the project tree (`allowUnisolated`). The UI says so
-in an isolation banner (and on the session chip): isolation did not happen, and
-a confirmed agent is on the project tree.
+is not a repository, or a failed `worktree add` refuse to start unless you
+confirm **Start on the project tree**. Cancel leaves the agent unstarted. The
+first start never sends `allowUnisolated`. After confirm, the isolation banner
+(and the session chip) still say the agent is on the project tree. A swarm
+asks once, never starts unisolated in silence.
 
 `GROKSPACE_PROJECT_DIR`, `GROKSPACE_GRAPH_FILE`, `GROKSPACE_STEPS_FILE`, and
 `GROKSPACE_MEMORY_FILE` stay pointed at the **project**. `GROKSPACE_WORKTREE` is

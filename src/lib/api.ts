@@ -63,7 +63,8 @@ export const api = {
    * rather than in it, and `role` for one nobody started as anything in particular.
    *
    * Sent as one nested value because the backend takes it as one: the argument list
-   * had grown past what a reader can follow.
+   * had grown past what a reader can follow. `allowUnisolated` is omitted unless
+   * the caller confirmed — the happy path must not send the flag.
    */
   createSession: (input: {
     projectId: string;
@@ -75,7 +76,7 @@ export const api = {
     /** Confirm starting an agent on the project tree when isolation skipped. */
     allowUnisolated?: boolean;
   }): Promise<Session> =>
-    invoke<Session>("create_session", { session: { ...input, role: input.role ?? null } }),
+    invoke<Session>("create_session", { session: sessionCreatePayload(input) }),
 
   /** Routes the session's output into `onOutput`, replaying buffered scrollback. */
   attachSession: (id: string, onOutput: Channel<ArrayBuffer>): Promise<void> =>
@@ -312,6 +313,27 @@ export const api = {
     invoke<void>("log_client_error", { source, message }),
 
 };
+
+/** `create_session` body. `allowUnisolated` is omitted unless it is true. */
+export function sessionCreatePayload(input: {
+  projectId: string;
+  paneId: string | null;
+  kind: SessionKind;
+  role?: string;
+  cols: number;
+  rows: number;
+  allowUnisolated?: boolean;
+}) {
+  const session = {
+    projectId: input.projectId,
+    paneId: input.paneId,
+    kind: input.kind,
+    role: input.role ?? null,
+    cols: input.cols,
+    rows: input.rows,
+  };
+  return input.allowUnisolated === true ? { ...session, allowUnisolated: true as const } : session;
+}
 
 /** Rust returns errors as plain strings, so unwrap them for display. */
 export function errorMessage(error: unknown): string {

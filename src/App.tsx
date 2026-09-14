@@ -3,6 +3,7 @@ import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 
 import CommandPalette from "./components/CommandPalette";
 import ErrorBoundary from "./components/ErrorBoundary";
+import IsolationConfirm from "./components/IsolationConfirm";
 import SettingsPanel from "./components/SettingsPanel";
 import EmptyState from "./components/EmptyState";
 import ProjectSidebar from "./components/ProjectSidebar";
@@ -185,6 +186,7 @@ export default function App() {
 
       <CommandPalette />
       <SettingsPanel />
+      <IsolationConfirm />
 
       {error && (
         <div

@@ -78,6 +78,44 @@ function liveSessionIds(sessions: readonly Session[]): Set<string> {
 /** Overlap worktree add + spawn; keep per-role error isolation. */
 const SWARM_CONCURRENCY = 3;
 
+/** Rust fail-closed. The banner uses a different sentence and must not match. */
+export function isIsolationConfirmError(message: string): boolean {
+  return (
+    message.includes("isolation did not happen") &&
+    message.includes("confirm to start on the project tree")
+  );
+}
+
+/** Concurrent swarm roles share one dialog. The answer does not outlive this start. */
+let isolationGate: {
+  promise: Promise<boolean>;
+  resolve: (ok: boolean) => void;
+} | null = null;
+
+function askIsolationConfirm(
+  set: (partial: { isolationConfirm: { message: string } | null }) => void,
+  message: string,
+): Promise<boolean> {
+  if (isolationGate !== null) return isolationGate.promise;
+  let resolve!: (ok: boolean) => void;
+  const promise = new Promise<boolean>((settle) => {
+    resolve = settle;
+  });
+  isolationGate = { promise, resolve };
+  set({ isolationConfirm: { message } });
+  return promise;
+}
+
+function settleIsolationConfirm(
+  set: (partial: { isolationConfirm: { message: string } | null }) => void,
+  ok: boolean,
+): void {
+  const gate = isolationGate;
+  isolationGate = null;
+  set({ isolationConfirm: null });
+  gate?.resolve(ok);
+}
+
 async function mapPool<T>(
   items: readonly T[],
   limit: number,
@@ -176,6 +214,8 @@ interface SessionState {
    * reload prefers `session.isolationSkip`, then the generic sentence.
    */
   isolationReasons: Record<string, string>;
+  /** Open isolation confirm. Null when nobody is waiting. */
+  isolationConfirm: { message: string } | null;
   isLoading: boolean;
   error: string | null;
   /**
@@ -194,13 +234,20 @@ interface SessionState {
        * failure. Palette and the board both read this field.
        */
       keepError?: boolean;
+      /** Swarm confirms once; single starts use the store dialog. */
+      confirmUnisolated?: (message: string) => Promise<boolean>;
     },
   ) => Promise<Session | null>;
   /** @deprecated Use `createSession`. Alias for one release. */
   startSession: (
     input: StartInput,
-    options?: { keepError?: boolean },
+    options?: {
+      keepError?: boolean;
+      confirmUnisolated?: (message: string) => Promise<boolean>;
+    },
   ) => Promise<Session | null>;
+  confirmUnisolatedStart: () => void;
+  cancelUnisolatedStart: () => void;
   /**
    * Starts one agent per role and tells each what it is for. Returns the roles that
    * would not start, so the caller can say which rather than only that some did.
@@ -261,12 +308,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   permissions: {},
   transcript: {},
   isolationReasons: {},
+  isolationConfirm: null,
   isLoading: false,
   error: null,
   mergeReasons: {},
 
   setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
+  confirmUnisolatedStart: () => settleIsolationConfirm(set, true),
+  cancelUnisolatedStart: () => settleIsolationConfirm(set, false),
 
   forgetSessions: (ids, clearWorkspace) => {
     for (const id of ids) forgetSessionFiles(id);
@@ -359,7 +409,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       permissions: state.permissions,
     }));
     try {
-      const session = await api.createSession(input);
+      const { allowUnisolated, ...rest } = input;
+      const session = await api.createSession(
+        allowUnisolated === true ? { ...rest, allowUnisolated: true } : rest,
+      );
       if (paneId !== null) {
         // A pane left showing the previous session's graph should greet a new
         // session with its terminal, which is the thing that needs watching.
@@ -374,7 +427,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
       return session;
     } catch (error) {
-      set({ error: errorMessage(error) });
+      const message = errorMessage(error);
+      if (input.allowUnisolated !== true && isIsolationConfirmError(message)) {
+        // Dialog, not the raw fail-closed sentence on the banner.
+        const ask =
+          options?.confirmUnisolated ?? ((text) => askIsolationConfirm(set, text));
+        const confirmed = await ask(message);
+        if (confirmed) {
+          return get().createSession({ ...input, allowUnisolated: true }, options);
+        }
+        return null;
+      }
+      set({ error: message });
       return null;
     } finally {
       set(() => busy(false));
@@ -386,6 +450,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   launchSwarm: async (projectId, roles) => {
     const failed: string[] = [];
     const reasons: string[] = [];
+    // One confirm for this launch. A later New agent still asks.
+    let unisolated: boolean | undefined;
+    const confirmUnisolated = async (message: string) => {
+      if (unisolated === undefined) {
+        unisolated = await askIsolationConfirm(set, message);
+      }
+      return unisolated;
+    };
     // One role's failure does not stop the rest: five roles are five
     // independent sessions. Starts overlap (bounded) so five `git worktree add`
     // calls are not strictly serial. Prompting follows each spawn; it does not
@@ -399,11 +471,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           role: role.name,
           ...FALLBACK_PTY_SIZE,
         },
-        { keepError: true },
+        { keepError: true, confirmUnisolated },
       );
       if (session === null) {
         failed.push(role.name);
-        reasons.push(`${role.name}: ${get().error ?? "could not start"}`);
+        const err = get().error;
+        if (err !== null) {
+          reasons.push(`${role.name}: ${err}`);
+        } else if (unisolated !== false) {
+          reasons.push(`${role.name}: could not start`);
+        }
         return;
       }
 
@@ -419,7 +496,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         reasons.push(`${role.name}: ${reason}`);
       }
     });
-    if (failed.length > 0) {
+    if (reasons.length > 0) {
       set({ error: reasons.join(" · ") });
     }
     return failed;
