@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
 use notify::RecommendedWatcher;
+use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{AppHandle, Runtime, State};
 
@@ -340,6 +341,41 @@ pub fn read_session_graph(state: State<'_, AppState>, session_id: String) -> Res
         project::get(&conn, &session.project_id)?.path
     };
     Ok(snapshot(Path::new(&project_path), &session_id))
+}
+
+/// Project path plus that project's session ids. File reads stay off this
+/// result so the SQLite mutex is not held across graph IO (PERF-005).
+pub(crate) fn project_session_ids(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<(String, Vec<String>)> {
+    let project = project::get(conn, project_id)?;
+    let mut stmt =
+        conn.prepare("SELECT id FROM sessions WHERE project_id = ?1 ORDER BY created_at ASC")?;
+    let session_ids = stmt
+        .query_map([project_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok((project.path, session_ids))
+}
+
+pub fn snapshots_for(project_path: &Path, session_ids: &[String]) -> Vec<GraphSnapshot> {
+    session_ids
+        .iter()
+        .map(|id| snapshot(project_path, id))
+        .collect()
+}
+
+/// Every session's graph in one round trip, so project open is not N IPC.
+#[tauri::command]
+pub fn list_session_graphs(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<GraphSnapshot>> {
+    let (project_path, session_ids) = {
+        let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
+        project_session_ids(&conn, &project_id)?
+    };
+    Ok(snapshots_for(Path::new(&project_path), &session_ids))
 }
 
 #[cfg(test)]
@@ -736,5 +772,66 @@ mod tests {
         cap_watchers(&mut watchers, "keep", 4);
         assert_eq!(watchers.len(), 4);
         assert_eq!(watchers.get("keep"), Some(&5));
+    }
+
+    #[test]
+    fn listing_a_project_returns_every_session_graph_in_one_pass() {
+        let project = dir();
+        let conn = crate::db::open_in_memory().expect("in-memory database should open");
+        let row = crate::project::upsert_by_path(
+            &conn,
+            project.path().to_str().expect("utf-8 path"),
+            "graphs-batch",
+        )
+        .unwrap();
+        let first = crate::session::insert(
+            &conn,
+            &row.id,
+            Some("0"),
+            crate::session::SessionKind::Grok,
+            "Grok",
+            None,
+        )
+        .unwrap();
+        let second = crate::session::insert(
+            &conn,
+            &row.id,
+            None,
+            crate::session::SessionKind::Agent,
+            "Agent",
+            None,
+        )
+        .unwrap();
+        let other = crate::project::upsert_by_path(&conn, "/tmp/other-graphs", "other").unwrap();
+        crate::session::insert(
+            &conn,
+            &other.id,
+            Some("0"),
+            crate::session::SessionKind::Grok,
+            "Other",
+            None,
+        )
+        .unwrap();
+        let graphs = ensure_graph_dir(project.path()).unwrap();
+        std::fs::write(graphs.join(graph_file_name(&first.id)), r#"{"nodes":[]}"#).unwrap();
+
+        let (path, ids) = project_session_ids(&conn, &row.id).unwrap();
+        assert_eq!(ids, vec![first.id.clone(), second.id.clone()]);
+        let listed = snapshots_for(Path::new(&path), &ids);
+
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].session_id, first.id);
+        assert!(listed[0].exists);
+        assert_eq!(listed[0].json.as_deref(), Some(r#"{"nodes":[]}"#));
+        assert_eq!(listed[1].session_id, second.id);
+        assert!(!listed[1].exists);
+        assert_eq!(listed[1].json, None);
+    }
+
+    #[test]
+    fn listing_an_unknown_project_is_an_error() {
+        let conn = crate::db::open_in_memory().expect("in-memory database should open");
+        let error = project_session_ids(&conn, "missing").unwrap_err();
+        assert!(error.to_string().contains("no project found"));
     }
 }

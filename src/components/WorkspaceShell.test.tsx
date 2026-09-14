@@ -88,7 +88,7 @@ describe("WorkspaceShell", () => {
     vi.spyOn(useSessionStore.getState(), "inspectMerge").mockResolvedValue();
     vi.spyOn(useTaskStore.getState(), "loadTasks").mockResolvedValue();
     vi.spyOn(useMemoryStore.getState(), "loadMemory").mockResolvedValue();
-    vi.spyOn(useGraphStore.getState(), "load").mockResolvedValue();
+    vi.spyOn(useGraphStore.getState(), "syncSessions").mockResolvedValue();
     vi.spyOn(useStepStore.getState(), "syncSessions").mockResolvedValue();
     vi.spyOn(useDiffStore.getState(), "loadDiff").mockResolvedValue();
   });

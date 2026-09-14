@@ -112,6 +112,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | Command | What it does |
 | --- | --- |
 | `read_session_graph` | The file for one session, whether or not it exists |
+| `list_session_graphs` | Every session's graph in one project, including missing files |
 | `watch_project_graphs` | Watch that project's graph dir; asking twice is harmless |
 | `graph_skill_status` | Whether `~/.grok/skills/grokspace-graph` is current |
 | `install_graph_skill` | Install or refresh that skill |
@@ -121,6 +122,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | Command | What it does |
 | --- | --- |
 | `list_session_steps` | Phase plus rows for one session |
+| `list_project_steps` | Phase plus rows for every session in a project |
 | `add_session_step` | User title; at most 20 |
 | `update_session_step` | Title and/or status. A title edit marks origin `user` |
 | `remove_session_step` | Delete one row; empty list returns phase to `none` |

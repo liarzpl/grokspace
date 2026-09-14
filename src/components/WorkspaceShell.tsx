@@ -14,12 +14,7 @@ import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions
 import { openInboxItem } from "../lib/commands";
 import { sessionChipA11yLabel, sessionStatusPhrase } from "../lib/statusText";
 import { moveSegmented } from "../lib/segmented";
-import {
-  scheduleIdle,
-  sessionIdKey,
-  sessionIdsFromKey,
-  sidecarLoadPlan,
-} from "../lib/sessionSidecars";
+import { sessionIdKey, sessionIdsFromKey } from "../lib/sessionSidecars";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -525,7 +520,7 @@ function GraphSummary({ session }: { session: Session | undefined }) {
 export default function WorkspaceShell({ project }: { project: Project }) {
   const loadSessions = useSessionStore((state) => state.loadSessions);
   const sessions = useSessionsForProject(project.id);
-  const loadGraph = useGraphStore((state) => state.load);
+  const syncGraphs = useGraphStore((state) => state.syncSessions);
   const watchGraphs = useGraphStore((state) => state.watch);
   const syncSteps = useStepStore((state) => state.syncSessions);
   const watchSteps = useStepStore((state) => state.watch);
@@ -565,30 +560,14 @@ export default function WorkspaceShell({ project }: { project: Project }) {
     void loadMemory(project.id);
   }, [project.id, loadMemory]);
 
-  // Visible chips/panes first; the rest after idle. Joined on NUL so this
-  // depends on which sessions exist rather than on the array, which a status
-  // change replaces, and so an id that contained a space could not split.
+  // One listing per sidecar, not N IPC. Joined on NUL so this depends on
+  // which sessions exist rather than on the array, which a status change
+  // replaces, and so an id that contained a space could not split.
   const sessionKey = sessionIdKey(sessions.map((session) => session.id));
-  const paneKey = sessionIdKey(
-    sessions
-      .filter((session) => session.paneId !== null)
-      .map((session) => session.id),
-  );
   useEffect(() => {
-    const sessionIds = sessionIdsFromKey(sessionKey);
-    const plan = sidecarLoadPlan({
-      sessionIds,
-      paneSessionIds: sessionIdsFromKey(paneKey),
-      tab,
-      selectedGraphId: graphSessionId,
-    });
-    for (const id of plan.immediate) void loadGraph(id);
-    void syncSteps(sessionIds, plan.immediate);
-    const cancel = scheduleIdle(() => {
-      for (const id of plan.deferred) void loadGraph(id);
-    });
-    return cancel;
-  }, [sessionKey, paneKey, tab, graphSessionId, loadGraph, syncSteps]);
+    void syncGraphs(project.id);
+    void syncSteps(project.id);
+  }, [project.id, sessionKey, syncGraphs, syncSteps]);
 
   useEffect(() => {
     // Watching is what makes the graphs live. The backend keeps one watch per

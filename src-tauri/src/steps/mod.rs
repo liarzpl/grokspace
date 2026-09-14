@@ -48,6 +48,14 @@ pub fn list_session_steps(state: State<'_, AppState>, session_id: String) -> Res
 }
 
 #[tauri::command]
+pub fn list_project_steps(
+    state: State<'_, AppState>,
+    project_id: String,
+) -> Result<Vec<SessionSteps>> {
+    state.with_db(|conn| store::list_for_project(conn, &project_id))
+}
+
+#[tauri::command]
 pub fn add_session_step(
     state: State<'_, AppState>,
     session_id: String,
@@ -400,5 +408,41 @@ mod tests {
 
         assert!(!steps.join("s1.json").exists());
         assert!(steps.join("s2.json").exists());
+    }
+
+    #[test]
+    fn listing_a_project_returns_every_session_list_in_one_pass() {
+        let (conn, project_id, first) = fixture();
+        ingest(&conn, &first, r#"{"steps":[{"title":"Read it"}]}"#).unwrap();
+        let second =
+            session::insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        let other = project::upsert_by_path(&conn, "/tmp/other-steps", "other").unwrap();
+        let outsider = session::insert(
+            &conn,
+            &other.id,
+            Some("0"),
+            SessionKind::Grok,
+            "Other",
+            None,
+        )
+        .unwrap();
+        ingest(&conn, &outsider.id, r#"{"steps":[{"title":"Stay out"}]}"#).unwrap();
+
+        let listed = store::list_for_project(&conn, &project_id).unwrap();
+
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].session_id, first);
+        assert_eq!(listed[0].phase, StepsPhase::Proposed);
+        assert_eq!(listed[0].steps[0].title, "Read it");
+        assert_eq!(listed[1].session_id, second.id);
+        assert_eq!(listed[1].phase, StepsPhase::None);
+        assert!(listed[1].steps.is_empty());
+    }
+
+    #[test]
+    fn listing_an_unknown_project_is_an_error() {
+        let conn = db::open_in_memory().expect("in-memory database should open");
+        let error = store::list_for_project(&conn, "missing").unwrap_err();
+        assert!(error.to_string().contains("no project found"));
     }
 }

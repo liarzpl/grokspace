@@ -278,6 +278,10 @@ export const api = {
   readSessionGraph: (sessionId: string): Promise<GraphSnapshot> =>
     invoke<GraphSnapshot>("read_session_graph", { sessionId }),
 
+  /** Every session's graph in the project, including sessions with no file yet. */
+  listSessionGraphs: (projectId: string): Promise<GraphSnapshot[]> =>
+    invoke<GraphSnapshot[]>("list_session_graphs", { projectId }),
+
   /**
    * Watches the directory the project's sessions write their graphs into so changes
    * are reported, and returns what is being watched. Asking twice is harmless.
@@ -287,6 +291,9 @@ export const api = {
 
   listSessionSteps: (sessionId: string): Promise<SessionSteps> =>
     invoke<SessionSteps>("list_session_steps", { sessionId }),
+
+  listProjectSteps: (projectId: string): Promise<SessionSteps[]> =>
+    invoke<SessionSteps[]>("list_project_steps", { projectId }),
 
   addSessionStep: (sessionId: string, title: string): Promise<SessionSteps> =>
     invoke<SessionSteps>("add_session_step", { sessionId, title }),

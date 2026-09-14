@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionSteps } from "../types";
 
 const listSessionSteps = vi.fn();
+const listProjectSteps = vi.fn();
 const addSessionStep = vi.fn();
 const updateSessionStep = vi.fn();
 const removeSessionStep = vi.fn();
@@ -17,6 +18,7 @@ vi.mock("../lib/api", async () => {
     errorMessage: actual.errorMessage,
     api: {
       listSessionSteps,
+      listProjectSteps,
       addSessionStep,
       updateSessionStep,
       removeSessionStep,
@@ -114,52 +116,45 @@ describe("load", () => {
 
 describe("syncSessions", () => {
   it("drops lists that do not belong to the arriving sessions", async () => {
-    listSessionSteps.mockResolvedValue(snapshot({ sessionId: "s2", steps: [] }));
+    listProjectSteps.mockResolvedValue([snapshot({ sessionId: "s2", steps: [] })]);
     useStepStore.setState({
       bySession: {
         s1: { sessionId: "s1", phase: "proposed", steps: snapshot().steps, isLoading: false },
       },
     });
 
-    await useStepStore.getState().syncSessions(["s2"]);
+    await useStepStore.getState().syncSessions("p1");
 
     expect(Object.keys(useStepStore.getState().bySession)).toEqual(["s2"]);
   });
 
-  it("loads urgent sessions now and the rest after idle", async () => {
-    vi.stubGlobal("requestIdleCallback", undefined);
-    vi.useFakeTimers();
-    listSessionSteps.mockImplementation((id: string) =>
-      Promise.resolve(snapshot({ sessionId: id, steps: [] })),
-    );
+  it("loads every session from one project listing", async () => {
+    listProjectSteps.mockResolvedValue([
+      snapshot({ sessionId: "s1", steps: [] }),
+      snapshot({ sessionId: "s2", steps: [] }),
+    ]);
 
-    const done = useStepStore.getState().syncSessions(["s1", "s2"], ["s1"]);
-    await done;
+    await useStepStore.getState().syncSessions("p1");
 
-    expect(listSessionSteps).toHaveBeenCalledWith("s1");
-    expect(listSessionSteps).not.toHaveBeenCalledWith("s2");
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(listSessionSteps).toHaveBeenCalledWith("s2");
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
+    expect(listProjectSteps).toHaveBeenCalledWith("p1");
+    expect(listSessionSteps).not.toHaveBeenCalled();
+    expect(Object.keys(useStepStore.getState().bySession).sort()).toEqual(["s1", "s2"]);
   });
 
-  it("lets the later sync win when two complete out of order", async () => {
-    let resolveFirst: (value: SessionSteps) => void = () => {};
-    listSessionSteps.mockImplementation((id: string) => {
-      if (id === "s1") {
-        return new Promise<SessionSteps>((resolve) => {
+  it("lets the later listing win when two complete out of order", async () => {
+    let resolveFirst: (value: SessionSteps[]) => void = () => {};
+    listProjectSteps.mockImplementationOnce(
+      () =>
+        new Promise<SessionSteps[]>((resolve) => {
           resolveFirst = resolve;
-        });
-      }
-      return Promise.resolve(snapshot({ sessionId: "s2", steps: [] }));
-    });
+        }),
+    );
+    listProjectSteps.mockResolvedValueOnce([snapshot({ sessionId: "s2", steps: [] })]);
 
-    const first = useStepStore.getState().syncSessions(["s1"]);
-    const second = useStepStore.getState().syncSessions(["s2"]);
+    const first = useStepStore.getState().syncSessions("p1");
+    const second = useStepStore.getState().syncSessions("p2");
     await second;
-    resolveFirst(snapshot());
+    resolveFirst([snapshot()]);
     await first;
 
     expect(Object.keys(useStepStore.getState().bySession)).toEqual(["s2"]);
