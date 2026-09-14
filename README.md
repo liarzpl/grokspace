@@ -110,6 +110,12 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   refuses while that checkpoint is dirty; Discard reverts it (force-remove).
   Merge, on a stopped agent, commits leftover files and lands the branch on
   the project.
+  After a successful `git worktree add`, paths listed in
+  `<project>/.grokspace/worktreeinclude` (one relative path per line) are copied
+  from the project into the new tree. Missing paths are skipped; start still
+  succeeds. `**`, `..`, absolute paths, and anything outside the project are
+  refused. Nothing is copied by default — not `.env`. Restart reuses the tree
+  and does not copy again.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on
@@ -396,6 +402,15 @@ The tree is a clean checkout of `HEAD` on a branch named `grokspace/<short-id>`.
 The agent does not see uncommitted files on the project tree; that is the point.
 Walk-up from the worktree still finds the project's `AGENTS.md` and `.grok`.
 Putting trees under `~/.grokspace` would not.
+
+To seed deps or local config the agent would otherwise miss, list relative
+paths in `<project>/.grokspace/worktreeinclude`, one per line. After a
+successful `git worktree add`, those paths are copied from the project into
+the new tree. Blank lines and `#` comments are ignored. A missing source is
+skipped with a reason; isolation still succeeds. `**`, `..`, absolute paths,
+and anything that resolves outside the project are refused. There is no
+default copy — `.env` and `node_modules` stay off the tree unless listed.
+Restart reuses the checkout and does not copy again.
 
 GrokSpace calls `git worktree add` itself. It does not pass `grok --worktree`:
 every extra flag is a way for a session to fail to start, which is the same

@@ -373,8 +373,11 @@ pub(crate) fn isolate_agent(
         .as_ref()
         .filter(|path| worktree::is_checkout(path))
     {
+        // Restart keeps the files. Do not recopy worktreeinclude over them.
         return Some(worktree::Isolation::Isolated(existing.clone()));
     }
+    // Fresh trees copy `.grokspace/worktreeinclude` inside `worktree::add`.
+    // A missing or refused line is a skip reason, not an isolation skip.
     Some(worktree::add(project_path, &session.id))
 }
 

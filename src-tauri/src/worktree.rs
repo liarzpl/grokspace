@@ -16,9 +16,16 @@
 //! Merge commits leftover files on the session branch, then merges that branch
 //! into the project. The worktree is left for the caller to remove.
 //!
+//! After a successful `worktree add`, listed paths from
+//! `<project>/.grokspace/worktreeinclude` are copied into the new tree. A
+//! missing source is a skip with a reason, not a failed start. Nothing is
+//! copied by default — not `.env`. Restart reuses a checkout and does not
+//! copy again.
+//!
 //! No Tauri, no database: tests drive real git against temporary repositories.
 
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use crate::error::{Error, Result};
@@ -154,7 +161,8 @@ fn worktree_stderr(output: &std::process::Output) -> String {
 
 /// Creates a clean checkout of `HEAD` for this session, or a skip when isolation
 /// is not possible. An existing git checkout is reused: Restart keeps the files.
-/// A leftover directory that is not a worktree is replaced.
+/// A leftover directory that is not a worktree is replaced. A successful add
+/// then copies paths listed in `.grokspace/worktreeinclude`.
 pub fn add(project_path: &Path, session_id: &str) -> Isolation {
     let Some(git_path) = program::find("git") else {
         return Isolation::Skipped(IsolationSkip::GitMissing);
@@ -199,7 +207,158 @@ pub fn add(project_path: &Path, session_id: &str) -> Isolation {
     if !output.status.success() {
         return add_failed(worktree_stderr(&output));
     }
+    let _ = apply_include(project_path, &dest);
     Isolation::Isolated(dest)
+}
+
+/// `<project>/.grokspace/worktreeinclude` — one relative path per line.
+pub(crate) fn include_file(project_path: &Path) -> PathBuf {
+    project_path.join(".grokspace").join("worktreeinclude")
+}
+
+/// Copies listed project paths into a fresh worktree.
+///
+/// Each skip is a reason, not a start failure: a missing `.env.local` must
+/// not refuse isolation. `**`, `..`, absolute paths, and anything that
+/// leaves the project are refused. Restart reuses a checkout and does not
+/// call this.
+pub(crate) fn apply_include(project_path: &Path, dest: &Path) -> Vec<String> {
+    let mut skips = Vec::new();
+    let list = include_file(project_path);
+    let text = match fs::read_to_string(&list) {
+        Ok(text) => text,
+        Err(error) => {
+            if list.exists() {
+                skips.push(format!(
+                    "could not read .grokspace/worktreeinclude: {error}"
+                ));
+            }
+            return skips;
+        }
+    };
+    let Ok(project) = project_path.canonicalize() else {
+        skips.push("could not resolve the project path".into());
+        return skips;
+    };
+    let Ok(dest_root) = dest.canonicalize() else {
+        skips.push("could not resolve the worktree path".into());
+        return skips;
+    };
+
+    for line in text.lines() {
+        let relative = match parse_include_line(line) {
+            Ok(None) => continue,
+            Ok(Some(path)) => path,
+            Err(reason) => {
+                skips.push(reason);
+                continue;
+            }
+        };
+        if let Err(reason) = copy_listed(&project, &dest_root, &relative) {
+            skips.push(reason);
+        }
+    }
+    skips
+}
+
+fn parse_include_line(raw: &str) -> std::result::Result<Option<PathBuf>, String> {
+    let line = raw.trim().trim_start_matches('\u{feff}');
+    if line.is_empty() || line.starts_with('#') {
+        return Ok(None);
+    }
+    if line.contains("**") {
+        return Err(format!("{line}: `**` is not allowed"));
+    }
+    let path = Path::new(line);
+    if path.is_absolute() {
+        return Err(format!("{line}: path must be relative to the project"));
+    }
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(name) => parts.push(name.to_os_string()),
+            Component::ParentDir => {
+                return Err(format!("{line}: `..` is not allowed"));
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(format!("{line}: path must be relative to the project"));
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err(format!(
+            "{line}: path must be a file or folder inside the project"
+        ));
+    }
+    if parts[0] == ".git" {
+        return Err(format!("{line}: `.git` cannot be copied into a worktree"));
+    }
+    if parts[0] == ".grokspace" && parts.get(1).is_some_and(|part| part == "worktrees") {
+        return Err(format!(
+            "{line}: worktrees cannot be copied into a worktree"
+        ));
+    }
+    Ok(Some(parts.into_iter().collect()))
+}
+
+fn copy_listed(
+    project: &Path,
+    dest_root: &Path,
+    relative: &Path,
+) -> std::result::Result<(), String> {
+    let display = relative.display().to_string();
+    let src = project.join(relative);
+    if !src
+        .symlink_metadata()
+        .is_ok_and(|meta| meta.is_file() || meta.is_dir() || meta.file_type().is_symlink())
+    {
+        return Err(format!("{display}: missing, skipped"));
+    }
+    let canonical = match src.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return Err(format!("{display}: missing, skipped")),
+    };
+    if canonical.strip_prefix(project).is_err() {
+        return Err(format!("{display}: outside the project"));
+    }
+    let dest = dest_root.join(relative);
+    if !dest.starts_with(dest_root) {
+        return Err(format!("{display}: outside the project"));
+    }
+    copy_into(&src, &dest).map_err(|error| format!("{display}: {error}"))
+}
+
+fn copy_into(src: &Path, dest: &Path) -> std::io::Result<()> {
+    let meta = src.symlink_metadata()?;
+    if meta.is_dir() {
+        fs::create_dir_all(dest)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            copy_into(&entry.path(), &dest.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if meta.file_type().is_symlink() {
+        let target = fs::read_link(src)?;
+        if dest.exists() {
+            fs::remove_file(dest)?;
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, dest)?;
+        }
+        #[cfg(not(unix))]
+        {
+            fs::copy(src, dest)?;
+        }
+        return Ok(());
+    }
+    fs::copy(src, dest)?;
+    Ok(())
 }
 
 /// Whether the worktree has uncommitted or untracked changes.
@@ -620,6 +779,154 @@ mod tests {
         assert_eq!(tree, dest);
         assert!(tree.join("README.md").is_file());
         assert!(!tree.join("stale.txt").exists());
+        assert!(is_checkout(&tree));
+    }
+
+    #[test]
+    fn include_lines_refuse_glob_dotdot_and_absolute_paths() {
+        assert!(parse_include_line("**").unwrap_err().contains("`**`"));
+        assert!(parse_include_line("src/**/lib")
+            .unwrap_err()
+            .contains("`**`"));
+        assert!(parse_include_line("../secret")
+            .unwrap_err()
+            .contains("`..`"));
+        assert!(parse_include_line("/etc/passwd")
+            .unwrap_err()
+            .contains("relative"));
+        assert_eq!(
+            parse_include_line(".env.local").unwrap().as_deref(),
+            Some(Path::new(".env.local"))
+        );
+        assert_eq!(parse_include_line("# comment").unwrap(), None);
+        assert_eq!(parse_include_line("  ").unwrap(), None);
+    }
+
+    #[test]
+    fn worktreeinclude_copies_a_listed_file() {
+        let dir = repo();
+        fs::create_dir_all(dir.path().join(".grokspace")).unwrap();
+        fs::write(dir.path().join(".env.local"), "copied=1\n").unwrap();
+        fs::write(
+            include_file(dir.path()),
+            ".env.local\n# ignored\n\nmissing.local\n",
+        )
+        .unwrap();
+
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let skips = apply_include(dir.path(), &tree);
+
+        assert_eq!(
+            fs::read_to_string(tree.join(".env.local")).unwrap(),
+            "copied=1\n"
+        );
+        assert!(
+            skips.iter().any(|reason| reason.contains("missing")),
+            "missing sources skip with a reason, got {skips:?}"
+        );
+        assert!(is_checkout(&tree), "copy must leave a worktree");
+    }
+
+    #[test]
+    fn worktreeinclude_copies_a_listed_directory() {
+        let dir = repo();
+        fs::create_dir_all(dir.path().join("vendor/lib")).unwrap();
+        fs::write(dir.path().join("vendor/lib/pkg.js"), "ok\n").unwrap();
+        fs::create_dir_all(dir.path().join(".grokspace")).unwrap();
+        fs::write(include_file(dir.path()), "vendor\n").unwrap();
+
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+        assert_eq!(
+            fs::read_to_string(tree.join("vendor/lib/pkg.js")).unwrap(),
+            "ok\n"
+        );
+        assert!(is_checkout(&tree));
+    }
+
+    #[test]
+    fn worktreeinclude_refuses_glob_and_dotdot_and_still_isolates() {
+        let dir = repo();
+        fs::create_dir_all(dir.path().join(".grokspace")).unwrap();
+        fs::write(dir.path().join(".env"), "SECRET=1\n").unwrap();
+        fs::write(include_file(dir.path()), "**\n../README.md\n/etc/passwd\n").unwrap();
+
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let skips = apply_include(dir.path(), &tree);
+
+        assert!(
+            skips.iter().any(|reason| reason.contains("`**`")),
+            "{skips:?}"
+        );
+        assert!(
+            skips.iter().any(|reason| reason.contains("`..`")),
+            "{skips:?}"
+        );
+        assert!(
+            skips.iter().any(|reason| reason.contains("relative")),
+            "{skips:?}"
+        );
+        assert!(
+            !tree.join(".env").exists(),
+            "refused lines must not copy, and .env is not default-copied"
+        );
+        assert!(tree.join("README.md").is_file());
+        assert!(is_checkout(&tree));
+    }
+
+    #[test]
+    fn worktreeinclude_does_not_copy_env_unless_listed() {
+        let dir = repo();
+        fs::write(dir.path().join(".env"), "SECRET=1\n").unwrap();
+        fs::write(dir.path().join(".env.local"), "local=1\n").unwrap();
+
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+
+        assert!(!tree.join(".env").exists());
+        assert!(!tree.join(".env.local").exists());
+        assert!(is_checkout(&tree));
+    }
+
+    #[test]
+    fn worktreeinclude_does_not_recopy_when_add_reuses_a_checkout() {
+        let dir = repo();
+        fs::create_dir_all(dir.path().join(".grokspace")).unwrap();
+        fs::write(dir.path().join(".env.local"), "first\n").unwrap();
+        fs::write(include_file(dir.path()), ".env.local\n").unwrap();
+
+        let session = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let first = checkout(&dir, session);
+        fs::write(first.join(".env.local"), "kept\n").unwrap();
+        fs::write(dir.path().join(".env.local"), "project-changed\n").unwrap();
+
+        let second = add(dir.path(), session)
+            .path()
+            .expect("reuse rather than fail");
+        assert_eq!(first, second);
+        assert_eq!(
+            fs::read_to_string(first.join(".env.local")).unwrap(),
+            "kept\n"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn worktreeinclude_refuses_a_symlink_that_leaves_the_project() {
+        let dir = repo();
+        let outside = dir.path().parent().unwrap().join("outside-secret.txt");
+        fs::write(&outside, "nope\n").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.path().join("escape")).unwrap();
+        fs::create_dir_all(dir.path().join(".grokspace")).unwrap();
+        fs::write(include_file(dir.path()), "escape\n").unwrap();
+
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        let skips = apply_include(dir.path(), &tree);
+
+        assert!(
+            skips.iter().any(|reason| reason.contains("outside")),
+            "{skips:?}"
+        );
+        assert!(!tree.join("escape").exists());
         assert!(is_checkout(&tree));
     }
 
