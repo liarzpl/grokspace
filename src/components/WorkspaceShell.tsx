@@ -8,6 +8,7 @@ import {
 import { doomLoopNotice } from "../lib/doomLoop";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { inboxItems, INBOX_SPLITS, type SessionInboxReadiness } from "../lib/inboxItems";
+import { snoozeWait, wakeInboxSnooze } from "../lib/inboxSnooze";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions";
@@ -371,6 +372,7 @@ function AttentionInbox({
 }) {
   const tasks = useTasksForProject(projectId);
   const permissions = useUiStore((state) => state.permissions);
+  const snoozedUntil = useUiStore((state) => state.snoozedUntil);
   const mergeReasons = useSessionStore((state) => state.mergeReasons);
   const inspectMerge = useSessionStore((state) => state.inspectMerge);
   const bySession = useStepStore((state) => state.bySession);
@@ -403,7 +405,16 @@ function AttentionInbox({
     return next;
   }, [sessions, mergeReasons, bySession]);
 
-  const items = inboxItems(sessions, tasks, permissions, readiness);
+  useEffect(() => {
+    const now = Date.now();
+    const future = Object.values(snoozedUntil).filter((until) => until > now);
+    if (future.length !== Object.values(snoozedUntil).length) wakeInboxSnooze(now);
+    if (future.length === 0) return undefined;
+    const timer = window.setTimeout(() => wakeInboxSnooze(Date.now()), Math.min(...future) - now);
+    return () => window.clearTimeout(timer);
+  }, [snoozedUntil]);
+
+  const items = inboxItems(sessions, tasks, permissions, readiness, snoozedUntil);
 
   return (
     <div
@@ -429,17 +440,35 @@ function AttentionInbox({
                 {grouped.length > 0 ? ` · ${grouped.length}` : ""}
               </span>
               {grouped.map((item) => (
-                <button
+                <div
                   key={item.id}
-                  type="button"
-                  data-testid={`inbox-item-${item.id}`}
                   data-session-id={item.id}
-                  aria-label={`${item.title}, ${split.label}`}
-                  onClick={() => openInboxItem(item, projectId)}
-                  className="max-w-36 truncate rounded-sm px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:bg-elevated hover:text-ink"
+                  className="flex min-w-0 items-center gap-0.5"
                 >
-                  {item.title}
-                </button>
+                  <button
+                    type="button"
+                    data-testid={`inbox-item-${item.id}`}
+                    aria-label={`${item.title}, ${split.label}`}
+                    onClick={() => openInboxItem(item, projectId)}
+                    className="max-w-36 truncate rounded-sm px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:bg-elevated hover:text-ink"
+                  >
+                    {item.title}
+                  </button>
+                  {item.split === "needs_you" && (
+                    <>
+                      <QuietButton
+                        label="1h"
+                        title="Snooze for one hour"
+                        onClick={() => snoozeWait(item.id, "1h")}
+                      />
+                      <QuietButton
+                        label="Tomorrow"
+                        title="Snooze until tomorrow morning"
+                        onClick={() => snoozeWait(item.id, "tomorrow")}
+                      />
+                    </>
+                  )}
+                </div>
               ))}
             </div>
           );

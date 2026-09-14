@@ -423,6 +423,14 @@ describe("the command list", () => {
     expect(shown).not.toContain("Jump to first Needs you");
     expect(shown).not.toContain("Allow first wait");
   });
+
+  it("does not offer Jump to first Needs you when that wait is snoozed", () => {
+    waitingAgent(true);
+    useUiStore.setState({ snoozedUntil: { wait: Date.now() + 60_000 } });
+    const shown = labels(project());
+    expect(shown).not.toContain("Jump to first Needs you");
+    expect(shown).not.toContain("Allow first wait");
+  });
 });
 
 describe("running a command", () => {

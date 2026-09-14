@@ -6,6 +6,9 @@
  * not a status — and are ignored even if a caller passes one. Bounce is once
  * per wait: a second permission on the same session does not bounce again
  * until that session has left `needs_input`.
+ *
+ * Inbox snooze hides the rail item only. This module still counts
+ * `needs_input` and still bounces. It never answers the permission.
  */
 
 import type { Session, SessionKind, SessionStatus } from "../types";
@@ -40,10 +43,15 @@ export interface DockTracker {
   ) => void;
 }
 
-/** Unfocused ACP waits, or `undefined` to clear. `0` would draw a zero. */
+/**
+ * Unfocused ACP waits, or `undefined` to clear. `0` would draw a zero.
+ * `snoozedUntil` is accepted so callers cannot forget to ask — and is ignored,
+ * because a snoozed wait is still a wait.
+ */
 export function dockBadgeCount(
   sessions: readonly Pick<Session, "kind" | "status">[],
   focused: boolean,
+  _snoozedUntil?: Readonly<Record<string, number>>,
 ): number | undefined {
   if (focused) return undefined;
   let count = 0;

@@ -66,6 +66,14 @@ describe("dockBadgeCount", () => {
     expect(dockBadgeCount([], false)).toBeUndefined();
   });
 
+  it("still counts a needs_input wait the inbox has snoozed", () => {
+    expect(
+      dockBadgeCount([session({ status: "needs_input" })], false, {
+        a1: Date.now() + 3_600_000,
+      }),
+    ).toBe(1);
+  });
+
   it("ignores pty sessions, which cannot be waiting on a person", () => {
     expect(
       dockBadgeCount(

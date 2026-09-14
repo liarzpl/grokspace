@@ -52,6 +52,8 @@ const APP_COMMANDS: &[&str] = &[
     "list_permission_ledger",
     "save_playbook",
     "read_playbook",
+    "read_inbox_snooze",
+    "write_inbox_snooze",
     "read_session_graph",
     "list_session_graphs",
     "watch_project_graphs",

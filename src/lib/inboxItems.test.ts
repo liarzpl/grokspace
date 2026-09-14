@@ -136,4 +136,27 @@ describe("inboxItems", () => {
       "Agent",
     );
   });
+
+  it("hides a snoozed Needs you wait and returns it when the timer ends", () => {
+    const sessions = [agent({ status: "needs_input" })];
+    expect(ids(inboxItems(sessions, [], {}, {}, { s1: 200 }, 100))).toEqual([]);
+    expect(ids(inboxItems(sessions, [], {}, {}, { s1: 200 }, 200))).toEqual([
+      { id: "s1", split: "needs_you", jump: "graph", taskId: null },
+    ]);
+  });
+
+  it("does not hide Review or Merge under a leftover snooze", () => {
+    expect(
+      ids(
+        inboxItems(
+          [agent({ status: "idle" })],
+          [],
+          {},
+          { s1: { phase: "approved" } },
+          { s1: 999 },
+          1,
+        ),
+      ),
+    ).toEqual([{ id: "s1", split: "review", jump: "graph", taskId: null }]);
+  });
 });

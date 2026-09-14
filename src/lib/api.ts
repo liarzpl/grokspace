@@ -31,6 +31,9 @@ import type {
  * command names or argument shapes.
  */
 
+/** Session id → unix-ms. Nested `Record<>` in `invoke<>` hides the command name from the IPC test. */
+type InboxSnoozeUntil = { [sessionId: string]: number };
+
 /**
  * Three-state description for `update_task`.
  *
@@ -275,6 +278,12 @@ export const api = {
 
   writePermissionPolicy: (rules: PermissionPolicyRule[]): Promise<PermissionPolicy> =>
     invoke<PermissionPolicy>("write_permission_policy", { rules }),
+
+  /** Inbox snooze-until map in `~/.grokspace/inbox-snooze.json`. Never answers ACP. */
+  readInboxSnooze: (): Promise<InboxSnoozeUntil> => invoke<InboxSnoozeUntil>("read_inbox_snooze"),
+
+  writeInboxSnooze: (until: InboxSnoozeUntil): Promise<InboxSnoozeUntil> =>
+    invoke<InboxSnoozeUntil>("write_inbox_snooze", { until }),
 
   /**
    * Last N permission answers for this project (`~/.grokspace/ledgers/<id>.jsonl`).

@@ -3,6 +3,7 @@
  *
  * Not a sixth workspace tab and not a second Kanban. Clicking jumps to the
  * task card, the Diff chip, or the graph. Dispatch is not gated here.
+ * Snooze hides a Needs you item only; the dock still counts the wait.
  */
 
 import type { PermissionRequest, Session, StepsPhase, Task } from "../types";
@@ -81,11 +82,17 @@ export function inboxItems(
   tasks: readonly Pick<Task, "id" | "assignedSessionId">[],
   permissions: Readonly<Record<string, readonly PermissionRequest[] | undefined>>,
   readiness: InboxReadiness,
+  snoozedUntil: Readonly<Record<string, number>> = {},
+  now: number = Date.now(),
 ): InboxItem[] {
   const items: InboxItem[] = [];
   for (const session of sessions) {
     const item = classify(session, tasks, permissions, readiness);
-    if (item !== null) items.push(item);
+    const until = item !== null ? snoozedUntil[item.id] : undefined;
+    // Snooze hides the human rail item only. Review / Merge stay. Dock still counts.
+    if (item !== null && (item.split !== "needs_you" || until === undefined || until <= now)) {
+      items.push(item);
+    }
   }
   return items.sort(
     (left, right) => SPLIT_ORDER.indexOf(left.split) - SPLIT_ORDER.indexOf(right.split),

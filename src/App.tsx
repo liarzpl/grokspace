@@ -24,6 +24,7 @@ import {
   showInboxGraph,
 } from "./lib/commands";
 import { createDockTracker, type DockNative } from "./lib/dockAttention";
+import { hydrateInboxSnooze } from "./lib/inboxSnooze";
 import { listenBackendEvents } from "./lib/events";
 import { listenLogged, logClientError } from "./lib/log";
 import { runGlobalShortcut, runInboxShortcut, shortcutFor } from "./lib/shortcuts";
@@ -100,6 +101,7 @@ export default function App() {
       .then((settings) => {
         useUiStore.getState().applyOpeningTab(settings.openingTab);
       });
+    void hydrateInboxSnooze();
   }, []);
 
   useEffect(() => {

@@ -155,17 +155,20 @@ replays the last 20). Nothing is uploaded.
   Merge would not refuse). Clicking jumps to the task card, the Diff chip, or
   the graph. With the inbox or a permission chip focused (not a terminal),
   `A` allows once, `D` denies, `O` opens the pane or card, and `G` shows the
-  graph. The palette has **Allow first wait** and **Jump to first Needs you**.
-  Dispatch is not gated unless Settings → Inbox-zero gate is **on** (off by
-  default). Then a waiting Needs you disables Dispatch until you type
-  **dispatch anyway**.
+  graph. **Snooze 1h** / **Tomorrow** hide a Needs you item without answering
+  the agent; the dock badge still counts the wait, and the item returns when the
+  timer ends (or at next launch if it already ended). The palette has **Allow
+  first wait** and **Jump to first Needs you**. Dispatch is not gated unless
+  Settings → Inbox-zero gate is **on** (off by default). Then a waiting Needs
+  you disables Dispatch until you type **dispatch anyway**.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on
   the same session does not bounce again until that session has left
   `needs_input`.
 - **Local persistence** — projects, sessions, tasks, memory, and settings live in
-  SQLite at `~/.grokspace/grokspace.db`.
+  SQLite at `~/.grokspace/grokspace.db`. Inbox snooze timestamps live in
+  `~/.grokspace/inbox-snooze.json`.
 
 ## Stack
 

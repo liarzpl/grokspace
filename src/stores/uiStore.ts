@@ -16,9 +16,10 @@ import {
  * while it was the only thing that switched it. The command palette can switch it
  * too, and two components cannot share a `useState`.
  *
- * Pane faces, the Graph-tab selection, transcripts, and pending permission chips
- * live here with the tab: they are chrome, not process state. The session store
- * keeps the live sessions themselves and writes these maps as they change.
+ * Pane faces, the Graph-tab selection, transcripts, pending permission chips,
+ * and inbox snooze-until timestamps live here with the tab: they are chrome,
+ * not process state. The session store keeps the live sessions themselves and
+ * writes the permission and transcript maps as they change.
  */
 
 export type { WorkspaceTab };
@@ -84,6 +85,11 @@ interface UiState {
    * back does not blank a conversation that is still running.
    */
   transcript: Record<string, AgentUpdate[]>;
+  /**
+   * Inbox waits hidden until this unix-ms. The agent still holds
+   * `needs_input`; we never answer ACP from here.
+   */
+  snoozedUntil: Record<string, number>;
 
   setTab: (tab: WorkspaceTab) => void;
   setPaneView: (paneId: string, view: PaneView) => void;
@@ -97,6 +103,9 @@ interface UiState {
   keepTranscript: (ids: ReadonlySet<string>) => void;
   dropTranscript: (id: string) => void;
   forgetTranscript: (ids: ReadonlySet<string>) => void;
+  setSnooze: (id: string, until: number) => void;
+  replaceSnooze: (snoozedUntil: Record<string, number>) => void;
+  dropExpiredSnooze: (now: number) => void;
   /** Project switch and forget drop chrome that is keyed by reused pane ids. */
   resetPaneChrome: () => void;
   /**
@@ -121,6 +130,7 @@ export const useUiStore = create<UiState>((set) => ({
   graphSessionId: null,
   permissions: {},
   transcript: {},
+  snoozedUntil: {},
 
   // Closing the palette on its way out of every command, so a command that changes
   // the tab does not leave the palette sitting over the thing it just revealed.
@@ -162,6 +172,20 @@ export const useUiStore = create<UiState>((set) => ({
         Object.entries(state.transcript).filter(([sessionId]) => !ids.has(sessionId)),
       ),
     })),
+  setSnooze: (id, until) =>
+    set((state) => ({ snoozedUntil: { ...state.snoozedUntil, [id]: until } })),
+  replaceSnooze: (snoozedUntil) => set({ snoozedUntil }),
+  dropExpiredSnooze: (now) =>
+    set((state) => {
+      const snoozedUntil: Record<string, number> = {};
+      for (const [id, until] of Object.entries(state.snoozedUntil)) {
+        if (until > now) snoozedUntil[id] = until;
+      }
+      if (Object.keys(snoozedUntil).length === Object.keys(state.snoozedUntil).length) {
+        return state;
+      }
+      return { snoozedUntil };
+    }),
   resetPaneChrome: () => set({ paneViews: {}, maximizedPane: null, graphSessionId: null }),
   applyOpeningTab: (tab) =>
     set((state) => {

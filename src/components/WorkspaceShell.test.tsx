@@ -46,6 +46,7 @@ const watchProjectSteps = vi.fn();
 const readProjectEdges = vi.fn();
 const projectTrust = vi.fn();
 const setProjectTrust = vi.fn();
+const writeInboxSnooze = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -57,6 +58,7 @@ vi.mock("../lib/api", async () => {
       readProjectEdges,
       projectTrust,
       setProjectTrust,
+      writeInboxSnooze,
     },
   };
 });
@@ -82,6 +84,7 @@ const initialProjects = useProjectStore.getState();
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     useUiStore.setState(initialUi, true);
     useSessionStore.setState(initialSessions, true);
@@ -93,6 +96,7 @@ describe("WorkspaceShell", () => {
     useProjectStore.setState(initialProjects, true);
     watchProjectGraphs.mockResolvedValue([]);
     watchProjectSteps.mockResolvedValue([]);
+    writeInboxSnooze.mockResolvedValue({});
     readProjectEdges.mockResolvedValue({
       path: "/Users/dev/acme-api/.grokspace/edges.json",
       exists: false,
@@ -293,6 +297,39 @@ describe("WorkspaceShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Deny" }));
     expect(setProjectTrust).toHaveBeenCalledWith("p1", "denied");
+  });
+
+  it("hides a Needs you wait on Snooze 1h without answering ACP", async () => {
+    const user = userEvent.setup();
+    const answer = vi.spyOn(useSessionStore.getState(), "answerPermission");
+    useSessionStore.setState({
+      sessions: [session({ id: "wait", kind: "agent", paneId: null, title: "Waiter", status: "needs_input" })],
+    });
+
+    render(<WorkspaceShell project={project()} />);
+
+    await user.click(screen.getByRole("button", { name: "1h" }));
+
+    expect(screen.queryByTestId("inbox-item-wait")).not.toBeInTheDocument();
+    expect(screen.getByTestId("attention-inbox")).toHaveTextContent("Nothing waiting");
+    expect(answer).not.toHaveBeenCalled();
+    expect(writeInboxSnooze).toHaveBeenCalled();
+  });
+
+  it("returns a snoozed wait when the timer ends", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 14, 12, 0, 0));
+    useSessionStore.setState({
+      sessions: [session({ id: "wait", kind: "agent", paneId: null, title: "Waiter", status: "needs_input" })],
+    });
+    useUiStore.setState({ snoozedUntil: { wait: Date.now() + 1_000 } });
+
+    render(<WorkspaceShell project={project()} />);
+    expect(screen.queryByTestId("inbox-item-wait")).not.toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(screen.getByTestId("inbox-item-wait")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("surfaces a watch failure on the store the shell already reads", async () => {
