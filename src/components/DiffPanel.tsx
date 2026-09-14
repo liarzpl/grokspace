@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 
 import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
 import {
+  INITIAL_DIFF_LINES,
+  growVisible,
+  lineCount,
+  windowHunks,
+  windowLines,
+} from "../lib/diffWindow";
+import {
   overlapFor,
   overlapMarkTitle,
   overlapStrip,
@@ -83,6 +90,30 @@ function DiffLines({ text }: { text: string }) {
   );
 }
 
+function MoreLines({
+  hidden,
+  visible,
+  total,
+  onMore,
+}: {
+  hidden: number;
+  visible: number;
+  total: number;
+  onMore: () => void;
+}) {
+  if (hidden <= 0) return null;
+  const next = growVisible(visible, total) - visible;
+  return (
+    <button
+      type="button"
+      onClick={onMore}
+      className="mt-2 block w-full rounded-sm px-1.5 py-1 text-left text-[10px] text-ink-faint transition-colors hover:bg-elevated hover:text-ink-muted"
+    >
+      Show {next} more {next === 1 ? "line" : "lines"} ({hidden} hidden)
+    </button>
+  );
+}
+
 /**
  * One line of a diff, coloured by what it is.
  *
@@ -102,20 +133,35 @@ function DiffBody({
   selectedHunk: number | null;
   onSelectHunk: ((index: number) => void) | null;
 }) {
+  const [visible, setVisible] = useState(INITIAL_DIFF_LINES);
+  const total = lineCount(body);
+
+  useEffect(() => {
+    setVisible(INITIAL_DIFF_LINES);
+  }, [body]);
+
   if (onSelectHunk === null) {
+    const windowed = windowLines(body, visible);
     return (
       <pre className="selectable min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed">
-        <DiffLines text={body} />
+        <DiffLines text={windowed.text} />
+        <MoreLines
+          hidden={windowed.hidden}
+          visible={visible}
+          total={total}
+          onMore={() => setVisible((current) => growVisible(current, total))}
+        />
       </pre>
     );
   }
 
   const { prelude, hunks } = splitDiff(body);
+  const windowed = windowHunks(prelude, hunks, visible);
 
   return (
     <pre className="selectable min-h-0 flex-1 overflow-auto p-3 font-mono text-[11px] leading-relaxed">
-      {prelude !== "" && <DiffLines text={prelude} />}
-      {hunks.map((hunk, index) => (
+      {windowed.prelude !== "" && <DiffLines text={windowed.prelude} />}
+      {windowed.hunks.map((hunk, index) => (
         <button
           key={index}
           type="button"
@@ -127,6 +173,12 @@ function DiffBody({
           <DiffLines text={hunk} />
         </button>
       ))}
+      <MoreLines
+        hidden={windowed.hidden}
+        visible={visible}
+        total={total}
+        onMore={() => setVisible((current) => growVisible(current, total))}
+      />
     </pre>
   );
 }
