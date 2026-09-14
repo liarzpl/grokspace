@@ -194,12 +194,17 @@ src-tauri/
       start.rs    Resolve program, isolate, spawn pty or ACP
       worktree_cmds.rs  Close, discard, merge, merge-readiness
     program.rs    Finding `grok` and `git` when PATH is not enough
-    acp.rs        Agent Client Protocol: status from JSON-RPC, no Tauri, no database
+    acp/          Agent Client Protocol: status from JSON-RPC, no Tauri, no database
+      protocol.rs Classify lines, visible updates, permission replies
+      process.rs  Child, handshake, status tracker
     task.rs       Task model, the board's queries, and dispatch
     memory.rs     Shared project memory, and the file agents read it from
     skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
-    steps.rs      Session steps: watch, ingest, approve
+    steps/        Session steps: watch, ingest, approve
+      store.rs    Types, paths, SQLite CRUD
+      ingest.rs   Parse and fold the agent's file
+      watch.rs    Directory watcher and watch command
     worktree.rs   Git worktrees for ACP agents; no Tauri needed to test
     diff.rs       What changed, read out of git, optionally in one session's tree
     settings.rs   App preferences: key-value in SQLite, typed on the way out

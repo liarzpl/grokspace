@@ -1,6 +1,6 @@
 //! Fold an agent's steps file into the SQLite rows the panel draws.
 //!
-//! The watcher that notices those files lives in [`super`].
+//! The watcher that notices those files lives in [`super::watch`].
 
 use std::collections::HashSet;
 use std::path::Path;
