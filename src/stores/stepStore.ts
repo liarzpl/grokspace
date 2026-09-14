@@ -186,6 +186,7 @@ export const useStepStore = create<StepState>((set, get) => {
 
     forget: (sessionId) => {
       bump(sessionId);
+      epochs.delete(sessionId);
       coalesce.cancel(sessionId);
       set((state) => {
         if (!(sessionId in state.bySession)) return state;

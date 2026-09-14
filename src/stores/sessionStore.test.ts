@@ -213,6 +213,7 @@ describe("loadSessions", () => {
     await useSessionStore.getState().loadSessions("p1");
 
     expect(Object.keys(useGraphStore.getState().bySession)).toEqual(["s1"]);
+    expect(disposeTerminal).not.toHaveBeenCalled();
     expect(detachTerminal).not.toHaveBeenCalled();
   });
 
@@ -235,7 +236,8 @@ describe("loadSessions", () => {
 
     expect(useSessionStore.getState().sessions).toEqual([]);
     expect(useSessionStore.getState().permissions).toEqual({});
-    expect(detachTerminal).toHaveBeenCalledWith("s1");
+    expect(disposeTerminal).toHaveBeenCalledWith("s1");
+    expect(detachTerminal).not.toHaveBeenCalled();
     expect(useGraphStore.getState().bySession).toEqual({});
     // The conversation is still running; coming back should not start from blank.
     expect(useSessionStore.getState().transcript["s1"]?.[0]?.text).toBe("hello");
@@ -260,6 +262,7 @@ describe("loadSessions", () => {
     const pending = useSessionStore.getState().loadSessions("p1");
 
     expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s1"]);
+    expect(disposeTerminal).not.toHaveBeenCalled();
     expect(detachTerminal).not.toHaveBeenCalled();
 
     resolveList([session()]);
@@ -281,7 +284,21 @@ describe("loadSessions", () => {
     expect(useSessionStore.getState().transcript).toEqual({
       s1: [{ kind: "message", text: "keep" }],
     });
+    expect(disposeTerminal).not.toHaveBeenCalled();
     expect(detachTerminal).not.toHaveBeenCalled();
+  });
+
+  it("drops a stopped session's transcript when leaving the project", async () => {
+    useSessionStore.setState({
+      sessions: [session({ status: "stopped" })],
+      transcript: { s1: [{ kind: "message", text: "old run" }] },
+    });
+    listSessions.mockResolvedValue([session({ id: "s2", projectId: "p2" })]);
+
+    await useSessionStore.getState().loadSessions("p2");
+
+    expect(useSessionStore.getState().transcript["s1"]).toBeUndefined();
+    expect(disposeTerminal).toHaveBeenCalledWith("s1");
   });
 
   it("drops the step lists of the project being left", async () => {

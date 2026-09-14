@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { api, errorMessage } from "../lib/api";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { briefPrompt, type Role } from "../lib/roles";
-import { detachTerminal, disposeTerminal } from "../lib/terminals";
+import { disposeTerminal } from "../lib/terminals";
 import { foldUpdate } from "../lib/transcript";
 import type {
   AgentUpdate,
@@ -57,6 +57,16 @@ function bumpInspect(id: string): number {
   const next = (inspectGeneration[id] ?? 0) + 1;
   inspectGeneration[id] = next;
   return next;
+}
+
+/** Cancels an in-flight inspect and drops the generation key so the map cannot grow. */
+function forgetInspect(id: string): void {
+  bumpInspect(id);
+  delete inspectGeneration[id];
+}
+
+function liveSessionIds(sessions: readonly Session[]): Set<string> {
+  return new Set(sessions.filter(isLiveAgent).map((session) => session.id));
 }
 
 interface StartInput {
@@ -262,9 +272,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
     if (switching) {
       for (const session of leaving) {
-        detachTerminal(session.id);
+        // attach() already replays pty scrollback; keeping xterm (10k lines)
+        // across projects is optional cache, not correctness.
+        disposeTerminal(session.id);
         forgetSessionFiles(session.id);
-        bumpInspect(session.id);
+        forgetInspect(session.id);
       }
     }
     try {
@@ -283,7 +295,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         permissions: permissionsFrom(sessions),
         isLoading: false,
         isolationReasons: isolationFrom(sessions, state.isolationReasons),
-        transcript: switching ? state.transcript : keepOnly(state.transcript, arriving),
+        // Live conversations survive a project switch so coming back is not blank.
+        // Stopped ones do not: those strings plus xterm instances were unbounded.
+        transcript: keepOnly(
+          state.transcript,
+          new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
+        ),
         mergeReasons: keepOnly(state.mergeReasons, arriving),
       }));
     } catch (error) {
@@ -399,7 +416,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // to attach to and the graph of the run it replaced is not its own.
       disposeTerminal(id);
       forgetSessionFiles(id);
-      bumpInspect(id);
+      forgetInspect(id);
       set((state) => {
         const sessions = replaceInPane(
           state.sessions.filter((existing) => existing.id !== id),
@@ -437,7 +454,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await api.closeSession(id);
       disposeTerminal(id);
       forgetSessionFiles(id);
-      bumpInspect(id);
+      forgetInspect(id);
       set((state) => ({
         sessions: state.sessions.filter((session) => session.id !== id),
         permissions: without(state.permissions, id),
