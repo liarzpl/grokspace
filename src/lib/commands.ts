@@ -249,6 +249,15 @@ export function commands(project: Project | null): Command[] {
       });
       if (session.worktreePath !== null) {
         list.push({
+          id: `merge-agent-${session.id}`,
+          label: `Merge ${title}`,
+          group: "Session",
+          run: () => {
+            useUiStore.getState().closePalette();
+            void useSessionStore.getState().mergeWorktree(session.id);
+          },
+        });
+        list.push({
           id: `discard-agent-${session.id}`,
           label: `Discard worktree for ${title}`,
           group: "Session",
