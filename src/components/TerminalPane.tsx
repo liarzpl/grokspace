@@ -170,17 +170,25 @@ function PermissionModeChip({ session }: { session: Session }) {
 function EmptyPane({ paneId, projectId }: { paneId: string; projectId: string }) {
   const startSession = useSessionStore((state) => state.startSession);
   const busy = useSessionStore((state) => state.busyPanes[paneId] ?? false);
+  const isLoading = useSessionStore((state) => state.isLoading);
+  const locked = busy || isLoading;
 
-  const start = (kind: SessionKind) =>
+  const start = (kind: SessionKind) => {
+    // `isLoading` means the pane is empty because the list is in flight, not
+    // because this slot is free. Start here would race that snapshot.
+    if (useSessionStore.getState().isLoading) return;
     void startSession({ projectId, paneId, kind, ...FALLBACK_PTY_SIZE });
+  };
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2.5">
-      <p className="text-[11px] text-ink-faint">Empty pane</p>
+      <p className="text-[11px] text-ink-faint">
+        {isLoading ? "Loading sessions…" : "Empty pane"}
+      </p>
       <div className="flex gap-2">
         <button
           type="button"
-          disabled={busy}
+          disabled={locked}
           onClick={() => start("grok")}
           className="rounded-md bg-accent px-2.5 py-1 text-[11px] font-medium text-canvas transition-opacity hover:opacity-90 disabled:opacity-50"
         >
@@ -188,7 +196,7 @@ function EmptyPane({ paneId, projectId }: { paneId: string; projectId: string })
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={locked}
           onClick={() => start("shell")}
           className="rounded-md border border-line-strong px-2.5 py-1 text-[11px] text-ink-muted transition-colors hover:border-accent hover:text-ink disabled:opacity-50"
         >

@@ -208,6 +208,141 @@ describe("loadSessions", () => {
     expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s2"]);
   });
 
+  it("keeps a session started while the list was in flight", async () => {
+    let resolveList: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    createSession.mockResolvedValue(session({ id: "fresh", paneId: "0" }));
+
+    const pending = useSessionStore.getState().loadSessions("p1");
+    await useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: "0",
+      kind: "grok",
+      cols: 80,
+      rows: 24,
+    });
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["fresh"]);
+
+    resolveList([]);
+    await pending;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["fresh"]);
+    expect(useSessionStore.getState().isLoading).toBe(false);
+  });
+
+  it("folds a start into the arriving list instead of dropping the rest", async () => {
+    useSessionStore.setState({ sessions: [session({ id: "keep", paneId: "0" })] });
+    let resolveList: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    createSession.mockResolvedValue(session({ id: "fresh", paneId: "1" }));
+
+    const pending = useSessionStore.getState().loadSessions("p1");
+    await useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: "1",
+      kind: "grok",
+      cols: 80,
+      rows: 24,
+    });
+
+    resolveList([session({ id: "keep", paneId: "0" })]);
+    await pending;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual([
+      "keep",
+      "fresh",
+    ]);
+  });
+
+  it("lets a start displace a stale pane occupant from the snapshot", async () => {
+    let resolveList: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    createSession.mockResolvedValue(session({ id: "fresh", paneId: "0" }));
+
+    const pending = useSessionStore.getState().loadSessions("p1");
+    await useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: "0",
+      kind: "grok",
+      cols: 80,
+      rows: 24,
+    });
+
+    resolveList([session({ id: "old", paneId: "0" })]);
+    await pending;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["fresh"]);
+  });
+
+  it("keeps a start when the in-flight list fails", async () => {
+    let rejectList: (reason: string) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((_, reject) => {
+          rejectList = reject;
+        }),
+    );
+    createSession.mockResolvedValue(session({ id: "fresh", projectId: "p2", paneId: "0" }));
+
+    const pending = useSessionStore.getState().loadSessions("p2");
+    await useSessionStore.getState().startSession({
+      projectId: "p2",
+      paneId: "0",
+      kind: "grok",
+      cols: 80,
+      rows: 24,
+    });
+
+    rejectList("database is locked");
+    await pending;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["fresh"]);
+    expect(useSessionStore.getState().error).toBe("database is locked");
+    expect(useSessionStore.getState().isLoading).toBe(false);
+  });
+
+  it("does not fold a start for a different project into this list", async () => {
+    let resolveList: (sessions: Session[]) => void = () => {};
+    listSessions.mockImplementation(
+      () =>
+        new Promise<Session[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    createSession.mockResolvedValue(
+      session({ id: "other", projectId: "p1", paneId: "0" }),
+    );
+
+    const pending = useSessionStore.getState().loadSessions("p2");
+    await useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: "0",
+      kind: "grok",
+      cols: 80,
+      rows: 24,
+    });
+
+    resolveList([session({ id: "s2", projectId: "p2", paneId: "1" })]);
+    await pending;
+
+    expect(useSessionStore.getState().sessions.map((item) => item.id)).toEqual(["s2"]);
+  });
+
   it("drops the graphs of the project being left", async () => {
     useSessionStore.setState({ sessions: [session(), session({ id: "s2", paneId: "1" })] });
     useGraphStore.setState({ bySession: { s1: graphEntry(), s2: graphEntry() } });

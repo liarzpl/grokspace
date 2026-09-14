@@ -53,6 +53,27 @@ function replaceInPane(sessions: Session[], next: Session): Session[] {
   ];
 }
 
+/**
+ * A `list_sessions` snapshot taken before `createSession` returned does not
+ * include the new row. Fold those locals in so the snapshot cannot hide a live
+ * pty; same-pane occupants in the snapshot yield to the start (Rust already
+ * displaced them).
+ */
+function foldStartedInto(
+  listed: Session[],
+  local: readonly Session[],
+  projectId: string,
+): Session[] {
+  const arriving = new Set(listed.map((session) => session.id));
+  let next = listed;
+  for (const session of local) {
+    if (session.projectId === projectId && !arriving.has(session.id)) {
+      next = replaceInPane(next, session);
+    }
+  }
+  return next;
+}
+
 function permissionsFrom(sessions: Session[]): Record<string, PermissionRequest[]> {
   const permissions: Record<string, PermissionRequest[]> = {};
   for (const session of sessions) {
@@ -66,6 +87,13 @@ function permissionsFrom(sessions: Session[]): Record<string, PermissionRequest[
 
 /** Drops in-flight `loadSessions` results that a newer project switch has replaced. */
 let loadGeneration = 0;
+
+/**
+ * Successful `createSession` count. A list snapshot older than this is merged
+ * with those starts, not applied wholesale — otherwise the new row vanishes
+ * from the UI while its process keeps running.
+ */
+let startGeneration = 0;
 
 /**
  * Drops in-flight `inspectMerge` results that a newer inspect or merge replaced,
@@ -434,6 +462,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   loadSessions: async (projectId) => {
     const generation = ++loadGeneration;
+    const startsAtBegin = startGeneration;
     const leaving = get().sessions;
     // Pane ids are reused across projects. Until this fetch returns, the grid
     // would keep drawing the previous project's terminals — including a Grok TUI
@@ -471,15 +500,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // being left; nothing will ask for them again, and the watcher that fed them
       // is still running. Sessions that survive the load keep the graph they had,
       // so re-reading the same project does not blank the panel.
-      const arriving = new Set(sessions.map((session) => session.id));
+      const listed =
+        startGeneration === startsAtBegin
+          ? sessions
+          : foldStartedInto(sessions, get().sessions, projectId);
+      const arriving = new Set(listed.map((session) => session.id));
       for (const departing of get().sessions) {
         if (!arriving.has(departing.id)) forgetSessionFiles(departing.id);
       }
       set((state) => ({
-        sessions,
-        permissions: permissionsFrom(sessions),
+        sessions: listed,
+        permissions: permissionsFrom(listed),
         isLoading: false,
-        isolationReasons: isolationFrom(sessions, state.isolationReasons),
+        isolationReasons: isolationFrom(listed, state.isolationReasons),
         // Live conversations survive a project switch so coming back is not blank.
         // Stopped ones do not: those strings plus xterm instances were unbounded.
         transcript: keepOnly(
@@ -499,6 +532,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }));
     } catch (error) {
       if (generation !== loadGeneration) return;
+      // A start that landed while this fetch was in flight is already in the
+      // store (and its pty is live). Wiping the list would hide it.
+      if (startGeneration !== startsAtBegin) {
+        set({ error: errorMessage(error), isLoading: false });
+        return;
+      }
       for (const departing of get().sessions) {
         forgetSessionFiles(departing.id);
       }
@@ -535,6 +574,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // session with its terminal, which is the thing that needs watching.
         useUiStore.getState().setPaneView(paneId, "terminal");
       }
+      // Before the list apply: a snapshot taken before this insert must fold
+      // this row in rather than replace the store without it.
+      startGeneration += 1;
       set((state) => {
         const sessions = replaceInPane(state.sessions, session);
         return {

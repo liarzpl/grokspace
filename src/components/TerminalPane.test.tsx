@@ -76,6 +76,21 @@ describe("TerminalPane", () => {
     });
   });
 
+  it("locks Start Grok and Shell while sessions are loading", async () => {
+    const user = userEvent.setup();
+    const startSession = vi.fn().mockResolvedValue(null);
+    useSessionStore.setState({ isLoading: true, startSession });
+
+    render(<TerminalPane paneId="0" projectId="p1" />);
+
+    expect(screen.getByText("Loading sessions…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Grok" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Shell" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Start Grok" }));
+    expect(startSession).not.toHaveBeenCalled();
+  });
+
   it("mounts and attaches the registry host, then detaches on unmount", async () => {
     const { unmount } = render(
       <TerminalPane paneId="0" projectId="p1" session={session()} />,
