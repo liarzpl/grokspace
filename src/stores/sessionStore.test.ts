@@ -729,15 +729,15 @@ describe("mergeWorktree", () => {
       ],
       mergeReasons: { "agent-1": "nothing to merge" },
     });
-    mergeSessionWorktree.mockResolvedValue(
-      session({
+    mergeSessionWorktree.mockResolvedValue({
+      session: session({
         id: "agent-1",
         paneId: null,
         kind: "agent",
         status: "stopped",
         worktreePath: null,
       }),
-    );
+    });
 
     await useSessionStore.getState().mergeWorktree("agent-1");
 
@@ -808,14 +808,21 @@ describe("mergeWorktree", () => {
       ],
       mergeReasons: { "agent-1": null },
     });
-    mergeSessionWorktree.mockRejectedValue(
-      "the branch landed, but the worktree could not be removed: device busy",
-    );
+    mergeSessionWorktree.mockResolvedValue({
+      session: session({
+        id: "agent-1",
+        paneId: null,
+        kind: "agent",
+        status: "stopped",
+        worktreePath: null,
+      }),
+      teardownError: "device busy",
+    });
 
     await useSessionStore.getState().mergeWorktree("agent-1");
 
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
-    expect(useSessionStore.getState().error).toContain("the branch landed");
+    expect(useSessionStore.getState().error).toContain("device busy");
     expect(useSessionStore.getState().mergeReasons["agent-1"]).toBeUndefined();
   });
 });
@@ -1147,15 +1154,15 @@ describe("isolationReasons", () => {
         }),
       ],
     });
-    mergeSessionWorktree.mockResolvedValue(
-      session({
+    mergeSessionWorktree.mockResolvedValue({
+      session: session({
         id: "agent-1",
         paneId: null,
         kind: "agent",
         status: "stopped",
         worktreePath: null,
       }),
-    );
+    });
 
     await useSessionStore.getState().mergeWorktree("agent-1");
 

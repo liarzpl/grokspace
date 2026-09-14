@@ -433,7 +433,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   mergeWorktree: async (id) => {
     try {
-      const session = await api.mergeSessionWorktree(id);
+      const { session, teardownError } = await api.mergeSessionWorktree(id);
       bumpInspect(id);
       set((state) => {
         const sessions = state.sessions.map((existing) =>
@@ -442,30 +442,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         return {
           sessions,
           isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
-          error: null,
+          error: teardownError ?? null,
           mergeReasons: without(state.mergeReasons, id),
         };
       });
     } catch (error) {
       const message = errorMessage(error);
       bumpInspect(id);
-      // The branch is already on the project; only teardown failed. The backend
-      // cleared worktree_path, so the chip must go too or Merge offers a retry
-      // that says "nothing to merge".
-      if (message.includes("the branch landed")) {
-        set((state) => {
-          const sessions = state.sessions.map((existing) =>
-            existing.id === id ? { ...existing, worktreePath: null } : existing,
-          );
-          return {
-            sessions,
-            isolationReasons: isolationFrom(sessions, without(state.isolationReasons, id)),
-            error: message,
-            mergeReasons: without(state.mergeReasons, id),
-          };
-        });
-        return;
-      }
       set((state) => ({
         error: message,
         mergeReasons: { ...state.mergeReasons, [id]: message },

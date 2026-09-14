@@ -1029,6 +1029,16 @@ pub fn discard_session_worktree(state: State<'_, AppState>, id: String) -> Resul
     set_worktree_path(&conn, &id, None)
 }
 
+/// Result of a merge that already landed the branch. Teardown is separate so
+/// the frontend can drop the chip without matching an English error sentence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeOutcome {
+    pub session: Session,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub teardown_error: Option<String>,
+}
+
 /// Merges a stopped agent's worktree into the project branch.
 ///
 /// Uncommitted files are committed on the session branch first: merging a
@@ -1037,7 +1047,7 @@ pub fn discard_session_worktree(state: State<'_, AppState>, id: String) -> Resul
 /// tree, which is that process's cwd. Refused when the project tree is dirty,
 /// so the agent's commit cannot land on top of uncommitted human work.
 #[tauri::command]
-pub fn merge_session_worktree(state: State<'_, AppState>, id: String) -> Result<Session> {
+pub fn merge_session_worktree(state: State<'_, AppState>, id: String) -> Result<MergeOutcome> {
     let (session, project_path) = {
         let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
         let session = get(&conn, &id)?;
@@ -1061,12 +1071,10 @@ pub fn merge_session_worktree(state: State<'_, AppState>, id: String) -> Result<
     let removed = worktree::remove(Path::new(&project_path), Path::new(tree), true);
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
     let session = set_worktree_path(&conn, &id, None)?;
-    match removed {
-        Ok(()) => Ok(session),
-        Err(error) => Err(Error::Invalid(format!(
-            "the branch landed, but the worktree could not be removed: {error}"
-        ))),
-    }
+    Ok(MergeOutcome {
+        session,
+        teardown_error: removed.err().map(|error| error.to_string()),
+    })
 }
 
 /// Why Merge would refuse this session, without committing or merging.
@@ -1821,6 +1829,23 @@ mod tests {
             reuse_worktree: None,
         };
         assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
+    }
+
+    #[test]
+    fn merge_outcome_names_teardown_without_an_english_phrase() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        let json = serde_json::to_value(MergeOutcome {
+            session,
+            teardown_error: Some("device busy".into()),
+        })
+        .unwrap();
+        assert_eq!(json["teardownError"], "device busy");
+        assert!(json.get("session").is_some());
+        assert!(
+            !json.to_string().contains("the branch landed"),
+            "the frontend must not have to match a sentence, got: {json}"
+        );
     }
 
     #[test]
