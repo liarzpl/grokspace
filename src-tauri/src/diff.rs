@@ -370,6 +370,7 @@ fn sort_peers(peers: &mut [OverlapPeer]) {
 /// `ours_porcelain` is the `status --porcelain` `state_of` already ran. Passing
 /// it skips that spawn for the tree on screen — the extra one that made every
 /// Diff load 6+2S processes.
+#[cfg(test)]
 fn overlaps_with(ours: &Path, project_path: &Path, peers: &[OverlapTree]) -> Vec<PathOverlap> {
     overlaps_against(ours, project_path, peers, None)
 }
