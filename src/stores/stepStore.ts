@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { graphStepsDrift, type GraphNode, type GraphStepsDrift } from "../lib/graph";
 import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 import type { SessionStep, SessionSteps, StepsPhase } from "../types";
 
@@ -267,4 +268,19 @@ export function stepsFor(
   sessionId: string | undefined,
 ): StepEntry {
   return (sessionId !== undefined ? bySession[sessionId] : undefined) ?? EMPTY;
+}
+
+/**
+ * Graph ↔ steps drift for a stored list. A first-read placeholder is not
+ * drift — that would flash extras before the list arrives. Missing nodes
+ * are an empty graph.
+ */
+export function driftFor(
+  bySession: Record<string, StepEntry>,
+  sessionId: string | undefined,
+  nodes: readonly Pick<GraphNode, "id" | "label">[] | null | undefined,
+): GraphStepsDrift | null {
+  const entry = stepsFor(bySession, sessionId);
+  if (entry.isLoading) return null;
+  return graphStepsDrift(nodes ?? [], entry.steps);
 }

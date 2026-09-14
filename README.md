@@ -82,6 +82,8 @@ replays the last 20). Nothing is uploaded.
 - **Session steps** — each Grok or agent session can propose a short working list
   beside the board. Build (Approve) locks the step titles and the graph node
   titles the panel is showing; completing steps does not move the Kanban card.
+  The rail warns when graph node labels or ids disagree with step titles
+  (layout is ignored; both empty is not drift; comparison stops at 20).
 - **Shared project memory** — one memory per project, in the columns `context`,
   `decisions`, `notes`, and `artifacts`. It is projected into a Markdown file every
   session is told to read, so what you would otherwise repeat to each agent gets
@@ -380,8 +382,10 @@ The agent writes the file; GrokSpace folds it into SQLite and draws the rail.
 The phase on the session row is `none`, `proposed`, or `approved`. Build
 (Approve) locks the titles and sends them back as a prompt; completing a step
 does not move a Kanban card. After Build the graph panel keeps those node
-titles (status may still move); new titles are a revise-plan — reopen Spec. A
-project folder that cannot be written to falls back to `~/.grokspace/steps/`.
+titles (status may still move); new titles are a revise-plan — reopen Spec. The
+Tasks rail warns when node labels or ids and step titles disagree; positions
+do not count, and two empty lists are not drift. A project folder that cannot
+be written to falls back to `~/.grokspace/steps/`.
 
 What makes `grok` write one is a bundled skill, installed to
 `~/.grok/skills/grokspace-steps/` from the Tasks rail empty state or the

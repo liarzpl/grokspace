@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 
 import { errorMessage } from "../lib/api";
-import { lockGraphTitles, unlockGraphTitles } from "../lib/graph";
+import {
+  graphStepsDrift,
+  graphStepsDriftMessage,
+  lockGraphTitles,
+  unlockGraphTitles,
+} from "../lib/graph";
 import { isKeyboardClick } from "../lib/keyboardClick";
 import { moveSegmented } from "../lib/segmented";
 import {
@@ -283,6 +288,11 @@ export default function SessionSteps({
   const entry = useStepStore((state) => stepsFor(state.bySession, session.id));
   const load = useStepStore((state) => state.load);
   const approve = useStepStore((state) => state.approve);
+  const graphEntry = useGraphStore((state) => graphFor(state.bySession, session.id));
+  const drift =
+    graphEntry.isLoading || entry.isLoading
+      ? null
+      : graphStepsDrift(graphEntry.graph?.nodes ?? [], entry.steps);
   const [approving, setApproving] = useState(false);
 
   useEffect(() => {
@@ -345,6 +355,16 @@ export default function SessionSteps({
           />
         )}
       </div>
+
+      {drift !== null && (
+        <p
+          role="status"
+          data-testid="graph-steps-drift"
+          className="rounded-sm border border-warning/40 bg-warning/10 px-1.5 py-1 text-[11px] leading-snug text-warning"
+        >
+          {graphStepsDriftMessage(drift)}
+        </p>
+      )}
 
       {entry.steps.length === 0 && !entry.isLoading ? (
         <div className="flex flex-col gap-2 px-0.5 py-1">
@@ -444,12 +464,26 @@ export function SessionStepsRail({
 }
 
 function StepTally({ sessionId }: { sessionId: string }) {
-  const steps = useStepStore((state) => stepsFor(state.bySession, sessionId).steps);
-  const progress = stepProgress(steps);
-  if (progress === null) return null;
+  const entry = useStepStore((state) => stepsFor(state.bySession, sessionId));
+  const graphEntry = useGraphStore((state) => graphFor(state.bySession, sessionId));
+  const drift =
+    graphEntry.isLoading || entry.isLoading
+      ? null
+      : graphStepsDrift(graphEntry.graph?.nodes ?? [], entry.steps);
+  const progress = stepProgress(entry.steps);
+  if (progress === null && drift === null) return null;
   return (
-    <span className="shrink-0 font-mono text-[10px] text-ink-faint">
-      {progress.done}/{progress.total}
+    <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] text-ink-faint">
+      {progress !== null && (
+        <span>
+          {progress.done}/{progress.total}
+        </span>
+      )}
+      {drift !== null && (
+        <span className="text-warning" title={graphStepsDriftMessage(drift)}>
+          drift
+        </span>
+      )}
     </span>
   );
 }

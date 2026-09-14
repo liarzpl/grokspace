@@ -7,6 +7,8 @@
  * degraded graph than refuse to draw anything.
  */
 
+import { MAX_STEPS } from "./limits";
+
 export const GRAPH_STATUSES = ["pending", "running", "completed", "failed", "partial"] as const;
 export type GraphStatus = (typeof GRAPH_STATUSES)[number];
 
@@ -424,4 +426,103 @@ export function unlockGraphTitles(sessionId: string): void {
 /** Drops every session stamp. Tests only. */
 export function resetGraphTitleStamps(): void {
   titleStamps.clear();
+}
+
+export interface GraphStepMismatch {
+  nodeId: string;
+  nodeLabel: string;
+  stepTitle: string;
+}
+
+/** How the graph's labels/ids disagree with the step titles. Layout is ignored. */
+export interface GraphStepsDrift {
+  extraNodes: { id: string; label: string }[];
+  extraSteps: string[];
+  mismatched: GraphStepMismatch[];
+}
+
+function driftKey(value: string): string {
+  return value.trim();
+}
+
+/**
+ * Compare graph node labels/ids to step titles. Positions, edges, and status
+ * do not count. Both sides empty is not drift. Each side is capped at
+ * `MAX_STEPS` so a large graph cannot outshout the checklist.
+ */
+export function graphStepsDrift(
+  nodes: readonly Pick<GraphNode, "id" | "label">[],
+  steps: readonly { title: string }[],
+): GraphStepsDrift | null {
+  const cappedNodes = nodes.slice(0, MAX_STEPS);
+  const cappedSteps = steps.slice(0, MAX_STEPS);
+  if (cappedNodes.length === 0 && cappedSteps.length === 0) return null;
+
+  const usedNodes = new Set<number>();
+  const usedSteps = new Set<number>();
+
+  const takeMatch = (title: string, byId: boolean): number => {
+    return cappedNodes.findIndex((node, index) => {
+      if (usedNodes.has(index)) return false;
+      const key = byId ? driftKey(node.id) : driftKey(node.label);
+      return key === title;
+    });
+  };
+
+  for (let index = 0; index < cappedSteps.length; index += 1) {
+    const title = driftKey(cappedSteps[index]?.title ?? "");
+    if (title === "") continue;
+    const match = takeMatch(title, false);
+    if (match >= 0) {
+      usedNodes.add(match);
+      usedSteps.add(index);
+    }
+  }
+  for (let index = 0; index < cappedSteps.length; index += 1) {
+    if (usedSteps.has(index)) continue;
+    const title = driftKey(cappedSteps[index]?.title ?? "");
+    if (title === "") continue;
+    const match = takeMatch(title, true);
+    if (match >= 0) {
+      usedNodes.add(match);
+      usedSteps.add(index);
+    }
+  }
+
+  const leftoverNodes = cappedNodes.filter((_, index) => !usedNodes.has(index));
+  const leftoverSteps = cappedSteps.filter((_, index) => !usedSteps.has(index));
+  const paired = Math.min(leftoverNodes.length, leftoverSteps.length);
+
+  const mismatched: GraphStepMismatch[] = [];
+  for (let index = 0; index < paired; index += 1) {
+    const node = leftoverNodes[index];
+    const step = leftoverSteps[index];
+    if (node === undefined || step === undefined) continue;
+    mismatched.push({ nodeId: node.id, nodeLabel: node.label, stepTitle: step.title });
+  }
+
+  const extraNodes = leftoverNodes.slice(paired).map((node) => ({ id: node.id, label: node.label }));
+  const extraSteps = leftoverSteps.slice(paired).map((step) => step.title);
+  if (mismatched.length === 0 && extraNodes.length === 0 && extraSteps.length === 0) {
+    return null;
+  }
+  return { extraNodes, extraSteps, mismatched };
+}
+
+/** One rail line. Caps the named items so a 20-wide mismatch stays readable. */
+export function graphStepsDriftMessage(drift: GraphStepsDrift): string {
+  const bits: string[] = [];
+  for (const item of drift.mismatched) {
+    bits.push(`${item.nodeLabel} vs ${item.stepTitle}`);
+  }
+  for (const node of drift.extraNodes) {
+    bits.push(`extra graph node ${node.label}`);
+  }
+  for (const title of drift.extraSteps) {
+    bits.push(`extra step ${title}`);
+  }
+  const shown = bits.slice(0, 3);
+  const more = bits.length - shown.length;
+  const detail = more > 0 ? `${shown.join("; ")}; +${more} more` : shown.join("; ");
+  return `Graph and steps differ: ${detail}.`;
 }

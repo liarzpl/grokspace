@@ -30,7 +30,7 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { stepsFor, useStepStore } = await import("./stepStore");
+const { driftFor, stepsFor, useStepStore } = await import("./stepStore");
 
 function snapshot(overrides: Partial<SessionSteps> = {}): SessionSteps {
   return {
@@ -341,6 +341,40 @@ describe("mutations", () => {
 
     expect(reopenSessionSteps).toHaveBeenCalledWith("s1");
     expect(entry("s1").phase).toBe("proposed");
+  });
+});
+
+describe("driftFor", () => {
+  it("empty both is not drift", () => {
+    useStepStore.setState({
+      bySession: { s1: { sessionId: "s1", phase: "none", steps: [], isLoading: false } },
+    });
+
+    expect(driftFor(useStepStore.getState().bySession, "s1", [])).toBeNull();
+  });
+
+  it("uses the stored titles against node labels", () => {
+    useStepStore.setState({
+      bySession: {
+        s1: { sessionId: "s1", phase: "proposed", steps: snapshot().steps, isLoading: false },
+      },
+    });
+
+    expect(driftFor(useStepStore.getState().bySession, "s1", [{ id: "a", label: "Other" }])).toEqual({
+      extraNodes: [],
+      extraSteps: [],
+      mismatched: [{ nodeId: "a", nodeLabel: "Other", stepTitle: "Read auth.ts" }],
+    });
+  });
+
+  it("does not treat a first-read placeholder as drift", () => {
+    useStepStore.setState({
+      bySession: { s1: { sessionId: "s1", phase: "none", steps: [], isLoading: true } },
+    });
+
+    expect(
+      driftFor(useStepStore.getState().bySession, "s1", [{ id: "a", label: "Read auth.ts" }]),
+    ).toBeNull();
   });
 });
 

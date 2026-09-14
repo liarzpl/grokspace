@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
+  graphStepsDrift,
+  graphStepsDriftMessage,
   inferDirection,
   ingestLockedGraph,
   lockGraphTitles,
@@ -16,6 +18,7 @@ import {
   unlockGraphTitles,
   type GraphDocState,
 } from "./graph";
+import { MAX_STEPS } from "./limits";
 import { SAMPLE_GRAPH } from "./graphFixture";
 
 /** Minimal well-formed document; individual tests override the parts they care about. */
@@ -428,6 +431,84 @@ describe("graph title stamp", () => {
     expect(lockGraphTitles("s1", later)?.titles).toEqual({ a: "Drifted" });
     unlockGraphTitles("s1");
     expect(lockGraphTitles("s1", null)).toBeUndefined();
+  });
+});
+
+describe("graphStepsDrift", () => {
+  it("empty both is not drift", () => {
+    expect(graphStepsDrift([], [])).toBeNull();
+  });
+
+  it("matching labels in any order, ignoring layout", () => {
+    expect(
+      graphStepsDrift(
+        [
+          { id: "b", label: "Write tests" },
+          { id: "a", label: "Read auth.ts" },
+        ],
+        [{ title: "Read auth.ts" }, { title: "Write tests" }],
+      ),
+    ).toBeNull();
+  });
+
+  it("a step title may match a node id", () => {
+    expect(
+      graphStepsDrift([{ id: "read-auth", label: "Read the auth module" }], [{ title: "read-auth" }]),
+    ).toBeNull();
+  });
+
+  it("title mismatch", () => {
+    expect(
+      graphStepsDrift([{ id: "a", label: "Write auth" }], [{ title: "Write tests" }]),
+    ).toEqual({
+      extraNodes: [],
+      extraSteps: [],
+      mismatched: [{ nodeId: "a", nodeLabel: "Write auth", stepTitle: "Write tests" }],
+    });
+  });
+
+  it("extra graph node", () => {
+    expect(
+      graphStepsDrift(
+        [
+          { id: "a", label: "Read auth.ts" },
+          { id: "b", label: "Ship it" },
+        ],
+        [{ title: "Read auth.ts" }],
+      ),
+    ).toEqual({
+      extraNodes: [{ id: "b", label: "Ship it" }],
+      extraSteps: [],
+      mismatched: [],
+    });
+  });
+
+  it("extra step", () => {
+    expect(
+      graphStepsDrift([{ id: "a", label: "Read auth.ts" }], [
+        { title: "Read auth.ts" },
+        { title: "Also the tests" },
+      ]),
+    ).toEqual({
+      extraNodes: [],
+      extraSteps: ["Also the tests"],
+      mismatched: [],
+    });
+  });
+
+  it("caps each side at MAX_STEPS", () => {
+    const nodes = Array.from({ length: MAX_STEPS + 1 }, (_, index) => ({
+      id: `n${index}`,
+      label: `N${index}`,
+    }));
+    const steps = Array.from({ length: MAX_STEPS }, (_, index) => ({ title: `N${index}` }));
+    expect(graphStepsDrift(nodes, steps)).toBeNull();
+  });
+
+  it("summarises a mismatch for the rail", () => {
+    const drift = graphStepsDrift([{ id: "a", label: "Write auth" }], [{ title: "Write tests" }]);
+    if (drift === null) throw new Error("expected drift");
+    expect(graphStepsDriftMessage(drift)).toBe("Graph and steps differ: Write auth vs Write tests.");
   });
 });
 
