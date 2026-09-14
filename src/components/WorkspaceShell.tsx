@@ -277,6 +277,7 @@ function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
             </p>
             <PermissionActions
               request={request}
+              sessionId={sessionId}
               onAnswer={(allow, optionId) =>
                 void answerPermission(sessionId, request.requestId, allow, optionId)
               }

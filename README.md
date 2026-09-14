@@ -41,7 +41,9 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
 - **Agents that report themselves** — a session can be a Grok agent driven over
   ACP instead of a terminal. It holds no pane, and in exchange it says whether it
   is `running`, `idle`, or `needs_input`; a permission it is blocked on appears on
-  the card of the task it concerns. Allow is `allow_once` only; `allow_always` and
+  the card of the task it concerns. Under the chips, the session title, the
+  `doing` step, the worktree path, and overlapping diff paths are listed when
+  those are already known — missing pieces are omitted, not invented. Allow is `allow_once` only; `allow_always` and
   `reject_always` are separate chips using the name the agent sent, so Allow can
   never silently become always-approve. Deny is a reject-once chip. Its words, thoughts, tools,
   and plans surface as a transcript on the Graph tab and the Tasks rail, with

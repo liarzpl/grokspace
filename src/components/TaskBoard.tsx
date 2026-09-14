@@ -282,6 +282,7 @@ function TaskCard({
           <div className="mt-1">
             <PermissionActions
               request={request}
+              sessionId={assigned?.id}
               onAnswer={(allow, optionId) =>
                 void answerPermission(
                   assigned?.id ?? "",

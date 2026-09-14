@@ -4,6 +4,7 @@ import type { PathOverlap } from "../types";
 import {
   overlapFor,
   overlapMarkTitle,
+  overlapPathsOf,
   overlapStrip,
   overlapsOf,
 } from "./overlap";
@@ -34,6 +35,21 @@ describe("overlapsOf", () => {
     expect(overlapsOf({ state: "gitMissing" })).toEqual([]);
     expect(overlapsOf({ state: "notARepo" })).toEqual([]);
     expect(overlapsOf({ state: "clean", branch: "main" })).toEqual([]);
+  });
+});
+
+describe("overlapPathsOf", () => {
+  it("lists unique paths from a loaded diff, and nothing when git cannot answer", () => {
+    expect(
+      overlapPathsOf({
+        state: "changed",
+        branch: "main",
+        files: [],
+        overlaps: [reviewer, lockfile, { ...reviewer, path: "src/lib.rs" }],
+      }),
+    ).toEqual(["src/lib.rs", "Cargo.lock"]);
+    expect(overlapPathsOf({ state: "gitMissing" })).toEqual([]);
+    expect(overlapPathsOf({ state: "clean", branch: "main" })).toEqual([]);
   });
 });
 
