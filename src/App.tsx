@@ -194,6 +194,12 @@ export default function App() {
     // is doing. The backend has already written the status to the database, so this
     // is the live path rather than the only one.
     const unlisten = listen<SessionStatusChanged>("session-status", (event) => {
+      const current = useSessionStore
+        .getState()
+        .sessions.find((session) => session.id === event.payload.id);
+      // Closed or already-stopped ids: a late ACP status must not revive them
+      // or bounce the dock for a process that has gone.
+      if (current === undefined || current.status === "stopped") return;
       useSessionStore.getState().markStatus(event.payload.id, event.payload.status);
       dockAttention.note(
         event.payload.id,

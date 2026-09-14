@@ -519,11 +519,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }),
 
   markStatus: (id, status) =>
-    set((state) => ({
-      sessions: state.sessions.map((session) =>
-        session.id === id ? { ...session, status } : session,
-      ),
-    })),
+    set((state) => {
+      // Stopped is terminal. A late handshake Idle after stop/close can
+      // otherwise resurrect the chip and offer follow-up on a dead process.
+      const existing = state.sessions.find((session) => session.id === id);
+      if (existing === undefined) return state;
+      if (existing.status === "stopped" && status !== "stopped") return state;
+      return {
+        sessions: state.sessions.map((session) =>
+          session.id === id ? { ...session, status } : session,
+        ),
+      };
+    }),
 
   askPermission: (id, request) =>
     set((state) => {

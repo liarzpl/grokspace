@@ -430,6 +430,36 @@ describe("markStatus", () => {
     expect(agent?.status).toBe("needs_input");
     expect(terminal?.status).toBe("running");
   });
+
+  it("still records stopped on a live agent", () => {
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null, status: "idle" })],
+    });
+
+    useSessionStore.getState().markStatus("s1", "stopped");
+
+    expect(useSessionStore.getState().sessions[0]?.status).toBe("stopped");
+  });
+
+  it("ignores a late non-stopped status on a session that has already stopped", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({ kind: "agent", paneId: null, status: "stopped", processId: null, exitCode: 0 }),
+      ],
+    });
+
+    useSessionStore.getState().markStatus("s1", "idle");
+
+    expect(useSessionStore.getState().sessions[0]?.status).toBe("stopped");
+  });
+
+  it("does not invent a row for a status event whose session has left the list", () => {
+    useSessionStore.setState({ sessions: [] });
+
+    useSessionStore.getState().markStatus("gone", "idle");
+
+    expect(useSessionStore.getState().sessions).toEqual([]);
+  });
 });
 
 describe("permissions", () => {
