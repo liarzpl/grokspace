@@ -153,6 +153,8 @@ interface SessionState {
   mergeReasons: Record<string, string | null>;
 
   loadSessions: (projectId: string) => Promise<void>;
+  createSession: (input: StartInput) => Promise<Session | null>;
+  /** @deprecated Use `createSession`. Alias for one release. */
   startSession: (input: StartInput) => Promise<Session | null>;
   /**
    * Starts one agent per role and tells each what it is for. Returns the roles that
@@ -302,7 +304,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  startSession: async (input) => {
+  createSession: async (input) => {
     // An agent has no pane, so there is no pane to mark busy or to switch back to
     // its terminal. Keying either on `null` would invent a pane called "null".
     const paneId = input.paneId;
@@ -332,6 +334,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  startSession: (input) => get().createSession(input),
+
   launchSwarm: async (projectId, roles) => {
     const failed: string[] = [];
     for (const role of roles) {
@@ -340,7 +344,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // not start would be the wrong trade. They are agents rather than terminals
       // because five of them do not fit in a six-pane grid, and because an agent is
       // the kind that can report what it is doing.
-      const session = await get().startSession({
+      const session = await get().createSession({
         projectId,
         paneId: null,
         kind: "agent",

@@ -31,15 +31,22 @@ interface MemoryState {
 
   loadMemory: (projectId: string) => Promise<void>;
   /** Writes an entry, replacing whatever was under that key. */
+  createEntry: (
+    projectId: string,
+    entry: { key: string; content: string; type: MemoryEntryType },
+  ) => Promise<boolean>;
+  /** @deprecated Use `createEntry`. Alias for one release. */
   putEntry: (
     projectId: string,
     entry: { key: string; content: string; type: MemoryEntryType },
   ) => Promise<boolean>;
+  removeEntry: (projectId: string, key: string) => Promise<void>;
+  /** @deprecated Use `removeEntry`. Alias for one release. */
   forgetEntry: (projectId: string, key: string) => Promise<void>;
   clearError: () => void;
 }
 
-export const useMemoryStore = create<MemoryState>((set) => ({
+export const useMemoryStore = create<MemoryState>((set, get) => ({
   entries: [],
   filePath: "",
   isLoading: false,
@@ -65,7 +72,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
     }
   },
 
-  putEntry: async (projectId, entry) => {
+  createEntry: async (projectId, entry) => {
     try {
       set({ entries: await api.putMemory(projectId, entry), error: null });
       return true;
@@ -77,7 +84,7 @@ export const useMemoryStore = create<MemoryState>((set) => ({
     }
   },
 
-  forgetEntry: async (projectId, key) => {
+  removeEntry: async (projectId, key) => {
     try {
       set({ entries: await api.removeMemory(projectId, key) });
     } catch (error) {
@@ -85,6 +92,8 @@ export const useMemoryStore = create<MemoryState>((set) => ({
     }
   },
 
+  putEntry: (projectId, entry) => get().createEntry(projectId, entry),
+  forgetEntry: (projectId, key) => get().removeEntry(projectId, key),
 }));
 
 /** The entries of one type, in the order the backend returned them. */

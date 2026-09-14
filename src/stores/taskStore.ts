@@ -53,6 +53,8 @@ interface TaskState {
 
   loadTasks: (projectId: string) => Promise<void>;
   createTask: (projectId: string, title: string, description?: string) => Promise<Task | null>;
+  updateTask: (id: string, changes: { title?: string; description?: string }) => Promise<void>;
+  /** @deprecated Use `updateTask`. Alias for one release. */
   editTask: (id: string, changes: { title?: string; description?: string }) => Promise<void>;
   /** Drag between columns, and the only way a task's status changes by hand. */
   moveTask: (id: string, status: TaskStatus) => Promise<void>;
@@ -104,7 +106,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }
   },
 
-  editTask: async (id, changes) => {
+  updateTask: async (id, changes) => {
     try {
       const task = await api.updateTask(id, changes);
       set((state) => ({ tasks: replaceTask(state.tasks, task) }));
@@ -191,6 +193,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     if (!session) return false;
     return get().dispatch(taskId, session.id);
   },
+
+  editTask: (id, changes) => get().updateTask(id, changes),
 }));
 
 /** The tasks in one column, in the order the backend returned them. */

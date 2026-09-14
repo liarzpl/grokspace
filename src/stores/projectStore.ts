@@ -33,6 +33,8 @@ interface ProjectState {
   selectProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
   setLayout: (id: string, layout: PaneLayout) => Promise<void>;
+  removeProject: (id: string) => Promise<void>;
+  /** @deprecated Use `removeProject`. Alias for one release. */
   forgetProject: (id: string) => Promise<void>;
   clearError: () => void;
 }
@@ -124,7 +126,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  forgetProject: async (id) => {
+  removeProject: async (id) => {
     try {
       // Listed first so the frontend can dispose terminals even if this project
       // is not the one currently on screen. The backend then kills the children.
@@ -151,6 +153,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       set({ error: errorMessage(error) });
     }
   },
+
+  forgetProject: (id) => get().removeProject(id),
 }));
 
 /**

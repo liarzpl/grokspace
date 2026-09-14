@@ -56,6 +56,8 @@ interface StepState {
    * list, and the board should not keep showing the last job's tally.
    */
   reset: (sessionId: string) => void;
+  create: (sessionId: string, title: string) => Promise<boolean>;
+  /** @deprecated Use `create`. Alias for one release. */
   add: (sessionId: string, title: string) => Promise<boolean>;
   update: (id: string, changes: { title?: string; status?: SessionStep["status"] }) => Promise<void>;
   remove: (id: string) => Promise<void>;
@@ -189,7 +191,7 @@ export const useStepStore = create<StepState>((set, get) => {
       }));
     },
 
-    add: async (sessionId, title) => {
+    create: async (sessionId, title) => {
       try {
         put(await api.addSessionStep(sessionId, title));
         return true;
@@ -198,6 +200,8 @@ export const useStepStore = create<StepState>((set, get) => {
         return false;
       }
     },
+
+    add: (sessionId, title) => get().create(sessionId, title),
 
     update: async (id, changes) => {
       try {
