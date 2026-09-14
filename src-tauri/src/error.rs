@@ -54,3 +54,20 @@ impl Serialize for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serializes_as_the_display_string() {
+        // invoke rejections are a JSON string, the same text Display logs. A wrapped
+        // object would show up as [object Object] or the generic frontend fallback.
+        let error = Error::SessionNotFound("x".into());
+
+        assert_eq!(
+            serde_json::to_value(&error).expect("serialize"),
+            serde_json::Value::String(error.to_string())
+        );
+    }
+}
