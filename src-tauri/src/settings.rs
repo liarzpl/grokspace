@@ -108,22 +108,14 @@ pub fn put(conn: &Connection, key: &str, value: &str) -> Result<Settings> {
     get(conn)
 }
 
-fn with_db<T>(
-    state: &State<'_, AppState>,
-    run: impl FnOnce(&Connection) -> Result<T>,
-) -> Result<T> {
-    let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
-    run(&conn)
-}
-
 #[tauri::command]
 pub fn read_settings(state: State<'_, AppState>) -> Result<Settings> {
-    with_db(&state, get)
+    state.with_db(get)
 }
 
 #[tauri::command]
 pub fn write_setting(state: State<'_, AppState>, key: String, value: String) -> Result<Settings> {
-    with_db(&state, |conn| put(conn, &key, &value))
+    state.with_db(|conn| put(conn, &key, &value))
 }
 
 #[cfg(test)]
