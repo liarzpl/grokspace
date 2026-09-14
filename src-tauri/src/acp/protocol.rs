@@ -1,6 +1,6 @@
 //! ACP JSON-RPC lines: classify, visible updates, permission replies.
 //!
-//! Process spawn and the handshake live in [`super`].
+//! Process spawn and the handshake live in [`super::process`].
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
