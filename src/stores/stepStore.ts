@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
+import { scheduleIdle } from "../lib/sessionSidecars";
 import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 import type { SessionStep, SessionSteps, StepsPhase } from "../types";
 
@@ -40,9 +41,10 @@ interface StepState {
   /**
    * Replaces the held lists with those of the sessions that are now on screen.
    * A newer call wins, so switching projects cannot leave the last project's
-   * checklists standing.
+   * checklists standing. `urgentIds` load now; the rest wait for idle so a
+   * project open does not storm IPC before the visible pane paints.
    */
-  syncSessions: (sessionIds: readonly string[]) => Promise<void>;
+  syncSessions: (sessionIds: readonly string[], urgentIds?: readonly string[]) => Promise<void>;
   /**
    * Coalesced re-read, driven by the backend's change event. `isOpenSession`
    * says whether a session with that id is still open, which the caller knows
@@ -149,14 +151,27 @@ export const useStepStore = create<StepState>((set, get) => {
       }
     },
 
-    syncSessions: async (sessionIds) => {
+    syncSessions: async (sessionIds, urgentIds) => {
       const generation = ++syncGeneration;
       const arriving = new Set(sessionIds);
       for (const id of Object.keys(get().bySession)) {
         if (!arriving.has(id)) get().forget(id);
       }
-      await Promise.all(sessionIds.map((id) => get().load(id)));
+      const urgent: string[] = [];
+      const seen = new Set<string>();
+      for (const id of urgentIds ?? sessionIds) {
+        if (!arriving.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        urgent.push(id);
+      }
+      const rest = sessionIds.filter((id) => !seen.has(id));
+      await Promise.all(urgent.map((id) => get().load(id)));
       if (generation !== syncGeneration) return;
+      if (rest.length === 0) return;
+      scheduleIdle(() => {
+        if (generation !== syncGeneration) return;
+        void Promise.all(rest.map((id) => get().load(id)));
+      });
     },
 
     refresh: (sessionId, isOpenSession) => {
