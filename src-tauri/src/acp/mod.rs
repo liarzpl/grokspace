@@ -22,7 +22,8 @@ mod tests {
         AUTH_CACHED_TOKEN, HANDSHAKE_IDS,
     };
     use super::protocol::{
-        coalesce_update, opaque_rpc_id, permission_choice, permission_reply, UPDATE_TEXT_CAP,
+        coalesce_update, opaque_rpc_id, permission_choice, permission_reply, ToolRepeat,
+        DEFAULT_DOOM_LOOP_THRESHOLD, UPDATE_TEXT_CAP,
     };
     use super::*;
     use crate::error::Result;
@@ -295,6 +296,67 @@ mod tests {
     }
 
     #[test]
+    fn tool_updates_do_not_coalesce() {
+        let mut pending = None;
+        assert_eq!(
+            coalesce_update(
+                &mut pending,
+                AgentUpdate {
+                    kind: UpdateKind::Tool,
+                    text: "Read src/lib.rs".into(),
+                },
+            ),
+            None
+        );
+        let flushed = coalesce_update(
+            &mut pending,
+            AgentUpdate {
+                kind: UpdateKind::Tool,
+                text: "Read src/lib.rs".into(),
+            },
+        );
+        assert_eq!(
+            flushed,
+            Some(AgentUpdate {
+                kind: UpdateKind::Tool,
+                text: "Read src/lib.rs".into(),
+            })
+        );
+        assert_eq!(
+            pending,
+            Some(AgentUpdate {
+                kind: UpdateKind::Tool,
+                text: "Read src/lib.rs".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn three_identical_tools_trip_and_different_args_do_not() {
+        assert_eq!(DEFAULT_DOOM_LOOP_THRESHOLD, 5);
+
+        let mut repeat = ToolRepeat::default();
+        let text = "Read · {\"path\":\"src/lib.rs\"}";
+        assert_eq!(repeat.note(UpdateKind::Tool, text), 1);
+        assert_eq!(repeat.note(UpdateKind::Tool, text), 2);
+        assert!(!repeat.tripped(3));
+        assert_eq!(repeat.note(UpdateKind::Thought, "hmm"), 2);
+        assert_eq!(repeat.note(UpdateKind::Tool, text), 3);
+        assert!(repeat.tripped(3));
+        assert!(!repeat.tripped(DEFAULT_DOOM_LOOP_THRESHOLD));
+
+        let mut other = ToolRepeat::default();
+        other.note(UpdateKind::Tool, "Read · {\"path\":\"src/lib.rs\"}");
+        other.note(UpdateKind::Tool, "Read · {\"path\":\"src/lib.rs\"}");
+        other.note(UpdateKind::Tool, "Read · {\"path\":\"src/main.rs\"}");
+        assert!(!other.tripped(3));
+        assert_eq!(
+            other.note(UpdateKind::Tool, "Read · {\"path\":\"src/main.rs\"}"),
+            2
+        );
+    }
+
+    #[test]
     fn a_kind_change_flushes_the_coalesced_chunk() {
         let mut pending = Some(AgentUpdate {
             kind: UpdateKind::Message,
@@ -334,6 +396,34 @@ mod tests {
                 kind: UpdateKind::Tool,
                 text: "Read src/lib.rs".into(),
             })
+        );
+
+        let with_args = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","title":"Read","rawInput":{"path":"src/lib.rs"}}}}"#,
+        );
+        let Incoming::Update(update) = with_args else {
+            panic!("a tool call with args is visible output");
+        };
+        assert_eq!(update.kind, UpdateKind::Tool);
+        assert!(update.text.contains("Read"));
+        assert!(update.text.contains("src/lib.rs"));
+
+        let same_title_other_path = classify(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","title":"Read","rawInput":{"path":"src/main.rs"}}}}"#,
+        );
+        let Incoming::Update(other) = same_title_other_path else {
+            panic!("a tool call with different args is visible output");
+        };
+        assert_ne!(
+            update.text, other.text,
+            "different args must not share a tool text"
+        );
+
+        assert_eq!(
+            classify(
+                r#"{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call_update","title":"Read","status":"completed"}}}"#
+            ),
+            Incoming::Ignored
         );
 
         let plan = classify(

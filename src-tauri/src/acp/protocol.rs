@@ -12,6 +12,12 @@ use crate::error::{Error, Result};
 /// single token stream from growing without bound on the event bus.
 pub(crate) const UPDATE_TEXT_CAP: usize = 8 * 1024;
 
+/// Consecutive identical tool invocation texts before the host asks Pause /
+/// Continue. Matches `src/lib/doomLoop.ts`. Only compiled in tests — the live
+/// streak is counted in the session store against that same default.
+#[cfg(test)]
+pub const DEFAULT_DOOM_LOOP_THRESHOLD: u32 = 5;
+
 /// What the agent is doing, as far as the message flow can say.
 ///
 /// Deliberately not `crate::session::SessionStatus`: that enum also carries
@@ -170,7 +176,9 @@ fn parse_session_update(message: &Value) -> Option<AgentUpdate> {
             kind: UpdateKind::Thought,
             text: content_text(update)?,
         }),
-        "tool_call" | "tool_call_update" => Some(AgentUpdate {
+        // `tool_call_update` is progress on a call already shown. Counting those
+        // as new tools would trip the doom loop on a single long call.
+        "tool_call" => Some(AgentUpdate {
             kind: UpdateKind::Tool,
             text: tool_text(update)?,
         }),
@@ -206,15 +214,19 @@ fn cap_text(text: &str) -> String {
     text[..end].to_string()
 }
 
-/// Folds `next` into `pending` when they are the same kind and still under
-/// the cap. Returns the update that must be emitted now, if any.
+/// Folds `next` into `pending` when they are a token stream of the same kind
+/// and still under the cap. Tools and plans stay discrete — concatenating
+/// them would hide identical tool texts from the doom-loop counter.
+/// Returns the update that must be emitted now, if any.
 pub(crate) fn coalesce_update(
     pending: &mut Option<AgentUpdate>,
     next: AgentUpdate,
 ) -> Option<AgentUpdate> {
+    let stream = matches!(next.kind, UpdateKind::Message | UpdateKind::Thought);
     match pending.as_mut() {
         Some(last)
-            if last.kind == next.kind
+            if stream
+                && last.kind == next.kind
                 && last.text.len().saturating_add(next.text.len()) <= UPDATE_TEXT_CAP =>
         {
             last.text.push_str(&next.text);
@@ -228,12 +240,72 @@ pub(crate) fn coalesce_update(
     }
 }
 
+/// Consecutive identical tool texts. Other update kinds are ignored, so a
+/// thought between two of the same call still counts.
+#[cfg(test)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ToolRepeat {
+    last: Option<String>,
+    count: u32,
+}
+
+#[cfg(test)]
+impl ToolRepeat {
+    pub fn note(&mut self, kind: UpdateKind, text: &str) -> u32 {
+        if kind != UpdateKind::Tool {
+            return self.count;
+        }
+        if self.last.as_deref() == Some(text) {
+            self.count = self.count.saturating_add(1);
+        } else {
+            self.last = Some(text.to_string());
+            self.count = 1;
+        }
+        self.count
+    }
+
+    pub fn tripped(&self, threshold: u32) -> bool {
+        threshold > 0 && self.count >= threshold
+    }
+}
+
 fn tool_text(update: &Value) -> Option<String> {
-    for key in ["title", "kind", "status"] {
-        if let Some(text) = update.get(key).and_then(Value::as_str) {
-            if !text.trim().is_empty() {
-                return Some(text.trim().to_string());
+    let label = first_nonempty(update, &["title", "kind", "status"])?;
+    match tool_args(update) {
+        Some(args) if args != label => Some(format!("{label} · {args}")),
+        _ => Some(label),
+    }
+}
+
+fn first_nonempty(update: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(text) = update.get(*key).and_then(Value::as_str) {
+            let text = text.trim();
+            if !text.is_empty() {
+                return Some(text.to_string());
             }
+        }
+    }
+    None
+}
+
+/// Args are part of the identity so `Read a` and `Read b` do not count as the
+/// same tool. `rawInput` is the ACP field; `arguments` / `args` are fallbacks.
+fn tool_args(update: &Value) -> Option<String> {
+    for key in ["rawInput", "arguments", "args"] {
+        let value = update.get(key)?;
+        if value.is_null() {
+            continue;
+        }
+        if let Some(text) = value.as_str() {
+            let text = text.trim();
+            if !text.is_empty() {
+                return Some(text.to_string());
+            }
+            continue;
+        }
+        if value.is_object() || value.is_array() {
+            return Some(value.to_string());
         }
     }
     None

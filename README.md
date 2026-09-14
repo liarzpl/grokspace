@@ -47,7 +47,10 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   `reject_always` are separate chips using the name the agent sent, so Allow can
   never silently become always-approve. Deny is a reject-once chip. Its words, thoughts, tools,
   and plans surface as a transcript on the Graph tab and the Tasks rail, with
-  Cancel while it is working and a follow-up field while it is idle. A terminal can
+  Cancel while it is working and a follow-up field while it is idle. Five
+  identical tool calls in a row (same text — different args do not count)
+  raise a host Pause / Continue strip: Pause cancels the turn, Continue
+  dismisses the strip and resets the count. A terminal can
   only ever report `running` or `stopped`, because a pty carries pixels.
 - **Live graphs, one per session** — every session has its own graph file, and
   the panel redraws the moment an agent writes to it. Watch a plan from the Graph

@@ -161,6 +161,25 @@ describe("WorkspaceShell", () => {
     );
   });
 
+  it("offers Pause and Continue when a session hits a doom loop", async () => {
+    const user = userEvent.setup();
+    useSessionStore.setState({
+      sessions: [session({ kind: "agent", paneId: null, title: "Coder" })],
+      doomLoops: { s1: { text: "Read src/lib.rs", count: 5 } },
+    });
+
+    render(<WorkspaceShell project={project()} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Coder · same tool 5 times: Read src/lib.rs",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(useSessionStore.getState().doomLoops["s1"]).toBeUndefined();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("surfaces a watch failure on the store the shell already reads", async () => {
     watchProjectGraphs.mockRejectedValue("graph dir missing");
     watchProjectSteps.mockRejectedValue("steps dir missing");
