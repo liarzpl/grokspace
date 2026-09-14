@@ -2,7 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { project } from "../test/fixtures";
+import { CHECKPOINT_EQUALS_HEAD, DISCARD_REVERTS_CHECKPOINT } from "../lib/checkpoint";
+import { project, session } from "../test/fixtures";
 
 vi.mock("../lib/terminals", () => import("../test/terminalsMock"));
 
@@ -131,6 +132,33 @@ describe("WorkspaceShell", () => {
       expect(watchProjectGraphs).toHaveBeenCalledWith("p2");
       expect(watchProjectSteps).toHaveBeenCalledWith("p2");
     });
+  });
+
+  it("titles Close and Discard with the worktree checkpoint copy", async () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "agent-1",
+          paneId: null,
+          kind: "agent",
+          title: "Reviewer",
+          status: "stopped",
+          worktreePath: "/tmp/acme/.grokspace/worktrees/agent-1",
+        }),
+      ],
+    });
+    useUiStore.setState({ tab: "graph" });
+
+    render(<WorkspaceShell project={project()} />);
+
+    expect(await screen.findByRole("button", { name: "Discard" })).toHaveAttribute(
+      "title",
+      DISCARD_REVERTS_CHECKPOINT,
+    );
+    expect(screen.getByRole("button", { name: "Close" })).toHaveAttribute(
+      "title",
+      CHECKPOINT_EQUALS_HEAD,
+    );
   });
 
   it("surfaces a watch failure on the store the shell already reads", async () => {

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  CHECKPOINT_EQUALS_HEAD,
+  DISCARD_REVERTS_CHECKPOINT,
+} from "../lib/checkpoint";
 import { hunkPrompt, splitDiff } from "../lib/diffPrompt";
 import {
   INITIAL_DIFF_LINES,
@@ -26,10 +30,11 @@ import type { ChangedFile, FileChange, PathOverlap, Project, Session } from "../
 /**
  * What the agents changed, read out of git.
  *
- * Discard throws away a stopped agent's worktree so Close can proceed. Merge
- * commits leftover files on that branch and lands them on the project. When a
- * stopped worktree is scoped, a strip names why Merge would refuse (dirty
- * project, nothing to merge) before a click; a conflict abort lands there too.
+ * The checkpoint is this worktree's HEAD. Discard reverts it so Close can
+ * proceed. Merge commits leftover files on that branch and lands them on the
+ * project. When a stopped worktree is scoped, a strip names why Merge would
+ * refuse (dirty project, nothing to merge) before a click; a conflict abort
+ * lands there too.
  * Shared paths with another worktree (or the project) get a red mark and a
  * warning strip that names the other session — Merge stays clickable. A selected
  * hunk plus an optional sentence can be sent back to an idle agent.
@@ -439,6 +444,7 @@ function ScopeChips({
             </button>
             <button
               type="button"
+              title={DISCARD_REVERTS_CHECKPOINT}
               onClick={() => {
                 void (async () => {
                   await useSessionStore.getState().discardWorktree(scoped.id);
@@ -530,6 +536,9 @@ export default function DiffPanel({ project }: { project: Project }) {
       </span>
       {diff.branch !== null && (
         <span className="font-mono text-[10px] text-ink-faint">on {diff.branch}</span>
+      )}
+      {scoped !== null && (
+        <span className="text-[10px] text-ink-faint">{CHECKPOINT_EQUALS_HEAD}</span>
       )}
       <div className="flex-1" />
       {/* A snapshot rather than a watch: a watcher over a whole project would fire on
