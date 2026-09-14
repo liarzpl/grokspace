@@ -58,10 +58,12 @@ function tallySummary(nodes: GraphNode[]): string {
 }
 
 function TabButton({
+  id,
   label,
   active,
   onClick,
 }: {
+  id: string;
   label: string;
   active: boolean;
   onClick: () => void;
@@ -69,6 +71,7 @@ function TabButton({
   return (
     <button
       type="button"
+      data-testid={`workspace-tab-${id}`}
       onClick={onClick}
       className={`rounded-sm px-2 py-0.5 text-[11px] transition-colors ${
         active ? "bg-accent-soft text-ink" : "text-ink-faint hover:bg-elevated hover:text-ink-muted"
@@ -429,7 +432,13 @@ export default function WorkspaceShell({ project }: { project: Project }) {
 
         <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-line p-0.5">
           {TABS.map(({ id, label }) => (
-            <TabButton key={id} label={label} active={tab === id} onClick={() => setTab(id)} />
+            <TabButton
+              key={id}
+              id={id}
+              label={label}
+              active={tab === id}
+              onClick={() => setTab(id)}
+            />
           ))}
         </div>
 
