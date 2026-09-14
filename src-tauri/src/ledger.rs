@@ -118,7 +118,7 @@ pub fn tail_path(path: &Path, limit: usize) -> Result<Vec<LedgerEntry>> {
         return Ok(Vec::new());
     };
     let mut lines = Vec::new();
-    for line in BufReader::new(file).lines().flatten() {
+    for line in BufReader::new(file).lines().map_while(std::io::Result::ok) {
         if let Ok(entry) = serde_json::from_str::<LedgerEntry>(line.trim()) {
             lines.push(entry);
         }
@@ -157,8 +157,11 @@ mod tests {
         let path = default_path("proj-1").expect("home");
         assert!(path.ends_with(Path::new(".grokspace").join("ledgers").join("proj-1.jsonl")));
         assert!(!path.components().any(|c| c.as_os_str() == "worktrees"));
-        assert!(!path.starts_with(&worktree::path_for(Path::new("/repos/app"), "sess-1")));
-        let src = include_str!("ledger.rs");
+        assert!(!path.starts_with(worktree::path_for(Path::new("/repos/app"), "sess-1")));
+        let src = include_str!("ledger.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("impl");
         for needle in ["TcpStream", "reqwest", "ureq", "https://"] {
             assert!(!src.contains(needle), "{needle}");
         }
