@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
+  descendantNodeIds,
+  forkGraphFromNode,
   graphStepsDrift,
   graphStepsDriftMessage,
   inferDirection,
@@ -509,6 +511,65 @@ describe("graphStepsDrift", () => {
     const drift = graphStepsDrift([{ id: "a", label: "Write auth" }], [{ title: "Write tests" }]);
     if (drift === null) throw new Error("expected drift");
     expect(graphStepsDriftMessage(drift)).toBe("Graph and steps differ: Write auth vs Write tests.");
+  });
+});
+
+describe("forkGraphFromNode", () => {
+  function mint() {
+    let n = 0;
+    return () => `n${++n}`;
+  }
+
+  it("remints ids, runs the fork node, and pending-s descendants", () => {
+    const { graph } = expectOk(
+      doc({
+        id: "parent-graph",
+        state: { currentLayer: "b", survivors: ["a", "c"] },
+        nodes: [
+          { id: "a", type: "orchestrator", label: "A", status: "completed", position: { x: 0, y: 0 } },
+          { id: "b", type: "agent", label: "B", status: "failed", position: { x: 200, y: 0 } },
+          { id: "c", type: "agent", label: "C", status: "completed", position: { x: 400, y: 0 } },
+        ],
+        edges: [
+          { id: "e1", source: "a", target: "b" },
+          { id: "e2", source: "b", target: "c" },
+        ],
+      }),
+    );
+    const forked = forkGraphFromNode(graph, "b", mint());
+    if (forked === null) throw new Error("expected a fork");
+    expect(forked.graph.id).not.toBe("parent-graph");
+    expect(new Set(forked.graph.nodes.map((node) => node.id))).not.toEqual(new Set(["a", "b", "c"]));
+    expect(forked.graph.nodes.map((node) => node.status)).toEqual(["completed", "running", "pending"]);
+    expect(forked.graph.edges.map((edge) => [edge.source, edge.target])).toEqual([
+      [forked.idMap.a, forked.idMap.b],
+      [forked.idMap.b, forked.idMap.c],
+    ]);
+    expect(forked.graph.state?.survivors).toEqual([forked.idMap.a, forked.idMap.c]);
+    expect(parseGraph(JSON.parse(JSON.stringify(forked.graph))).ok).toBe(true);
+  });
+
+  it("returns null when the node is missing and ignores siblings", () => {
+    expect(forkGraphFromNode(expectOk(doc()).graph, "missing", mint())).toBeNull();
+    const { graph } = expectOk(
+      doc({
+        nodes: [
+          { id: "a", type: "orchestrator", label: "A", status: "completed", position: { x: 0, y: 0 } },
+          { id: "b", type: "agent", label: "B", status: "running", position: { x: 200, y: 0 } },
+          { id: "c", type: "agent", label: "C", status: "failed", position: { x: 200, y: 80 } },
+        ],
+        edges: [
+          { id: "e1", source: "a", target: "b" },
+          { id: "e2", source: "a", target: "c" },
+        ],
+      }),
+    );
+    expect(forkGraphFromNode(graph, "b", mint())?.graph.nodes.map((node) => node.status)).toEqual([
+      "completed",
+      "running",
+      "failed",
+    ]);
+    expect([...descendantNodeIds(graph.edges, "b")]).toEqual([]);
   });
 });
 

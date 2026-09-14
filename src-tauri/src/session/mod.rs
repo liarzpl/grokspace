@@ -54,6 +54,10 @@ pub struct NewSession {
     /// Confirm starting an ACP agent on the project tree when isolation skipped.
     #[serde(default)]
     allow_unisolated: bool,
+    #[serde(default)]
+    seed_graph: Option<String>,
+    #[serde(default)]
+    seed_steps: Option<String>,
 }
 
 #[tauri::command]
@@ -75,6 +79,8 @@ pub fn create_session<R: Runtime>(
             rows: session.rows,
             reuse_worktree: None,
             allow_unisolated: session.allow_unisolated,
+            seed_graph: session.seed_graph,
+            seed_steps: session.seed_steps,
         },
     )
 }
@@ -225,6 +231,8 @@ pub fn restart_session<R: Runtime>(
             // A previous skip already ran on the project tree; Restart must not
             // fail-closed on the same folder the user already confirmed.
             allow_unisolated: previous.isolation_skip.is_some(),
+            seed_graph: None,
+            seed_steps: None,
         },
     )
 }
@@ -299,7 +307,10 @@ mod tests {
         record_live_process, sessions_for_pane, set_isolation_skip, set_process_id,
         set_worktree_path,
     };
-    use super::start::{command_for, env_to_unset, isolate_agent, role_env, session_env, Launch};
+    use super::start::{
+        command_for, env_to_unset, isolate_agent, role_env, session_env, write_session_seeds,
+        Launch,
+    };
     use super::*;
     use crate::acp;
     use crate::db;
@@ -1047,6 +1058,8 @@ mod tests {
             rows: 24,
             reuse_worktree: None,
             allow_unisolated: false,
+            seed_graph: None,
+            seed_steps: None,
         };
         assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
     }
@@ -1073,6 +1086,8 @@ mod tests {
             rows: 24,
             reuse_worktree: None,
             allow_unisolated: false,
+            seed_graph: None,
+            seed_steps: None,
         };
         assert_eq!(isolate_agent(&request, &session, Path::new("/tmp")), None);
     }
@@ -1109,6 +1124,8 @@ mod tests {
             rows: 24,
             reuse_worktree: Some(leftover.path().to_path_buf()),
             allow_unisolated: false,
+            seed_graph: None,
+            seed_steps: None,
         };
         assert_eq!(
             isolate_agent(&request, &session, leftover.path()),
@@ -1116,6 +1133,36 @@ mod tests {
                 worktree::IsolationSkip::NotARepo
             )),
             "a leftover folder is not Isolated; add() then skips the non-repo project"
+        );
+    }
+
+    #[test]
+    fn write_session_seeds_lands_on_the_new_id_and_leaves_the_parent() {
+        let dir = tempfile::tempdir().expect("temp dir should be created");
+        let graphs = crate::graph::project_graph_dir(dir.path());
+        std::fs::create_dir_all(&graphs).unwrap();
+        let parent = graphs.join("parent.json");
+        std::fs::write(&parent, r#"{"id":"parent"}"#).unwrap();
+
+        write_session_seeds(
+            dir.path(),
+            "child",
+            Some(r#"{"id":"forked","nodes":[{"id":"n1"}]}"#),
+            Some(r#"{"steps":[{"title":"Ship it","status":"pending"}]}"#),
+        );
+
+        assert_eq!(
+            std::fs::read_to_string(graphs.join("child.json")).unwrap(),
+            r#"{"id":"forked","nodes":[{"id":"n1"}]}"#
+        );
+        assert_eq!(
+            std::fs::read_to_string(crate::steps::project_steps_dir(dir.path()).join("child.json"))
+                .unwrap(),
+            r#"{"steps":[{"title":"Ship it","status":"pending"}]}"#
+        );
+        assert_eq!(
+            std::fs::read_to_string(&parent).unwrap(),
+            r#"{"id":"parent"}"#
         );
     }
 
@@ -1134,6 +1181,8 @@ mod tests {
             rows: 24,
             reuse_worktree: None,
             allow_unisolated: false,
+            seed_graph: None,
+            seed_steps: None,
         };
         assert_eq!(
             isolate_agent(&request, &session, dir.path()),

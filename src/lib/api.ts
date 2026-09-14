@@ -99,6 +99,10 @@ export const api = {
     rows: number;
     /** Confirm starting an agent on the project tree when isolation skipped. */
     allowUnisolated?: boolean;
+    /** Fork: reminted graph JSON written to the new session file. */
+    seedGraph?: string;
+    /** Fork: steps JSON ingested as proposed on the new session. */
+    seedSteps?: string;
   }): Promise<Session> =>
     invoke<Session>("create_session", { session: sessionCreatePayload(input) }),
 
@@ -435,7 +439,7 @@ export const api = {
 
 };
 
-/** `create_session` body. `allowUnisolated` is omitted unless it is true. */
+/** `create_session` body. `allowUnisolated` and fork seeds are omitted unless set. */
 export function sessionCreatePayload(input: {
   projectId: string;
   paneId: string | null;
@@ -444,6 +448,8 @@ export function sessionCreatePayload(input: {
   cols: number;
   rows: number;
   allowUnisolated?: boolean;
+  seedGraph?: string;
+  seedSteps?: string;
 }) {
   const session = {
     projectId: input.projectId,
@@ -452,6 +458,12 @@ export function sessionCreatePayload(input: {
     role: input.role ?? null,
     cols: input.cols,
     rows: input.rows,
+    ...(input.seedGraph !== undefined && input.seedGraph !== ""
+      ? { seedGraph: input.seedGraph }
+      : {}),
+    ...(input.seedSteps !== undefined && input.seedSteps !== ""
+      ? { seedSteps: input.seedSteps }
+      : {}),
   };
   return input.allowUnisolated === true ? { ...session, allowUnisolated: true as const } : session;
 }

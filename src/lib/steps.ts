@@ -76,6 +76,23 @@ export async function sendApproval(
 }
 
 /**
+ * Agent steps file for a fork: titles only, all pending. Ingest on a new
+ * session (phase `none`) becomes `proposed`. Empty → omit the seed.
+ */
+export function proposedStepsSeed(
+  steps: readonly { title: string }[],
+): string | undefined {
+  const titles = steps
+    .map((step) => step.title.replace(/\s+/g, " ").trim())
+    .filter((title) => title.length > 0)
+    .slice(0, MAX_STEPS);
+  if (titles.length === 0) return undefined;
+  return JSON.stringify({
+    steps: titles.map((title) => ({ title, status: "pending" })),
+  });
+}
+
+/**
  * Done against the length of the list, or null when there is nothing to count.
  * Skipped items are not done: they were deliberately not done.
  *

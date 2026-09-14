@@ -398,6 +398,29 @@ pub(crate) struct StartRequest {
     /// When isolation is skipped, start on the project tree only if this is set.
     /// The default is fail-closed: refuse rather than write on the live tree.
     pub(crate) allow_unisolated: bool,
+    /// Fork: reminted graph JSON for this session's file only.
+    pub(crate) seed_graph: Option<String>,
+    /// Fork: steps JSON ingested as `proposed` on first read.
+    pub(crate) seed_steps: Option<String>,
+}
+
+/// Best-effort seed of the new session's files. A start still proceeds if a write fails.
+pub(crate) fn write_session_seeds(
+    project_path: &Path,
+    session_id: &str,
+    seed_graph: Option<&str>,
+    seed_steps: Option<&str>,
+) {
+    if let Some(json) = seed_graph.map(str::trim).filter(|text| !text.is_empty()) {
+        if let Ok(dir) = graph::ensure_graph_dir(project_path) {
+            let _ = std::fs::write(dir.join(graph::graph_file_name(session_id)), json);
+        }
+    }
+    if let Some(json) = seed_steps.map(str::trim).filter(|text| !text.is_empty()) {
+        if let Ok(dir) = steps::ensure_steps_dir(project_path) {
+            let _ = std::fs::write(dir.join(steps::steps_file_name(session_id)), json);
+        }
+    }
 }
 
 /// A clean checkout for an ACP agent, when git will give us one.
@@ -548,6 +571,12 @@ pub(crate) fn start<R: Runtime>(
     // folder, not the worktree: memory is shared.
     let _ = memory::write_projection(&project_path, &remembered);
     let mut env = session_env(&project_path, &session.id);
+    write_session_seeds(
+        &project_path,
+        &session.id,
+        request.seed_graph.as_deref(),
+        request.seed_steps.as_deref(),
+    );
     env.extend(role_env(session.role.as_deref()));
     if let Some(ref path) = worktree {
         env.push((
