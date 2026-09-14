@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { session } from "../test/fixtures";
+import type { GraphNode } from "../lib/graph";
 import type { SessionStep, SessionSteps as StepsSnapshot } from "../types";
 
 vi.mock("../lib/terminals", () => import("../test/terminalsMock"));
@@ -31,6 +32,7 @@ vi.mock("../lib/api", async () => {
 
 const { default: SessionSteps } = await import("./SessionSteps");
 const { approvalPrompt } = await import("../lib/steps");
+const { useGraphStore } = await import("../stores/graphStore");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useStepStore } = await import("../stores/stepStore");
 
@@ -59,6 +61,37 @@ function snapshot(overrides: Partial<StepsSnapshot> = {}): StepsSnapshot {
 
 const initialSessions = useSessionStore.getState();
 const initialSteps = useStepStore.getState();
+const initialGraph = useGraphStore.getState();
+
+function graphNode(id: string, label: string, x = 0): GraphNode {
+  return {
+    id,
+    type: "agent",
+    label,
+    status: "pending",
+    position: { x, y: 0 },
+    data: {},
+  };
+}
+
+function seedGraph(nodes: GraphNode[] | null, sessionId = "s1") {
+  useGraphStore.setState({
+    bySession: {
+      [sessionId]: {
+        path: "/tmp/g.json",
+        graph:
+          nodes === null
+            ? null
+            : { id: "g", name: "G", status: "pending", nodes, edges: [] },
+        warnings: [],
+        error: null,
+        updatedAt: 1,
+        bytes: 10,
+        isLoading: false,
+      },
+    },
+  });
+}
 
 function seed(
   phase: StepsSnapshot["phase"],
@@ -78,6 +111,7 @@ describe("SessionSteps Spec | Build", () => {
     vi.clearAllMocks();
     useSessionStore.setState(initialSessions, true);
     useStepStore.setState(initialSteps, true);
+    useGraphStore.setState(initialGraph, true);
     writeSession.mockResolvedValue(undefined);
     promptSession.mockResolvedValue(undefined);
     skillStatus.mockResolvedValue({ id: "steps", installed: true, current: true, path: "" });
@@ -151,5 +185,62 @@ describe("SessionSteps Spec | Build", () => {
 
     expect(screen.queryByRole("radiogroup", { name: "Spec or Build" })).not.toBeInTheDocument();
     expect(screen.getByText("The agent has not proposed steps yet.")).toBeInTheDocument();
+  });
+});
+
+describe("SessionSteps graph drift", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSessionStore.setState(initialSessions, true);
+    useStepStore.setState(initialSteps, true);
+    useGraphStore.setState(initialGraph, true);
+    skillStatus.mockResolvedValue({ id: "steps", installed: true, current: true, path: "" });
+  });
+
+  it("warns when a title does not match the graph label", () => {
+    seed("proposed", session(), [step({ title: "Write tests" })]);
+    seedGraph([graphNode("a", "Write auth", 40)]);
+
+    render(<SessionSteps session={session()} />);
+
+    expect(screen.getByTestId("graph-steps-drift")).toHaveTextContent(
+      "Graph and steps differ: Write auth vs Write tests.",
+    );
+  });
+
+  it("warns on an extra graph node", () => {
+    seed("proposed");
+    seedGraph([graphNode("a", "Read auth.ts"), graphNode("b", "Ship it", 200)]);
+
+    render(<SessionSteps session={session()} />);
+
+    expect(screen.getByTestId("graph-steps-drift")).toHaveTextContent("extra graph node Ship it");
+  });
+
+  it("warns on an extra step", () => {
+    seed("proposed", session(), [step(), step({ id: "b", title: "Also the tests", sortIndex: 1 })]);
+    seedGraph([graphNode("a", "Read auth.ts")]);
+
+    render(<SessionSteps session={session()} />);
+
+    expect(screen.getByTestId("graph-steps-drift")).toHaveTextContent("extra step Also the tests");
+  });
+
+  it("does not warn when both sides are empty", () => {
+    seed("none", session(), []);
+    seedGraph(null);
+
+    render(<SessionSteps session={session()} />);
+
+    expect(screen.queryByTestId("graph-steps-drift")).not.toBeInTheDocument();
+  });
+
+  it("does not warn when labels match despite different positions", () => {
+    seed("proposed");
+    seedGraph([graphNode("a", "Read auth.ts", 900)]);
+
+    render(<SessionSteps session={session()} />);
+
+    expect(screen.queryByTestId("graph-steps-drift")).not.toBeInTheDocument();
   });
 });
