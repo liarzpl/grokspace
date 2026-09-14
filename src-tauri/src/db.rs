@@ -32,12 +32,56 @@ pub fn open_default() -> Result<Connection> {
 }
 
 fn open_in_dir(dir: &Path) -> Result<Connection> {
-    std::fs::create_dir_all(dir)?;
-    restrict_unix_mode(dir, 0o700)?;
+    ensure_restricted_dir(dir)?;
     let path = dir.join("grokspace.db");
-    let conn = open_at(&path)?;
-    restrict_unix_mode(&path, 0o600)?;
-    Ok(conn)
+    ensure_restricted_file(&path)?;
+    let opened = open_at(&path);
+    // Tighten even if open/migrate failed: SQLite may have created the file, or
+    // an existing install may still be world-readable.
+    let restricted = restrict_unix_mode(&path, 0o600);
+    match opened {
+        Ok(conn) => {
+            restricted?;
+            Ok(conn)
+        }
+        Err(error) => {
+            let _ = restricted;
+            Err(error)
+        }
+    }
+}
+
+fn ensure_restricted_dir(dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(dir)?;
+    }
+    // Existing installs were created with the process umask; tighten those too.
+    restrict_unix_mode(dir, 0o700)
+}
+
+fn ensure_restricted_file(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .mode(0o600)
+            .open(path)?;
+    }
+    if path.exists() {
+        restrict_unix_mode(path, 0o600)?;
+    }
+    Ok(())
 }
 
 fn restrict_unix_mode(path: &Path, mode: u32) -> Result<()> {
@@ -212,6 +256,41 @@ mod tests {
 
         assert_eq!(dir_mode, 0o700, "existing workspace dir must be tightened");
         assert_eq!(db_mode, 0o600, "existing database file must be tightened");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_in_dir_tightens_modes_even_when_open_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().expect("temp dir should be created");
+        let workspace = tmp.path().join(".grokspace");
+        std::fs::create_dir_all(&workspace).expect("workspace dir should be created");
+        std::fs::set_permissions(&workspace, std::fs::Permissions::from_mode(0o755))
+            .expect("permissive dir mode should apply");
+        let db_path = workspace.join("grokspace.db");
+        std::fs::write(&db_path, b"not a sqlite database").expect("junk file should be written");
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o644))
+            .expect("permissive file mode should apply");
+
+        assert!(
+            open_in_dir(&workspace).is_err(),
+            "a junk file must not open as the workspace database"
+        );
+
+        let dir_mode = std::fs::metadata(&workspace)
+            .expect("workspace dir should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+        let db_mode = std::fs::metadata(&db_path)
+            .expect("database file should exist")
+            .permissions()
+            .mode()
+            & 0o777;
+
+        assert_eq!(dir_mode, 0o700, "dir must be tightened on the error path");
+        assert_eq!(db_mode, 0o600, "file must be tightened on the error path");
     }
 
     #[test]
