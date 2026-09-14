@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
-import { subscribeEscape } from "../lib/shortcuts";
+import { subscribeOverlay } from "../lib/overlay";
 import { useUiStore } from "../stores/uiStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { DISPATCH_TARGETS, PANE_LAYOUTS, WORKSPACE_TABS, type Settings } from "../types";
@@ -24,8 +24,14 @@ export default function SettingsPanel() {
   const closeSettings = useUiStore((state) => state.closeSettings);
   const settings = useSettingsStore((state) => state.settings);
   const setSetting = useSettingsStore((state) => state.setSetting);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => subscribeEscape(isOpen, closeSettings), [isOpen, closeSettings]);
+  useEffect(() => {
+    if (!isOpen) return;
+    return subscribeOverlay(true, dialogRef.current, closeSettings, {
+      initialFocus: "container",
+    });
+  }, [isOpen, closeSettings]);
 
   if (!isOpen) return null;
 
@@ -35,13 +41,18 @@ export default function SettingsPanel() {
       className="fixed inset-0 z-50 flex items-start justify-center bg-canvas/70 pt-[12vh]"
     >
       <div
+        ref={dialogRef}
         role="dialog"
-        aria-label="Settings"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
         className="flex max-h-[70vh] w-[30rem] flex-col overflow-hidden rounded-lg border border-line-strong bg-panel shadow-2xl shadow-black/60"
       >
         <header className="flex shrink-0 items-baseline gap-2 border-b border-line px-4 py-2.5">
-          <h2 className="text-[13px] font-semibold text-ink">Settings</h2>
+          <h2 id="settings-title" className="text-[13px] font-semibold text-ink">
+            Settings
+          </h2>
           <span className="text-[10px] text-ink-faint">Shared by every project</span>
           <div className="flex-1" />
           <button

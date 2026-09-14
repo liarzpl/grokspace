@@ -51,8 +51,8 @@ describe("CommandPalette", () => {
 
     expect(screen.getByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("What would you like to do?")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Show terminals/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Open settings/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Show terminals/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Open settings/ })).toBeInTheDocument();
   });
 
   it("closes on Escape from the search field", async () => {
@@ -96,8 +96,8 @@ describe("CommandPalette", () => {
     render(<CommandPalette />);
 
     await user.type(screen.getByPlaceholderText("What would you like to do?"), "settings");
-    expect(screen.getByRole("button", { name: /Open settings/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Show terminals/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Open settings/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Show terminals/ })).not.toBeInTheDocument();
 
     await user.keyboard("{Enter}");
 
@@ -112,7 +112,7 @@ describe("CommandPalette", () => {
 
     await user.pointer({
       keys: "[MouseLeft>]",
-      target: screen.getByRole("button", { name: /Open settings/ }),
+      target: screen.getByRole("option", { name: /Open settings/ }),
     });
 
     expect(useUiStore.getState().isSettingsOpen).toBe(true);
