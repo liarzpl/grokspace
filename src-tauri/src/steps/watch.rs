@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::RecommendedWatcher;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -22,50 +22,13 @@ struct StepsChanged {
     session_id: String,
 }
 
-fn session_id_for(path: &Path, watched: &[PathBuf]) -> Option<String> {
-    let parent = path.parent()?;
-    if !watched.iter().any(|dir| dir == parent) {
-        return None;
-    }
-    if path.extension()?.to_str()? != "json" {
-        return None;
-    }
-    let stem = path.file_stem()?.to_str()?;
-    (!stem.is_empty()).then(|| stem.to_string())
-}
-
 fn watch_dirs(
     dirs: &[PathBuf],
     on_change: impl Fn(String) + Send + 'static,
 ) -> Result<RecommendedWatcher> {
-    let watched = dirs.to_vec();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        let Ok(event) = event else { return };
-        if !matches!(
-            event.kind,
-            EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_)
-        ) {
-            return;
-        }
-        for path in &event.paths {
-            if let Some(session_id) = session_id_for(path, &watched) {
-                on_change(session_id);
-            }
-        }
+    crate::watch::watch_session_json_dir(dirs, "step", move |session_id, _path| {
+        on_change(session_id);
     })
-    .map_err(|error| Error::Invalid(format!("could not watch for step changes: {error}")))?;
-
-    for dir in dirs {
-        watcher
-            .watch(dir, RecursiveMode::NonRecursive)
-            .map_err(|error| {
-                Error::Invalid(format!(
-                    "could not watch {}: {error}",
-                    dir.to_string_lossy()
-                ))
-            })?;
-    }
-    Ok(watcher)
 }
 
 fn watched_dirs(project_path: &Path) -> Vec<PathBuf> {

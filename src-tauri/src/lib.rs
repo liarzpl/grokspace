@@ -12,6 +12,7 @@ mod settings;
 mod skill;
 mod steps;
 mod task;
+mod watch;
 mod worktree;
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
 import { parseGraph, type GraphDocument, type ParseResult } from "../lib/graph";
+import { createWatchedSessionMap } from "../lib/watchedSessionMap";
 
 /**
  * One graph per session, kept in step with the files on disk.
@@ -15,9 +16,6 @@ import { parseGraph, type GraphDocument, type ParseResult } from "../lib/graph";
  *   moment later fixes itself, that one failure is read again before it is shown.
  *   A file that parses but describes no graph is reported the first time.
  */
-
-/** Long enough to swallow a burst of writes, short enough to still read as live. */
-const COALESCE_MS = 80;
 
 /** How long to give a writer to finish before broken JSON is believed. */
 const RETRY_MS = 150;
@@ -77,7 +75,7 @@ const EMPTY: GraphEntry = {
 };
 
 /** Timers live outside the store: they are plumbing, not state to render. */
-const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const watch = createWatchedSessionMap({ onClosed: "keep-if-present" });
 
 export const useGraphStore = create<GraphStoreState>((set, get) => {
   const write = (sessionId: string, changes: Partial<GraphEntry>) =>
@@ -179,31 +177,18 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
     },
 
     refresh: (sessionId, isOpenSession) => {
-      // Closing a session removes it from the workspace but leaves its file and
-      // its project's watcher behind, so a late write can name a session that
-      // nothing is showing. Reading it would file an entry — an error, once the
-      // backend has forgotten the session too — that no pane will ever ask for.
-      if (!isOpenSession && !(sessionId in get().bySession)) return;
-
-      const queued = pending.get(sessionId);
-      if (queued !== undefined) clearTimeout(queued);
-      pending.set(
-        sessionId,
-        setTimeout(() => {
-          pending.delete(sessionId);
-          // An open session can write its first graph before anything here has
-          // read it, so the entry is created rather than assumed.
-          void get().load(sessionId);
-        }, COALESCE_MS),
-      );
+      // Closing a session leaves its file and its project's watcher behind.
+      // keep-if-present: a graph already on screen is re-read; a late write
+      // for a session we never held is ignored.
+      watch.refresh(sessionId, isOpenSession, {
+        hasEntry: () => sessionId in get().bySession,
+        load: () => void get().load(sessionId),
+        forget: () => get().forget(sessionId),
+      });
     },
 
     forget: (sessionId) => {
-      const queued = pending.get(sessionId);
-      if (queued !== undefined) {
-        clearTimeout(queued);
-        pending.delete(sessionId);
-      }
+      watch.cancel(sessionId);
       set((state) => {
         if (!(sessionId in state.bySession)) return state;
         const bySession = { ...state.bySession };
