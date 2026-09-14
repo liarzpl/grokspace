@@ -1,7 +1,7 @@
 # The graph file
 
-GrokSpace draws one graph per terminal, by watching one file per session. This is what
-goes in it, where it goes, and when to write it.
+GrokSpace draws one graph per session (a pane or an ACP agent), by watching one
+file per session. This is what goes in it, where it goes, and when to write it.
 
 You — the orchestrator — own this file. Workers never read or write it.
 
@@ -19,7 +19,7 @@ In order. Stop at the first that applies:
 
 **Never write `current-graph.json` when `$GROKSPACE_GRAPH_FILE` is set.** Two things go
 wrong at once: the panel watching the session file sees nothing at all, and a second
-`.json` appears in a directory where every file is taken for a terminal's graph.
+`.json` appears in a directory where every file is taken for a session's graph.
 
 `mkdir -p` the directory. Write a temporary file beside the target and rename it over —
 a reader that catches a half-written file shows nothing useful. Pretty-print with two
@@ -201,6 +201,6 @@ writing local time with a `Z` on the end, and letting `updatedAt` come out earli
 
 ## Which graph is which
 
-One file per terminal, so several sessions can each be running their own graph and
-GrokSpace shows each in its own pane. Do not try to represent two runs in one file, and
-do not archive the file unless asked. A new run overwrites it with a new `id`.
+One file per session, so several sessions (a pane or an ACP agent) can each be
+running their own graph. Do not try to represent two runs in one file, and do
+not archive the file unless asked. A new run overwrites it with a new `id`.

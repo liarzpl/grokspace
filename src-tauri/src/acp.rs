@@ -3,8 +3,10 @@
 //! `grok agent stdio` speaks JSON-RPC on stdin and stdout rather than rendering a
 //! TUI, which is the whole reason this module exists: a pty carries pixels, and
 //! pixels cannot say whether an agent is working, finished, or waiting to be
-//! answered. The four session statuses the schema has carried since Phase 0 come
-//! from this flow.
+//! answered. The four session statuses (`idle`, `running`, `needs_input`,
+//! `stopped`) were reserved on `sessions` in migration `0001`; this flow is what
+//! fills `idle` and `needs_input`. A terminal only ever reports `running` or
+//! `stopped`.
 //!
 //! Like [`crate::pty`], this knows nothing about Tauri or the database, so the
 //! interesting half is exercised in the tests at the bottom with no child process
