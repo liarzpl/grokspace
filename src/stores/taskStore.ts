@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
@@ -42,11 +43,18 @@ function replaceTask(tasks: Task[], next: Task): Task[] {
   return tasks.map((task) => (task.id === next.id ? next : task));
 }
 
+/** True before the first load (tests, first paint) or while this project is still current. */
+function stillThisProject(loaded: string | null, projectId: string): boolean {
+  return loaded === null || loaded === projectId;
+}
+
 /** Drops in-flight `loadTasks` results that a newer project switch has replaced. */
 let loadGeneration = 0;
 
 interface TaskState {
   tasks: Task[];
+  /** Project whose board `tasks` belongs to, or null before the first load. */
+  projectId: string | null;
   isLoading: boolean;
   /** Tasks with a dispatch in flight, so a card can show it is going somewhere. */
   dispatching: Record<string, boolean>;
@@ -77,6 +85,7 @@ interface TaskState {
 
 export const useTaskStore = create<TaskState>((set, get) => ({
   tasks: [],
+  projectId: null,
   isLoading: false,
   dispatching: {},
   error: null,
@@ -85,7 +94,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
   loadTasks: async (projectId) => {
     const generation = ++loadGeneration;
-    set({ isLoading: true, error: null });
+    const leaving = get().tasks;
+    // Until this fetch returns, the board would keep the previous project's
+    // cards clickable — Delete/move would hit those ids. Drop them now; a
+    // same-project reload must not, or the columns go blank for a frame.
+    const switching =
+      (get().projectId !== null && get().projectId !== projectId) ||
+      leaving.some((task) => task.projectId !== projectId);
+    set({
+      isLoading: true,
+      error: null,
+      projectId,
+      ...(switching ? { tasks: [], dispatching: {} } : {}),
+    });
     try {
       const tasks = await api.listTasks(projectId);
       if (generation !== loadGeneration) return;
@@ -99,37 +120,50 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   createTask: async (projectId, title, description) => {
     try {
       const task = await api.createTask({ projectId, title, description });
+      // Null, not the task: NewTaskForm treats a returned task as "clear the draft".
+      if (!stillThisProject(get().projectId, projectId)) return null;
       set((state) => ({ tasks: [...state.tasks, task] }));
       return task;
     } catch (error) {
-      set({ error: errorMessage(error) });
+      if (stillThisProject(get().projectId, projectId)) {
+        set({ error: errorMessage(error) });
+      }
       return null;
     }
   },
 
   updateTask: async (id, changes) => {
+    const origin = get().tasks.find((task) => task.id === id)?.projectId ?? get().projectId;
     try {
       const task = await api.updateTask(id, changes);
+      if (origin !== null && !stillThisProject(get().projectId, origin)) return;
       set((state) => ({ tasks: replaceTask(state.tasks, task) }));
     } catch (error) {
+      if (origin !== null && !stillThisProject(get().projectId, origin)) return;
       set({ error: errorMessage(error) });
     }
   },
 
   moveTask: async (id, status) => {
+    const origin = get().tasks.find((task) => task.id === id)?.projectId ?? get().projectId;
     try {
       const task = await api.updateTask(id, { status });
+      if (origin !== null && !stillThisProject(get().projectId, origin)) return;
       set((state) => ({ tasks: replaceTask(state.tasks, task) }));
     } catch (error) {
+      if (origin !== null && !stillThisProject(get().projectId, origin)) return;
       set({ error: errorMessage(error) });
     }
   },
 
   removeTask: async (id) => {
+    const origin = get().tasks.find((task) => task.id === id)?.projectId ?? get().projectId;
     try {
       await api.removeTask(id);
+      if (origin !== null && !stillThisProject(get().projectId, origin)) return;
       set((state) => ({ tasks: state.tasks.filter((task) => task.id !== id) }));
     } catch (error) {
+      if (origin !== null && !stillThisProject(get().projectId, origin)) return;
       set({ error: errorMessage(error) });
     }
   },
@@ -137,6 +171,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   dispatch: async (taskId, sessionId) => {
     const task = get().tasks.find((candidate) => candidate.id === taskId);
     if (!task) return false;
+    const origin = task.projectId;
 
     const session = useSessionStore
       .getState()
@@ -159,7 +194,9 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       // never landed.
       const dispatched = await api.dispatchTask(taskId, sessionId);
       assigned = true;
-      set((state) => ({ tasks: replaceTask(state.tasks, dispatched) }));
+      if (stillThisProject(get().projectId, dispatched.projectId)) {
+        set((state) => ({ tasks: replaceTask(state.tasks, dispatched) }));
+      }
       // The backend cleared the last job's list with the assignment. Forget it
       // here so the rail does not keep showing a tally until the next load.
       useStepStore.getState().reset(sessionId);
@@ -169,12 +206,16 @@ export const useTaskStore = create<TaskState>((set, get) => ({
       if (assigned) {
         try {
           const undone = await api.undispatchTask(taskId);
-          set((state) => ({ tasks: replaceTask(state.tasks, undone) }));
+          if (stillThisProject(get().projectId, undone.projectId)) {
+            set((state) => ({ tasks: replaceTask(state.tasks, undone) }));
+          }
         } catch {
           // The prompt is still the failure to show.
         }
       }
-      set({ error: errorMessage(error) });
+      if (stillThisProject(get().projectId, origin)) {
+        set({ error: errorMessage(error) });
+      }
       return false;
     } finally {
       set((state) => ({ dispatching: { ...state.dispatching, [taskId]: false } }));
@@ -200,4 +241,21 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 /** The tasks in one column, in the order the backend returned them. */
 export function tasksInColumn(tasks: Task[], status: TaskStatus): Task[] {
   return tasks.filter((task) => task.status === status);
+}
+
+/**
+ * Tasks that belong to this project. Do not use as a Zustand selector: a fresh
+ * array every call loops React 19. `useTasksForProject` filters in `useMemo`.
+ *
+ * The board has to filter: `loadTasks` runs in an effect, so a switch paints
+ * once with the previous project's rows still in the store.
+ */
+export function tasksForProject(tasks: Task[], projectId: string): Task[] {
+  return tasks.filter((task) => task.projectId === projectId);
+}
+
+/** Filtered list for render. Selects `tasks` (stable until replaced) and filters in `useMemo`. */
+export function useTasksForProject(projectId: string): Task[] {
+  const tasks = useTaskStore((state) => state.tasks);
+  return useMemo(() => tasksForProject(tasks, projectId), [tasks, projectId]);
 }

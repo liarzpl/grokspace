@@ -20,7 +20,8 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-const { entriesOfType, memorySize, useMemoryStore } = await import("./memoryStore");
+const { entriesForProject, entriesOfType, memoryFilePathFor, memorySize, useMemoryStore } =
+  await import("./memoryStore");
 
 function entry(overrides: Partial<MemoryEntry> = {}): MemoryEntry {
   return {
@@ -87,6 +88,81 @@ describe("loadMemory", () => {
     expect(state.entries).toEqual([]);
     expect(state.filePath).toBe("");
   });
+
+  it("clears leftover entries even when no project has been recorded yet", async () => {
+    useMemoryStore.setState({
+      entries: [entry()],
+      filePath: "/p1/.grokspace/memory.md",
+    });
+    let resolveEntries: (entries: MemoryEntry[]) => void = () => {};
+    listMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((resolve) => {
+          resolveEntries = resolve;
+        }),
+    );
+    memoryFilePath.mockResolvedValue("/p2/.grokspace/memory.md");
+
+    const pending = useMemoryStore.getState().loadMemory("p2");
+
+    expect(useMemoryStore.getState().entries).toEqual([]);
+    expect(useMemoryStore.getState().filePath).toBe("");
+
+    resolveEntries([]);
+    await pending;
+  });
+
+  it("empties the previous project's memory before the next list arrives", async () => {
+    useMemoryStore.setState({
+      entries: [entry()],
+      projectId: "p1",
+      filePath: "/p1/.grokspace/memory.md",
+    });
+    let resolveEntries: (entries: MemoryEntry[]) => void = () => {};
+    listMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((resolve) => {
+          resolveEntries = resolve;
+        }),
+    );
+    memoryFilePath.mockResolvedValue("/p2/.grokspace/memory.md");
+
+    const pending = useMemoryStore.getState().loadMemory("p2");
+
+    expect(useMemoryStore.getState().entries).toEqual([]);
+    expect(useMemoryStore.getState().filePath).toBe("");
+    expect(useMemoryStore.getState().projectId).toBe("p2");
+
+    resolveEntries([entry({ projectId: "p2", key: "api" })]);
+    await pending;
+
+    expect(useMemoryStore.getState().entries.map((item) => item.key)).toEqual(["api"]);
+    expect(useMemoryStore.getState().filePath).toBe("/p2/.grokspace/memory.md");
+  });
+
+  it("does not blank the current project's memory while re-reading it", async () => {
+    useMemoryStore.setState({
+      entries: [entry()],
+      projectId: "p1",
+      filePath: "/p1/.grokspace/memory.md",
+    });
+    let resolveEntries: (entries: MemoryEntry[]) => void = () => {};
+    listMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((resolve) => {
+          resolveEntries = resolve;
+        }),
+    );
+    memoryFilePath.mockResolvedValue("/p1/.grokspace/memory.md");
+
+    const pending = useMemoryStore.getState().loadMemory("p1");
+
+    expect(useMemoryStore.getState().entries).toHaveLength(1);
+    expect(useMemoryStore.getState().filePath).toBe("/p1/.grokspace/memory.md");
+
+    resolveEntries([entry()]);
+    await pending;
+  });
 });
 
 describe("putEntry", () => {
@@ -127,6 +203,55 @@ describe("putEntry", () => {
     expect(useMemoryStore.getState().entries).toHaveLength(1);
     expect(useMemoryStore.getState().error).toContain("32768");
   });
+
+  it("drops a write that returns after the project has changed", async () => {
+    useMemoryStore.setState({ entries: [entry()], projectId: "p1" });
+    let resolvePut: (entries: MemoryEntry[]) => void = () => {};
+    putMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((resolve) => {
+          resolvePut = resolve;
+        }),
+    );
+
+    const pending = useMemoryStore.getState().putEntry("p1", {
+      key: "stack",
+      content: "Tauri and React",
+      type: "context",
+    });
+    useMemoryStore.setState({
+      projectId: "p2",
+      entries: [entry({ projectId: "p2", key: "api" })],
+    });
+    resolvePut([entry(), entry({ key: "stack", type: "context" })]);
+    const ok = await pending;
+
+    expect(ok).toBe(false);
+    expect(useMemoryStore.getState().entries.map((item) => item.key)).toEqual(["api"]);
+  });
+
+  it("does not surface a refused write after the project has changed", async () => {
+    useMemoryStore.setState({ projectId: "p1" });
+    let rejectPut: (reason: unknown) => void = () => {};
+    putMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((_, reject) => {
+          rejectPut = reject;
+        }),
+    );
+
+    const pending = useMemoryStore.getState().putEntry("p1", {
+      key: "stack",
+      content: "Tauri and React",
+      type: "context",
+    });
+    useMemoryStore.setState({ projectId: "p2" });
+    rejectPut("this project's memory would pass 32768 characters");
+    const ok = await pending;
+
+    expect(ok).toBe(false);
+    expect(useMemoryStore.getState().error).toBeNull();
+  });
 });
 
 describe("forgetEntry", () => {
@@ -138,6 +263,45 @@ describe("forgetEntry", () => {
 
     expect(removeMemory).toHaveBeenCalledWith("p1", "database");
     expect(useMemoryStore.getState().entries.map((e) => e.key)).toEqual(["stack"]);
+  });
+
+  it("drops a forget that returns after the project has changed", async () => {
+    useMemoryStore.setState({ entries: [entry()], projectId: "p1" });
+    let resolveForget: (entries: MemoryEntry[]) => void = () => {};
+    removeMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((resolve) => {
+          resolveForget = resolve;
+        }),
+    );
+
+    const pending = useMemoryStore.getState().forgetEntry("p1", "database");
+    useMemoryStore.setState({
+      projectId: "p2",
+      entries: [entry({ projectId: "p2", key: "api" })],
+    });
+    resolveForget([]);
+    await pending;
+
+    expect(useMemoryStore.getState().entries.map((item) => item.key)).toEqual(["api"]);
+  });
+
+  it("does not surface a refused forget after the project has changed", async () => {
+    useMemoryStore.setState({ projectId: "p1" });
+    let rejectForget: (reason: unknown) => void = () => {};
+    removeMemory.mockImplementation(
+      () =>
+        new Promise<MemoryEntry[]>((_, reject) => {
+          rejectForget = reject;
+        }),
+    );
+
+    const pending = useMemoryStore.getState().forgetEntry("p1", "database");
+    useMemoryStore.setState({ projectId: "p2" });
+    rejectForget("database is locked");
+    await pending;
+
+    expect(useMemoryStore.getState().error).toBeNull();
   });
 });
 
@@ -151,6 +315,26 @@ describe("entriesOfType", () => {
 
     expect(entriesOfType(entries, "context").map((e) => e.key)).toEqual(["a", "c"]);
     expect(entriesOfType(entries, "artifact")).toEqual([]);
+  });
+});
+
+describe("entriesForProject", () => {
+  it("hides another project's entries from the panel and the header tally", () => {
+    const entries = [entry(), entry({ projectId: "p2", key: "api" })];
+
+    expect(entriesForProject(entries, "p1").map((item) => item.key)).toEqual(["database"]);
+    expect(entriesForProject(entries, "p2").map((item) => item.key)).toEqual(["api"]);
+    expect(entriesForProject(entries, "p2")).toHaveLength(1);
+  });
+});
+
+describe("memoryFilePathFor", () => {
+  it("hides the last project's path until this one is loaded", () => {
+    expect(memoryFilePathFor("/p1/.grokspace/memory.md", "p1", "p2")).toBe("");
+    expect(memoryFilePathFor("/p1/.grokspace/memory.md", null, "p2")).toBe("");
+    expect(memoryFilePathFor("/p2/.grokspace/memory.md", "p2", "p2")).toBe(
+      "/p2/.grokspace/memory.md",
+    );
   });
 });
 

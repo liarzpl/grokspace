@@ -13,7 +13,7 @@ import {
   sidecarLoadPlan,
 } from "../lib/sessionSidecars";
 import { graphFor, useGraphStore } from "../stores/graphStore";
-import { useMemoryStore } from "../stores/memoryStore";
+import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import {
   isolationNotice,
@@ -23,7 +23,7 @@ import {
 } from "../stores/sessionStore";
 import { useStepStore } from "../stores/stepStore";
 import AgentTranscript from "./AgentTranscript";
-import { useTaskStore } from "../stores/taskStore";
+import { useTaskStore, useTasksForProject } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
 import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
@@ -321,8 +321,8 @@ function GraphTab({
  * something in them are named, so an empty board says nothing rather than four
  * zeroes.
  */
-function TaskSummary() {
-  const tasks = useTaskStore((state) => state.tasks);
+function TaskSummary({ projectId }: { projectId: string }) {
+  const tasks = useTasksForProject(projectId);
   if (tasks.length === 0) return null;
 
   const count = (status: TaskStatus) => tasks.filter((task) => task.status === status).length;
@@ -342,8 +342,8 @@ function TaskSummary() {
 }
 
 /** How much the project remembers, for the window header. */
-function MemorySummary() {
-  const entries = useMemoryStore((state) => state.entries);
+function MemorySummary({ projectId }: { projectId: string }) {
+  const entries = useEntriesForProject(projectId);
   if (entries.length === 0) return null;
 
   return (
@@ -485,8 +485,8 @@ export default function WorkspaceShell({ project }: { project: Project }) {
 
         {tab === "terminals" && <LayoutPicker project={project} />}
         {tab === "graph" && <GraphSummary session={graphSession} />}
-        {tab === "tasks" && <TaskSummary />}
-        {tab === "memory" && <MemorySummary />}
+        {tab === "tasks" && <TaskSummary projectId={project.id} />}
+        {tab === "memory" && <MemorySummary projectId={project.id} />}
       </header>
 
       <IsolationBanner projectId={project.id} />
