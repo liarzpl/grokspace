@@ -13,11 +13,12 @@ mod ingest;
 mod store;
 mod watch;
 
-pub(crate) use ingest::ingest_if_none;
 #[cfg(test)]
 pub(crate) use ingest::parse_steps_json;
 #[allow(unused_imports)]
-pub use ingest::{ingest, ingest_from_disk};
+pub use ingest::{ingest, ingest_from_disk, ingest_json};
+#[allow(unused_imports)]
+pub(crate) use ingest::{ingest_if_none, ingest_if_none_json, read_steps_file};
 #[allow(unused_imports)]
 pub use store::{
     add, approve, clear, ensure_steps_dir, home_steps_dir, project_steps_dir, remove,

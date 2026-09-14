@@ -246,6 +246,7 @@ fn acp_callbacks<R: Runtime>(app: AppHandle<R>, id: String) -> acp::Callbacks {
             };
             let state = status_app.state::<AppState>();
             let mut reviewed_project = None;
+            let mut review_path = None;
             let applied = if let Ok(conn) = state.db.lock() {
                 match get(&conn, &status_id) {
                     // The process is gone, or the row already is. A late handshake
@@ -257,18 +258,10 @@ fn acp_callbacks<R: Runtime>(app: AppHandle<R>, id: String) -> acp::Callbacks {
                         // the agent is doing, not of whether its process is alive.
                         let _ = set_status(&conn, &status_id, status, None);
                         if status == SessionStatus::Idle {
-                            if let Ok(session) = get(&conn, &status_id) {
-                                if let Ok(project) = project::get(&conn, &session.project_id) {
-                                    if let Ok(moved) = task::review_on_idle(
-                                        &conn,
-                                        &status_id,
-                                        Path::new(&project.path),
-                                    ) {
-                                        reviewed_project =
-                                            moved.first().map(|task| task.project_id.clone());
-                                    }
-                                }
-                            }
+                            review_path = get(&conn, &status_id)
+                                .ok()
+                                .and_then(|session| project::get(&conn, &session.project_id).ok())
+                                .map(|project| project.path);
                         }
                         true
                     }
@@ -278,6 +271,11 @@ fn acp_callbacks<R: Runtime>(app: AppHandle<R>, id: String) -> acp::Callbacks {
             };
             if !applied {
                 return;
+            }
+            if let Some(path) = review_path {
+                if let Ok(moved) = task::review_on_idle(&state.db, &status_id, Path::new(&path)) {
+                    reviewed_project = moved.first().map(|task| task.project_id.clone());
+                }
             }
             let _ = status_app.emit(
                 STATUS_EVENT,

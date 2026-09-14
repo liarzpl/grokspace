@@ -71,7 +71,7 @@ pub(crate) fn parse_steps_json(input: &str) -> Vec<ParsedStep> {
         .collect()
 }
 
-fn read_steps_file(project_path: &Path, session_id: &str) -> Option<String> {
+pub(crate) fn read_steps_file(project_path: &Path, session_id: &str) -> Option<String> {
     let file_name = steps_file_name(session_id);
     for dir in steps_dirs(project_path) {
         let candidate = dir.join(&file_name);
@@ -226,27 +226,57 @@ pub fn ingest(conn: &Connection, session_id: &str, json: &str) -> Result<Session
     snapshot(conn, session_id)
 }
 
+pub fn ingest_json(
+    conn: &Connection,
+    session_id: &str,
+    json: Option<&str>,
+) -> Result<SessionSteps> {
+    match json {
+        Some(text) => ingest(conn, session_id, text),
+        None => snapshot(conn, session_id),
+    }
+}
+
+/// Combined read+ingest. Watch and idle review read first, then lock
+/// (PERF-005); this stays as the off-mutex entry point for tests.
+#[allow(dead_code)]
 pub fn ingest_from_disk(
     conn: &Connection,
     project_path: &Path,
     session_id: &str,
 ) -> Result<SessionSteps> {
-    let Some(json) = read_steps_file(project_path, session_id) else {
-        return snapshot(conn, session_id);
-    };
-    ingest(conn, session_id, &json)
+    ingest_json(
+        conn,
+        session_id,
+        read_steps_file(project_path, session_id).as_deref(),
+    )
 }
 
-/// Fold a leftover file only when this session has no list yet. Re-reading
+/// Fold leftover JSON only when this session has no list yet. Re-reading
 /// while `proposed` would restore agent rows the user had deleted. Watch-start
 /// and idle review share this gate.
+pub(crate) fn ingest_if_none_json(
+    conn: &Connection,
+    session_id: &str,
+    json: Option<&str>,
+) -> Result<SessionSteps> {
+    if phase_of(conn, session_id)? != StepsPhase::None {
+        return snapshot(conn, session_id);
+    }
+    ingest_json(conn, session_id, json)
+}
+
+/// Combined read+ingest gated on `none`. Production uses
+/// [`ingest_if_none_json`] after an off-mutex read.
+#[allow(dead_code)]
 pub(crate) fn ingest_if_none(
     conn: &Connection,
     project_path: &Path,
     session_id: &str,
 ) -> Result<SessionSteps> {
-    if phase_of(conn, session_id)? != StepsPhase::None {
-        return snapshot(conn, session_id);
-    }
-    ingest_from_disk(conn, project_path, session_id)
+    ingest_if_none_json(
+        conn,
+        session_id,
+        read_steps_file(project_path, session_id).as_deref(),
+    )
 }
