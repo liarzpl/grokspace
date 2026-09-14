@@ -249,6 +249,7 @@ mod tests {
             acp: acp::AcpManager::new(),
             graphs: GraphWatchers::new(),
             steps: StepWatchers::new(),
+            folder_trust: Mutex::new(project::FolderTrustSession::default()),
         };
         let dest = tempfile::tempdir().expect("dest");
         let long = format!("{}END", "x".repeat(TRANSCRIPT_CHARS + 32));
