@@ -7,15 +7,11 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use tauri::{Listener, Manager};
 
-use crate::db;
 use crate::graph::{self, GraphWatchers};
-use crate::program;
-use crate::project;
 use crate::pty::PtyManager;
 use crate::session::{self, NewSession};
 use crate::steps::{self, StepWatchers};
-use crate::worktree;
-use crate::{acp, AppState};
+use crate::{acp, db, program, project, worktree, AppState};
 
 const MISSING_PROGRAM: &str = "/grokspace-no-such-launch-program";
 
@@ -36,9 +32,7 @@ impl OverrideLaunch {
 
 impl Drop for OverrideLaunch {
     fn drop(&mut self) {
-        crate::TEST_LAUNCH_PROGRAM.with(|slot| {
-            slot.replace(self.0.take());
-        });
+        crate::TEST_LAUNCH_PROGRAM.with(|slot| slot.replace(self.0.take()));
     }
 }
 
@@ -108,8 +102,12 @@ impl CommandApp {
         }
     }
 
+    fn state(&self) -> tauri::State<'_, AppState> {
+        self.app.state::<AppState>()
+    }
+
     fn create(&self, session: NewSession) -> crate::error::Result<session::Session> {
-        session::create_session(self.app.handle().clone(), self.app.state(), session)
+        session::create_session(self.app.handle().clone(), self.state(), session)
     }
 
     fn drain(&self) -> Vec<Emitted> {
@@ -167,12 +165,12 @@ fn git_repo() -> tempfile::TempDir {
 }
 
 fn listed(app: &CommandApp) -> Vec<session::Session> {
-    session::list_sessions(app.app.state(), app.project_id.clone()).expect("list")
+    session::list_sessions(app.state(), app.project_id.clone()).expect("list")
 }
 
 fn worktree_dirs(project: &Path) -> Vec<PathBuf> {
-    let root = worktree::path_for(project, "unused").parent().unwrap();
-    std::fs::read_dir(root)
+    let root = worktree::path_for(project, "unused");
+    std::fs::read_dir(root.parent().unwrap())
         .map(|entries| {
             entries
                 .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -199,7 +197,7 @@ fn create_session_starts_a_shell_and_keeps_the_row() {
         "a shell is not isolated"
     );
 
-    session::close_session(app.app.state(), session.id).expect("close");
+    session::close_session(app.state(), session.id).expect("close");
     assert!(listed(&app).is_empty());
 }
 
@@ -268,7 +266,7 @@ fn create_session_spawn_failure_removes_the_worktree() {
 fn watch_project_graphs_emits_graph_changed() {
     let app = CommandApp::new();
     let session = session::insert(
-        &app.app.state().db.lock().expect("db"),
+        &app.state().db.lock().expect("db"),
         &app.project_id,
         Some("0"),
         session::SessionKind::Grok,
@@ -279,7 +277,7 @@ fn watch_project_graphs_emits_graph_changed() {
 
     let watched = graph::watch_project_graphs(
         app.app.handle().clone(),
-        app.app.state(),
+        app.state(),
         app.project_id.clone(),
     )
     .expect("watch should start");
@@ -301,7 +299,7 @@ fn watch_project_graphs_emits_graph_changed() {
 fn watch_project_steps_emits_steps_changed() {
     let app = CommandApp::new();
     let session = session::insert(
-        &app.app.state().db.lock().expect("db"),
+        &app.state().db.lock().expect("db"),
         &app.project_id,
         Some("0"),
         session::SessionKind::Grok,
@@ -312,7 +310,7 @@ fn watch_project_steps_emits_steps_changed() {
 
     let watched = steps::watch_project_steps(
         app.app.handle().clone(),
-        app.app.state(),
+        app.state(),
         app.project_id.clone(),
     )
     .expect("watch should start");
