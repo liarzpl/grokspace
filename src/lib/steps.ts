@@ -9,9 +9,9 @@
 
 import { api } from "./api";
 import type { Session, SessionStep, StepsPhase } from "../types";
+import { MAX_STEPS } from "./limits";
 
-/** How many titles a session's list will hold. Matches the backend cap. */
-export const MAX_STEPS = 20;
+export { MAX_STEPS };
 
 /**
  * Whether Approve should be offered for this session right now.

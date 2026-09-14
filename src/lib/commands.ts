@@ -20,6 +20,7 @@ import { stepsFor, useStepStore } from "../stores/stepStore";
 import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
 import { errorMessage } from "./api";
+import { FALLBACK_PTY_SIZE } from "./limits";
 import { ROLES } from "./roles";
 import type { ShortcutId } from "./shortcuts";
 import { canApproveSteps, sendApproval } from "./steps";
@@ -33,9 +34,6 @@ export interface Command {
   shortcut?: ShortcutId;
   run: () => void;
 }
-
-/** A session started from the palette has no terminal to measure yet. */
-const FALLBACK_SIZE = { cols: 80, rows: 24 };
 
 /**
  * The lowest-numbered pane with nothing in it, or `undefined` when the grid is full.
@@ -61,7 +59,7 @@ function startInFreePane(project: Project, kind: SessionKind) {
   }
   void useSessionStore
     .getState()
-    .startSession({ projectId: project.id, paneId, kind, ...FALLBACK_SIZE });
+    .startSession({ projectId: project.id, paneId, kind, ...FALLBACK_PTY_SIZE });
 }
 
 /**
@@ -198,7 +196,7 @@ export function commands(project: Project | null): Command[] {
         projectId: project.id,
         paneId: null,
         kind: "agent",
-        ...FALLBACK_SIZE,
+        ...FALLBACK_PTY_SIZE,
       });
     },
   });
@@ -250,7 +248,7 @@ export function commands(project: Project | null): Command[] {
           useUiStore.getState().closePalette();
           void useSessionStore
             .getState()
-            .restartSession(session.id, FALLBACK_SIZE.cols, FALLBACK_SIZE.rows);
+            .restartSession(session.id, FALLBACK_PTY_SIZE.cols, FALLBACK_PTY_SIZE.rows);
         },
       });
       if (session.worktreePath !== null) {

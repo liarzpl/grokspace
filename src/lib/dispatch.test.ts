@@ -11,7 +11,8 @@ vi.mock("../lib/api", async () => {
   return { errorMessage: actual.errorMessage, api: {} };
 });
 
-const { dispatchTargets, paneOf, targetKey, targetLabel } = await import("./dispatch");
+const { dispatchTargets, paneOf, sessionCanTakeWork, targetKey, targetLabel } =
+  await import("./dispatch");
 const { useSettingsStore } = await import("../stores/settingsStore");
 
 function project(layout = "2x2"): Project {
@@ -149,6 +150,18 @@ describe("the labels a target carries", () => {
     const keys = targets.map(targetKey);
 
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("sessionCanTakeWork", () => {
+  it("accepts a running terminal or an idle agent, and refuses a shell", () => {
+    expect(sessionCanTakeWork(session())).toBe(true);
+    expect(sessionCanTakeWork(session({ kind: "agent", status: "idle", paneId: null }))).toBe(
+      true,
+    );
+    expect(sessionCanTakeWork(session({ kind: "shell" }))).toBe(false);
+    expect(sessionCanTakeWork(session({ status: "needs_input" }))).toBe(false);
+    expect(sessionCanTakeWork(session({ status: "stopped" }))).toBe(false);
   });
 });
 
