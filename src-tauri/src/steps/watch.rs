@@ -37,6 +37,17 @@ fn watched_dirs(project_path: &Path) -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+const MAX_WATCHED_PROJECTS: usize = 4;
+
+fn cap_watchers<T>(watchers: &mut HashMap<String, T>, keep: &str, max: usize) {
+    while watchers.len() > max {
+        let Some(id) = watchers.keys().find(|id| id.as_str() != keep).cloned() else {
+            break;
+        };
+        watchers.remove(&id);
+    }
+}
+
 #[derive(Default)]
 pub struct StepWatchers {
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
@@ -85,6 +96,7 @@ impl StepWatchers {
 
         let mut watchers = self.watchers.lock().map_err(|_| Error::StatePoisoned)?;
         watchers.insert(project_id.to_string(), watcher);
+        cap_watchers(&mut watchers, project_id, MAX_WATCHED_PROJECTS);
 
         Ok(existing
             .into_iter()

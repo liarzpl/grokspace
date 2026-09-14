@@ -248,12 +248,23 @@ fn watched_dirs(project_path: &Path) -> Vec<PathBuf> {
 /// that would double every event. Replacing rather than skipping also re-arms a
 /// watch whose directory has since been deleted, which on Linux is dead.
 ///
-/// There is deliberately no way to stop watching a single project. Watching is
-/// arranged from a React effect, and an effect that both starts and stops the
-/// watch races itself: development remounts every component, so the stop for the
-/// first mount can reach the backend after the start for the second, leaving a
-/// project silently unwatched. A watch left in place costs one directory watch and
-/// keeps a project the user switches away from current for when they come back.
+/// Watching is arranged from a React effect, and an effect that both starts and
+/// stops the watch races itself: development remounts every component, so the
+/// stop for the first mount can reach the backend after the start for the
+/// second, leaving a project silently unwatched. The active project is never
+/// dropped here. Older projects are evicted past `MAX_WATCHED_PROJECTS` so a
+/// long session does not accumulate one inotify thread per visit.
+const MAX_WATCHED_PROJECTS: usize = 4;
+
+fn cap_watchers<T>(watchers: &mut HashMap<String, T>, keep: &str, max: usize) {
+    while watchers.len() > max {
+        let Some(id) = watchers.keys().find(|id| id.as_str() != keep).cloned() else {
+            break;
+        };
+        watchers.remove(&id);
+    }
+}
+
 #[derive(Default)]
 pub struct GraphWatchers {
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
@@ -286,6 +297,7 @@ impl GraphWatchers {
 
         let mut watchers = self.watchers.lock().map_err(|_| Error::StatePoisoned)?;
         watchers.insert(project_id.to_string(), watcher);
+        cap_watchers(&mut watchers, project_id, MAX_WATCHED_PROJECTS);
 
         Ok(existing
             .into_iter()
@@ -694,5 +706,19 @@ mod tests {
                 "the contract does not mention `{value}`"
             );
         }
+    }
+
+    #[test]
+    fn cap_watchers_keeps_the_active_project_and_drops_the_rest_past_the_limit() {
+        let mut watchers = HashMap::from([
+            ("a".into(), 1),
+            ("b".into(), 2),
+            ("c".into(), 3),
+            ("d".into(), 4),
+            ("keep".into(), 5),
+        ]);
+        cap_watchers(&mut watchers, "keep", 4);
+        assert_eq!(watchers.len(), 4);
+        assert_eq!(watchers.get("keep"), Some(&5));
     }
 }
