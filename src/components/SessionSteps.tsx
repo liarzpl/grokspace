@@ -82,6 +82,7 @@ function StepRow({
         <input
           autoFocus
           value={editing}
+          aria-label="Step title"
           onChange={(event) => setEditing(event.target.value)}
           onBlur={commitTitle}
           onKeyDown={(event) => {
@@ -144,6 +145,7 @@ function AddStep({ sessionId, disabled }: { sessionId: string; disabled: boolean
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         disabled={disabled}
+        aria-label="Step title"
         placeholder="Add a step…"
         className="selectable min-w-0 flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none disabled:opacity-40"
       />

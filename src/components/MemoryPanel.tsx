@@ -55,6 +55,7 @@ function EntryRow({ entry, projectId }: { entry: MemoryEntry; projectId: string 
           autoFocus
           rows={3}
           value={draft}
+          aria-label={`Memory: ${entry.key}`}
           onChange={(event) => setDraft(event.target.value)}
           className="selectable mt-1 w-full resize-y rounded-sm border border-accent bg-canvas px-1.5 py-1 text-[11px] leading-snug text-ink focus:outline-none"
         />
@@ -95,6 +96,7 @@ function NewEntryForm({ projectId }: { projectId: string }) {
         <input
           value={key}
           onChange={(event) => setKey(event.target.value)}
+          aria-label="Memory key"
           placeholder="key, for example database"
           className={`${field} w-56 font-mono`}
         />
@@ -120,6 +122,7 @@ function NewEntryForm({ projectId }: { projectId: string }) {
         <input
           value={content}
           onChange={(event) => setContent(event.target.value)}
+          aria-label="Memory content"
           placeholder="What should everyone working here already know?"
           className={`${field} min-w-0 flex-1`}
         />

@@ -78,6 +78,7 @@ function NewTaskForm({ projectId }: { projectId: string }) {
       <input
         value={title}
         onChange={(event) => setTitle(event.target.value)}
+        aria-label="Task title"
         placeholder="Add a task…"
         className="selectable w-full rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
       />
@@ -88,6 +89,7 @@ function NewTaskForm({ projectId }: { projectId: string }) {
           <input
             value={description}
             onChange={(event) => setDescription(event.target.value)}
+            aria-label="Task description"
             placeholder="Context for the agent (optional)"
             className="selectable w-full rounded-md border border-line bg-canvas px-2 py-1 text-[11px] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
           />
@@ -186,6 +188,7 @@ function TaskCard({
         <input
           autoFocus
           value={editing}
+          aria-label="Task title"
           onChange={(event) => setEditing(event.target.value)}
           onBlur={commitTitle}
           onKeyDown={(event) => {
@@ -208,6 +211,7 @@ function TaskCard({
         <input
           autoFocus
           value={editingDesc}
+          aria-label="Task description"
           onChange={(event) => setEditingDesc(event.target.value)}
           onBlur={commitDescription}
           onKeyDown={(event) => {
