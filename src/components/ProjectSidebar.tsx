@@ -54,7 +54,7 @@ export default function ProjectSidebar() {
           {projects.map((project) => {
             const isActive = project.id === activeProjectId;
             return (
-              <li key={project.id} className="group relative">
+              <li key={project.id} className="relative">
                 <button
                   type="button"
                   onClick={() => void selectProject(project.id)}
@@ -82,7 +82,7 @@ export default function ProjectSidebar() {
                         if (event.key === "Escape") setEditingId(null);
                       }}
                       onClick={(event) => event.stopPropagation()}
-                      className="w-full rounded-sm border border-accent bg-canvas px-1 py-0.5 text-[13px] text-ink outline-none selectable"
+                      className="w-full rounded-sm border border-accent bg-canvas py-0.5 pl-1 pr-10 text-[13px] text-ink outline-none selectable"
                     />
                   ) : (
                     <span className="block truncate pr-10 text-[13px] font-medium">{project.name}</span>
@@ -112,7 +112,7 @@ export default function ProjectSidebar() {
                   onClick={() => void forgetProject(project.id)}
                   title="Remove from GrokSpace (the folder is left untouched)"
                   aria-label={`Remove ${project.name} from GrokSpace`}
-                  className="absolute top-1.5 right-1.5 hidden size-5 items-center justify-center rounded-sm text-ink-faint hover:bg-line-strong hover:text-danger group-hover:flex"
+                  className="absolute top-1.5 right-1.5 flex size-5 items-center justify-center rounded-sm text-ink-faint hover:bg-line-strong hover:text-danger"
                 >
                   ×
                 </button>

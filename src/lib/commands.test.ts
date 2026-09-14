@@ -9,6 +9,8 @@ vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: v
 
 const createSession = vi.fn();
 const updateProject = vi.fn();
+const removeProject = vi.fn();
+const listSessions = vi.fn();
 const stopSession = vi.fn();
 const closeSession = vi.fn();
 const restartSession = vi.fn();
@@ -26,8 +28,9 @@ vi.mock("../lib/api", async () => {
     api: {
       createSession,
       updateProject,
+      removeProject,
       listProjects: vi.fn(),
-      listSessions: vi.fn(),
+      listSessions,
       stopSession,
       closeSession,
       restartSession,
@@ -121,6 +124,17 @@ describe("the command list", () => {
 
     expect(shown).toContain("Switch to other");
     expect(shown).not.toContain("Switch to acme-api");
+  });
+
+  it("offers Forget for every remembered project, including the open one", () => {
+    // Hover-only sidebar chrome left keyboard users unable to remove a project.
+    useProjectStore.setState({ projects: [project(), project({ id: "p2", name: "other" })] });
+
+    const shown = labels(project());
+
+    expect(shown).toContain("Forget acme-api");
+    expect(shown).toContain("Forget other");
+    expect(labels(null)).toContain("Forget other");
   });
 
   it("offers Cancel and Stop for a live agent, and not a second Stop for a terminal", () => {
@@ -383,6 +397,22 @@ describe("running a command", () => {
 
     expect(useSessionStore.getState().error).toContain("could not find `grok` on PATH");
     expect(useSessionStore.getState().error).toContain("Reviewer");
+  });
+
+  it("forgets a project and closes the palette", async () => {
+    useProjectStore.setState({
+      projects: [project(), project({ id: "p2", name: "other" })],
+      activeProjectId: "p1",
+    });
+    useUiStore.setState({ isPaletteOpen: true });
+    listSessions.mockResolvedValue([]);
+    removeProject.mockResolvedValue(undefined);
+
+    commands(project()).find((command) => command.id === "forget-p2")?.run();
+    await vi.waitFor(() => expect(removeProject).toHaveBeenCalledWith("p2"));
+
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
+    expect(useProjectStore.getState().projects.map((entry) => entry.id)).toEqual(["p1"]);
   });
 
   it("installs graph, memory, and steps together, and names a failure without stopping", async () => {
