@@ -7,7 +7,7 @@ GrokSpace is a Tauri 2 + React + Rust app. Frontend lives in `src/`, backend in 
 **Requirements**
 
 - Node.js 20+ and npm
-- Rust 1.85+ (`rustup toolchain install stable`)
+- Rust 1.85+ (`rustup toolchain install 1.85`; `rust-toolchain.toml` pins this channel)
 - On macOS: Xcode Command Line Tools (`xcode-select --install`)
 - The [`grok` CLI](https://docs.x.ai/build) — needed to drive agents, not to compile or run the CI checks
 

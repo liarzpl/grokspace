@@ -1,5 +1,6 @@
-# The dependency tree pulls in crates that use edition 2024, so anything older
-# than 1.85 fails to build with an error that does not name the real cause.
+# Pin to the Cargo.toml MSRV (1.85). The tree uses edition 2024, so older
+# rustcs fail with an error that does not name the cause. Floating `stable`
+# can also break clippy `-D warnings` without a lockfile change.
 [toolchain]
-channel = "stable"
+channel = "1.85"
 components = ["clippy", "rustfmt"]

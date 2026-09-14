@@ -106,7 +106,7 @@ telemetry; workspace state lives in `~/.grokspace`.
 **Requirements**
 
 - Node.js 20+ and npm
-- Rust 1.85+ (`rustup toolchain install stable`)
+- Rust 1.85+ (`rustup toolchain install 1.85`; `rust-toolchain.toml` pins this channel)
 - On macOS: Xcode Command Line Tools (`xcode-select --install`)
 - The [`grok` CLI](https://docs.x.ai/build) — not needed for Phase 0, but it is
   the engine behind every later phase
