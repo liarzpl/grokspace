@@ -61,6 +61,15 @@ export interface Project {
 export type FolderTrust = "unknown" | "denied" | "once" | "folder";
 export type FolderTrustDecision = Exclude<FolderTrust, "unknown">;
 
+/** Settings snapshot: host gate plus grok's file. Grok is never spawned. */
+export interface ProjectHooksStatus {
+  hostTrust: FolderTrust;
+  hooksAllowed: boolean;
+  hookFiles: string[];
+  grokTrustFile: string;
+  grokListsFolder: boolean;
+}
+
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Task {

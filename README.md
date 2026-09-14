@@ -149,6 +149,11 @@ replays the last 20). Nothing is uploaded.
   in that tree. First open asks **Deny / Trust once / Trust this folder**.
   Untrusted folders keep setup and project hooks off. Trust is stored by
   canonical path in `~/.grokspace`; forgetting a project does not forget it.
+  Settings → Project hooks shows that host gate, plus any `.grok/hooks` or
+  `.cursor/hooks.json` files, and whether grok's `~/.grok/trusted_folders.toml`
+  already lists the folder. GrokSpace does not spawn `grok` or run
+  `/hooks-trust`. Use a grok pane if you want grok itself to load project
+  hooks. HTTP hooks and a host hook that can block tools are out of scope.
 - **Attention inbox** — a strip above the workspace lists **Needs you** (an ACP
   agent on `needs_input` or a pending permission), **Review** (idle, with
   approved steps or an isolated worktree), and **Merge** (stopped, isolated, and
@@ -487,6 +492,8 @@ That toggle is **off** by default. First open asks **Deny / Trust once /
 Trust this folder** (not Allow forever). Deny and Trust once last until quit;
 Trust this folder is stored by path in `~/.grokspace`. Forgetting a project
 does not drop trust. Untrusted folders keep setup and project hooks off.
+Settings → Project hooks shows the same host trust (and grok's toml, read-only).
+GrokSpace does not spawn `grok` or write `~/.grok/trusted_folders.toml`.
 The command is logged (and named in the skip reason). `$GROKSPACE_WORKTREE` is
 the dest; a `worktree-setup` file also gets dest as `$1`. Timeout is two
 minutes. Fail or timeout skips isolation rather than leaving a silent tree.

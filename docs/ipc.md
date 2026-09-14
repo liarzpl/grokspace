@@ -51,6 +51,7 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `remove_project` | Forget the row. Nothing on disk is deleted. Folder trust stays |
 | `project_trust` | Folder trust for setup / project hooks: `unknown` / `denied` / `once` / `folder` |
 | `set_project_trust` | Deny, Trust once, or Trust this folder. Only `folder` is persisted by path in `~/.grokspace` |
+| `project_hooks_status` | Host trust, project hook files, and whether `~/.grok/trusted_folders.toml` lists the folder. Does not spawn grok |
 
 ### Sessions — `session.rs`
 

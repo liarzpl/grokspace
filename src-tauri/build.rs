@@ -12,6 +12,7 @@ const APP_COMMANDS: &[&str] = &[
     "remove_project",
     "project_trust",
     "set_project_trust",
+    "project_hooks_status",
     "list_sessions",
     "create_session",
     "attach_session",
