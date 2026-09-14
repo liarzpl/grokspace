@@ -69,6 +69,28 @@ function liveSessionIds(sessions: readonly Session[]): Set<string> {
   return new Set(sessions.filter(isLiveAgent).map((session) => session.id));
 }
 
+/** Overlap worktree add + spawn; keep per-role error isolation. */
+const SWARM_CONCURRENCY = 3;
+
+async function mapPool<T>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      await run(items[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(limit, 1), items.length) }, () => worker()),
+  );
+}
+
 interface StartInput {
   projectId: string;
   /** Absent for an agent, which runs beside the grid rather than in it. */
@@ -358,12 +380,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   launchSwarm: async (projectId, roles) => {
     const failed: string[] = [];
     const reasons: string[] = [];
-    for (const role of roles) {
-      // Sequential, and one role's failure does not stop the rest: five roles are
-      // five independent sessions, and throwing four away because the fifth could
-      // not start would be the wrong trade. They are agents rather than terminals
-      // because five of them do not fit in a six-pane grid, and because an agent is
-      // the kind that can report what it is doing.
+    // One role's failure does not stop the rest: five roles are five
+    // independent sessions. Starts overlap (bounded) so five `git worktree add`
+    // calls are not strictly serial. Prompting follows each spawn; it does not
+    // wait for another role's brief to finish.
+    await mapPool(roles, SWARM_CONCURRENCY, async (role) => {
       const session = await get().createSession(
         {
           projectId,
@@ -377,7 +398,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       if (session === null) {
         failed.push(role.name);
         reasons.push(`${role.name}: ${get().error ?? "could not start"}`);
-        continue;
+        return;
       }
 
       try {
@@ -391,7 +412,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         failed.push(role.name);
         reasons.push(`${role.name}: ${reason}`);
       }
-    }
+    });
     if (failed.length > 0) {
       set({ error: reasons.join(" · ") });
     }
