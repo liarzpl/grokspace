@@ -13,7 +13,7 @@
  */
 
 import { layoutOf, useProjectStore } from "../stores/projectStore";
-import { SKILL_IDS, skillOf, useSkillStore } from "../stores/skillStore";
+import { SKILL_IDS, skillCommandLabel, skillOf, useSkillStore } from "../stores/skillStore";
 import { sessionForPane, sessionsForProject, useSessionStore } from "../stores/sessionStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -306,6 +306,17 @@ export function commands(project: Project | null): Command[] {
   }
 
   list.push({
+    id: "refresh-skill-list",
+    label: "Refresh the skill list",
+    group: "Skills",
+    run: () => {
+      // Stay open: the list is the thing being refreshed, and closing would
+      // hide the installed/missing labels the read just updated.
+      void useSkillStore.getState().refreshAll();
+    },
+  });
+
+  list.push({
     id: "install-grokspace-skills",
     label: "Install or refresh GrokSpace skills",
     group: "Skills",
@@ -315,25 +326,18 @@ export function commands(project: Project | null): Command[] {
     },
   });
 
-  list.push({
-    id: "install-graph-skill",
-    label: "Install or refresh the graph skill",
-    group: "Skills",
-    run: () => {
-      useUiStore.getState().closePalette();
-      void useSkillStore.getState().install("graph");
-    },
-  });
-
-  list.push({
-    id: "install-memory-skill",
-    label: "Install or refresh the memory skill",
-    group: "Skills",
-    run: () => {
-      useUiStore.getState().closePalette();
-      void useSkillStore.getState().install("memory");
-    },
-  });
+  const skills = useSkillStore.getState().byId;
+  for (const id of SKILL_IDS) {
+    list.push({
+      id: `install-${id}-skill`,
+      label: skillCommandLabel(id, skillOf(skills, id)),
+      group: "Skills",
+      run: () => {
+        useUiStore.getState().closePalette();
+        void useSkillStore.getState().install(id);
+      },
+    });
+  }
 
   return list;
 }

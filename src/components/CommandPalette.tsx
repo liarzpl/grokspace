@@ -4,6 +4,7 @@ import { commands, matching } from "../lib/commands";
 import { optionDomId, subscribeOverlay } from "../lib/overlay";
 import { shortcutLabel } from "../lib/shortcuts";
 import { useActiveProject } from "../stores/projectStore";
+import { useSkillStore } from "../stores/skillStore";
 import { useUiStore } from "../stores/uiStore";
 
 /**
@@ -18,6 +19,7 @@ export default function CommandPalette() {
   const isOpen = useUiStore((state) => state.isPaletteOpen);
   const closePalette = useUiStore((state) => state.closePalette);
   const project = useActiveProject();
+  const skillById = useSkillStore((state) => state.byId);
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -25,8 +27,12 @@ export default function CommandPalette() {
 
   // Rebuilt per open, not memoised across them: which projects exist and which panes
   // are free both change, and a stale list would offer a project that has been
-  // forgotten. `isOpen` is in the deps for exactly that reason.
-  const all = useMemo(() => (isOpen ? commands(project) : []), [isOpen, project]);
+  // forgotten. Skill slots are in the deps so installed vs missing updates after
+  // a refresh without closing.
+  const all = useMemo(
+    () => (isOpen ? commands(project) : []),
+    [isOpen, project, skillById],
+  );
   const shown = useMemo(() => matching(all, query), [all, query]);
 
   // A query that narrows the list can leave the cursor past its end.
@@ -37,8 +43,11 @@ export default function CommandPalette() {
     if (!isOpen) {
       setQuery("");
       setAt(0);
+      return;
     }
-  }, [isOpen]);
+    if (project === null) return;
+    void useSkillStore.getState().refreshAll();
+  }, [isOpen, project]);
 
   // Keeps the highlighted row visible when the arrows walk past the fold.
   useEffect(() => {

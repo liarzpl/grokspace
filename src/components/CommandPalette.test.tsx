@@ -8,6 +8,8 @@ vi.mock("../lib/terminals", () => import("../test/terminalsMock"));
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
+const skillStatus = vi.fn();
+
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
@@ -15,16 +17,19 @@ vi.mock("../lib/api", async () => {
     api: {
       listProjects: vi.fn(),
       listSessions: vi.fn(),
+      skillStatus,
     },
   };
 });
 
 const { default: CommandPalette } = await import("./CommandPalette");
 const { useProjectStore } = await import("../stores/projectStore");
+const { useSkillStore } = await import("../stores/skillStore");
 const { useUiStore } = await import("../stores/uiStore");
 
 const initialUi = useUiStore.getState();
 const initialProjects = useProjectStore.getState();
+const initialSkills = useSkillStore.getState();
 
 function openPalette() {
   const acme = project();
@@ -35,8 +40,14 @@ function openPalette() {
 describe("CommandPalette", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    skillStatus.mockResolvedValue({
+      path: "/home/dev/.grok/skills/x",
+      installed: false,
+      current: false,
+    });
     useUiStore.setState(initialUi, true);
     useProjectStore.setState(initialProjects, true);
+    useSkillStore.setState(initialSkills, true);
   });
 
   it("renders nothing while the store says it is closed", () => {
@@ -53,6 +64,16 @@ describe("CommandPalette", () => {
     expect(screen.getByPlaceholderText("What would you like to do?")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Show terminals/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Open settings/ })).toBeInTheDocument();
+  });
+
+  it("lists bundled skills as missing after a refresh", async () => {
+    openPalette();
+    render(<CommandPalette />);
+
+    expect(await screen.findByRole("option", { name: /Install the graph skill \(missing\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Install the memory skill \(missing\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Install the steps skill \(missing\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Refresh the skill list/ })).toBeInTheDocument();
   });
 
   it("closes on Escape from the search field", async () => {
