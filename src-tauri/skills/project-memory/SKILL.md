@@ -5,10 +5,12 @@ description: >
   It holds what the project is, what has already been decided, and where things
   ended up, written by the person you are working with. Use it at the start of any
   session, and whenever a choice looks like one that may already have been made.
+  If `$GROKSPACE_PROJECT_DIR/AGENTS.md` exists, read that too; memory wins on
+  conflict. Do not paste AGENTS.md into a brief.
 when-to-use: >
   starting work in this project, what did we decide, why is it like this,
   project conventions, where does that live, before choosing a library,
-  before changing an architecture, catching up
+  before changing an architecture, catching up, AGENTS.md
 metadata:
   author: GrokSpace
   short-description: Shared project memory for GrokSpace
@@ -26,6 +28,12 @@ cat "$GROKSPACE_MEMORY_FILE"
 
 The file always exists for a session GrokSpace started, so nothing being there means
 the memory is genuinely empty, not that something went wrong.
+
+If `$GROKSPACE_PROJECT_DIR/AGENTS.md` exists, read it in addition to
+`$GROKSPACE_MEMORY_FILE`. That file is committed project instruction; this
+memory is the human overlay `.gitignore` keeps out of history.
+Memory wins on conflict. Do not paste `AGENTS.md` into a brief — name the
+path. Pasting an uncapped file would charge every later session for a copy.
 
 ## When to read it
 

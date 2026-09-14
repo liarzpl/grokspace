@@ -515,6 +515,30 @@ mod tests {
     }
 
     #[test]
+    fn the_skill_points_at_committed_agents_md() {
+        // Teams already write AGENTS.md. Memory is gitignored on purpose.
+        // Naming the committed file in the runbook is the whole feature; do
+        // not spawn grok to prove a string is in a file we ship.
+        let runbook = SKILL.content("SKILL.md").expect("a skill needs a SKILL.md");
+        assert!(
+            runbook.contains("$GROKSPACE_PROJECT_DIR/AGENTS.md"),
+            "the path rule has to be the env var plus the committed filename"
+        );
+        assert!(
+            runbook.contains("in addition to") && runbook.contains("$GROKSPACE_MEMORY_FILE"),
+            "AGENTS.md is extra reading, not a replacement for the projection"
+        );
+        assert!(
+            runbook.contains("Memory wins on conflict"),
+            "a committed file that disagrees with the panel must not silently win"
+        );
+        assert!(
+            runbook.contains("Do not paste") && runbook.contains("brief"),
+            "pasting AGENTS.md into a brief blows the context every session pays for"
+        );
+    }
+
+    #[test]
     fn the_skill_tells_the_agent_not_to_write_the_file() {
         // The projection is one-directional, and an agent that edits it loses the
         // edit silently. Saying so is the only thing keeping that honest.
