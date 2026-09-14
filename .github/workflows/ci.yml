@@ -13,15 +13,24 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege. These jobs only read the tree. The release workflow
+# raises `contents: write` on the one job that drafts the GitHub release.
+permissions:
+  contents: read
+
+# Third-party actions are pinned to a full commit SHA. A moving tag
+# (`@v4`) can be retagged; a SHA cannot. The comment after the SHA is
+# the human-readable version, not the pin.
+
 jobs:
   # Split from the backend so the two run at once, and so a red check names which
   # half of the app broke without anyone opening the log.
   frontend:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -44,10 +53,10 @@ jobs:
   workflows:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Lint the workflows
-        uses: raven-actions/actionlint@v2
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
 
   backend:
     runs-on: ubuntu-24.04
@@ -55,7 +64,7 @@ jobs:
       run:
         working-directory: src-tauri
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Tauri will not compile without WebKitGTK, so even `cargo test` needs these.
       # GrokSpace targets macOS; Linux is here because it is what CI runs on, which
@@ -79,7 +88,7 @@ jobs:
       # No toolchain action: rust-toolchain.toml already pins the channel and asks
       # for clippy and rustfmt, and rustup reads it on the first cargo call. Naming
       # the toolchain here too would be a second place to keep in step.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ./src-tauri -> target
 

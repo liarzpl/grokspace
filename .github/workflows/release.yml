@@ -21,6 +21,13 @@ concurrency:
   # and two releases of the same tag do not race in practice.
   cancel-in-progress: false
 
+# Least privilege by default. The macos job is the only one that drafts
+# a GitHub release, so it is the only place `contents: write` is granted.
+# Third-party actions are pinned to a full commit SHA; the comment after
+# the SHA is the human-readable version, not the pin.
+permissions:
+  contents: read
+
 jobs:
   # The same checks a pull request gets, not a second copy of them. A tagged build that
   # skipped the tests would be the one build where skipping them matters.
@@ -36,7 +43,7 @@ jobs:
     outputs:
       version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - id: read
         name: Check every version agrees with the tag
@@ -68,9 +75,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -81,7 +88,7 @@ jobs:
       - name: Add both Apple targets
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: ./src-tauri -> target
           key: universal-apple-darwin
@@ -119,7 +126,7 @@ jobs:
           fi
           rm plan.txt
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # tauri-action imports the certificate into a temporary keychain, signs,
@@ -182,7 +189,7 @@ jobs:
           lipo -archs "$app/Contents/MacOS/GrokSpace" 2>&1 || true
           echo "::endgroup::"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: grokspace-macos-universal
           path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
