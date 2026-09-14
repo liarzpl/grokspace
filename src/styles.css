@@ -92,6 +92,12 @@
     cursor: default;
   }
 
+  /* Keyboard chrome (A11Y-002 / WCAG 2.4.7). Pointer users never see this. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
