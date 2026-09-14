@@ -20,11 +20,13 @@ function packageVersion(name: string): [number, number, number] {
   return [major ?? 0, minor ?? 0, patch ?? 0];
 }
 
-function atLeast(got: [number, number, number], want: [number, number, number]): boolean {
-  for (let i = 0; i < 3; i += 1) {
-    if (got[i] !== want[i]) return got[i] > want[i];
-  }
-  return true;
+function atLeast(
+  [gotMajor, gotMinor, gotPatch]: [number, number, number],
+  [wantMajor, wantMinor, wantPatch]: [number, number, number],
+): boolean {
+  if (gotMajor !== wantMajor) return gotMajor > wantMajor;
+  if (gotMinor !== wantMinor) return gotMinor > wantMinor;
+  return gotPatch >= wantPatch;
 }
 
 describe("Cargo.lock in-range patches (DEPS-008)", () => {
