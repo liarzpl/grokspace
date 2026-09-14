@@ -360,7 +360,10 @@ Three decisions shape the rest:
 - **One direction only.** GrokSpace writes and the agent reads. A file the agent
   also wrote would need merging against the table on every change, and a merge that
   guesses wrong loses something a person typed. The skill therefore asks the agent to
-  *name* what belongs in memory in its reply, rather than to write it.
+  *name* what belongs in memory in its reply, rather than to write it. The
+  transcript offers **Add to Memory** when a message names a key, or on the last
+  line by hand. Default type is `note` (context/decision if you switch); the
+  32k cap still refuses, and the renderer does not write the Markdown file.
 - **It is capped, at 32k characters.** Every session reads all of it, so an
   unbounded panel would quietly make each session more expensive and less attentive.
   Rewriting an existing entry replaces its own size, so a correction is never refused
