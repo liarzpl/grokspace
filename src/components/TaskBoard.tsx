@@ -179,6 +179,7 @@ function TaskCard({
         onDragStart(task.id);
       }}
       onDragEnd={onDragEnd}
+      data-testid={`task-card-${task.id}`}
       className="shrink-0 cursor-grab rounded-md border border-line bg-panel p-2 transition-colors hover:border-line-strong active:cursor-grabbing"
     >
       {editing !== null ? (
@@ -358,6 +359,7 @@ function TaskColumn({
         if (tasks.some((task) => task.id === draggingId)) return;
         void moveTask(draggingId, status);
       }}
+      data-testid={`task-column-${status}`}
       className={`flex min-h-0 flex-col gap-1.5 rounded-md border p-1.5 transition-colors ${
         over ? "border-accent bg-accent-soft" : "border-line bg-canvas"
       }`}
