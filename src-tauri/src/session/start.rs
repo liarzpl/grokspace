@@ -378,7 +378,7 @@ pub(crate) struct StartRequest {
     pub(crate) role: Option<String>,
     pub(crate) cols: u16,
     pub(crate) rows: u16,
-    /// Set on Restart so a new row keeps the files the previous run wrote.
+    /// Set on Restart / Continue this job so a new row keeps the files the previous run wrote.
     pub(crate) reuse_worktree: Option<PathBuf>,
     /// When isolation is skipped, start on the project tree only if this is set.
     /// The default is fail-closed: refuse rather than write on the live tree.

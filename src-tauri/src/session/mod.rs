@@ -172,6 +172,9 @@ pub fn stop_session(state: State<'_, AppState>, id: String) -> Result<()> {
 /// Restarting starts a fresh session in the same pane rather than reusing the
 /// row. Killing is asynchronous, so reusing the id would race the old child's
 /// exit handler against the new child's registration.
+///
+/// Continue this job uses this same start (`reuse_worktree`, new id, no
+/// `--resume`). The host brief is sent after the new ACP handshake.
 #[tauri::command]
 pub fn restart_session<R: Runtime>(
     app: AppHandle<R>,

@@ -16,7 +16,7 @@ import {
   proposedLease,
 } from "../lib/permissionLease";
 import { batonPrompt, briefPrompt, sourceGraphFile, type Role } from "../lib/roles";
-import { talkToSession, transcriptExcerpt } from "../lib/talkToSession";
+import { handoffPrompt, talkToSession, transcriptExcerpt } from "../lib/talkToSession";
 import type {
   AgentUpdate,
   PermissionRequest,
@@ -343,6 +343,17 @@ interface SessionState {
    * got its brief.
    */
   handToRole: (sourceId: string, role: Role, projectPath: string) => Promise<boolean>;
+  /**
+   * Continue this job: Restart-shaped start (`reuse_worktree`, new id, no
+   * `--resume`) plus a host brief from the previous graph path, step titles,
+   * and a capped transcript excerpt.
+   */
+  continueJob: (
+    id: string,
+    cols: number,
+    rows: number,
+    projectPath: string,
+  ) => Promise<Session | null>;
   stopSession: (id: string) => Promise<void>;
   restartSession: (id: string, cols: number, rows: number) => Promise<Session | null>;
   renameSession: (id: string, title: string) => Promise<void>;
@@ -710,6 +721,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       await api.stopSession(id);
     } catch (error) {
       set({ error: errorMessage(error) });
+    }
+  },
+
+  continueJob: async (id, cols, rows, projectPath) => {
+    const source = get().sessions.find((session) => session.id === id);
+    if (source === undefined || source.kind !== "agent") {
+      set({ error: "That session cannot continue this job." });
+      return null;
+    }
+
+    const storedPath = useGraphStore.getState().bySession[id]?.path;
+    const steps = useStepStore.getState().bySession[id];
+    const prompt = handoffPrompt({
+      graphPath: sourceGraphFile(id, projectPath, storedPath),
+      stepTitles: (steps?.steps ?? []).map((step) => step.title),
+      excerpt: transcriptExcerpt(useUiStore.getState().transcript[id] ?? []),
+    });
+
+    const session = await get().restartSession(id, cols, rows);
+    if (session === null) return null;
+    try {
+      await talkToSession(session, prompt);
+      return session;
+    } catch (error) {
+      // The new row already owns the tree. Closing it would orphan the checkout.
+      set({ error: errorMessage(error) });
+      return session;
     }
   },
 

@@ -1244,6 +1244,104 @@ describe("restartSession", () => {
   });
 });
 
+describe("continueJob", () => {
+  const tree = "/tmp/acme/.grokspace/worktrees/old";
+  const stopped = () =>
+    session({
+      id: "old",
+      kind: "agent",
+      paneId: null,
+      title: "Coder",
+      role: "Coder",
+      status: "stopped",
+      worktreePath: tree,
+    });
+  const fresh = () =>
+    session({
+      id: "fresh",
+      kind: "agent",
+      paneId: null,
+      title: "Coder",
+      role: "Coder",
+      status: "idle",
+      worktreePath: tree,
+    });
+
+  it("mints a new id on the same worktree and briefs graph, steps, and a capped excerpt", async () => {
+    const head = "SECRET-HEAD-";
+    const body = "n".repeat(BATON_EXCERPT_BYTES);
+    useSessionStore.setState({ sessions: [stopped()] });
+    useUiStore.setState({
+      transcript: {
+        old: [
+          { kind: "message", text: head + body },
+          { kind: "message", text: "recent-tail" },
+        ],
+      },
+    });
+    useGraphStore.setState({
+      bySession: { old: { ...graphEntry(), path: "/p/.grokspace/graphs/old.json" } },
+    });
+    useStepStore.setState({
+      bySession: {
+        old: {
+          ...stepEntry(),
+          sessionId: "old",
+          phase: "proposed",
+          steps: [{ ...stepEntry().steps[0]!, title: "Ship the gate" }],
+        },
+      },
+    });
+    restartSession.mockResolvedValue(fresh());
+    promptSession.mockResolvedValue(undefined);
+
+    const next = await useSessionStore.getState().continueJob("old", 80, 24, "/p");
+    const sent = promptSession.mock.calls[0]?.[1] as string;
+
+    expect(next?.id).toBe("fresh");
+    expect(next?.worktreePath).toBe(tree);
+    expect(restartSession).toHaveBeenCalledWith("old", 80, 24);
+    expect(createSession).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().sessions.map((row) => row.id)).toEqual(["fresh"]);
+    expect(useUiStore.getState().transcript["old"]).toBeUndefined();
+    expect(sent).toContain("$GROKSPACE_MEMORY_FILE");
+    expect(sent).toContain("/p/.grokspace/graphs/old.json");
+    expect(sent).toContain("1. Ship the gate");
+    expect(sent).toContain("recent-tail");
+    expect(sent).not.toContain("--resume");
+    expect(sent).not.toContain(head);
+    expect(sent).not.toContain(`${head}${body} recent-tail`);
+  });
+
+  it("does not prompt when Restart fails, and leaves a new row if the brief fails", async () => {
+    useSessionStore.setState({ sessions: [stopped()] });
+    restartSession.mockRejectedValue("could not find `grok` on PATH");
+
+    expect(await useSessionStore.getState().continueJob("old", 80, 24, "/p")).toBeNull();
+    expect(promptSession).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().error).toContain("could not find `grok`");
+
+    restartSession.mockResolvedValue(fresh());
+    promptSession.mockRejectedValue("that session is no longer running");
+    useSessionStore.setState({ sessions: [stopped()], error: null });
+
+    const next = await useSessionStore.getState().continueJob("old", 80, 24, "/p");
+
+    expect(next?.id).toBe("fresh");
+    expect(closeSession).not.toHaveBeenCalledWith("fresh");
+    expect(useSessionStore.getState().sessions.map((row) => row.id)).toEqual(["fresh"]);
+    expect(useSessionStore.getState().error).toBe("that session is no longer running");
+  });
+
+  it("refuses a terminal", async () => {
+    useSessionStore.setState({ sessions: [session({ id: "term", kind: "grok" })] });
+
+    expect(await useSessionStore.getState().continueJob("term", 80, 24, "/p")).toBeNull();
+    expect(restartSession).not.toHaveBeenCalled();
+    expect(promptSession).not.toHaveBeenCalled();
+  });
+});
+
 describe("closeSession", () => {
   it("frees the pane and disposes the terminal", async () => {
     useSessionStore.setState({
