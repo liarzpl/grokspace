@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHECKPOINT_EQUALS_HEAD, DISCARD_REVERTS_CHECKPOINT } from "../lib/checkpoint";
-import { project, session } from "../test/fixtures";
+import { project, session, task } from "../test/fixtures";
 
 vi.mock("../lib/terminals", () => import("../test/terminalsMock"));
 
@@ -56,6 +56,7 @@ vi.mock("../lib/api", async () => {
 });
 
 const { default: WorkspaceShell } = await import("./WorkspaceShell");
+const { useDiffStore } = await import("../stores/diffStore");
 const { useGraphStore } = await import("../stores/graphStore");
 const { useMemoryStore } = await import("../stores/memoryStore");
 const { useSessionStore } = await import("../stores/sessionStore");
@@ -69,6 +70,7 @@ const initialTasks = useTaskStore.getState();
 const initialMemory = useMemoryStore.getState();
 const initialGraph = useGraphStore.getState();
 const initialSteps = useStepStore.getState();
+const initialDiff = useDiffStore.getState();
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
@@ -79,13 +81,16 @@ describe("WorkspaceShell", () => {
     useMemoryStore.setState(initialMemory, true);
     useGraphStore.setState(initialGraph, true);
     useStepStore.setState(initialSteps, true);
+    useDiffStore.setState(initialDiff, true);
     watchProjectGraphs.mockResolvedValue([]);
     watchProjectSteps.mockResolvedValue([]);
     vi.spyOn(useSessionStore.getState(), "loadSessions").mockResolvedValue();
+    vi.spyOn(useSessionStore.getState(), "inspectMerge").mockResolvedValue();
     vi.spyOn(useTaskStore.getState(), "loadTasks").mockResolvedValue();
     vi.spyOn(useMemoryStore.getState(), "loadMemory").mockResolvedValue();
     vi.spyOn(useGraphStore.getState(), "load").mockResolvedValue();
     vi.spyOn(useStepStore.getState(), "syncSessions").mockResolvedValue();
+    vi.spyOn(useDiffStore.getState(), "loadDiff").mockResolvedValue();
   });
 
   it("shows the terminals grid until another tab is chosen", async () => {
@@ -178,6 +183,55 @@ describe("WorkspaceShell", () => {
 
     expect(useSessionStore.getState().doomLoops["s1"]).toBeUndefined();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows Nothing waiting when no agent needs attention", () => {
+    render(<WorkspaceShell project={project()} />);
+
+    expect(screen.getByTestId("attention-inbox")).toHaveTextContent("Nothing waiting");
+    expect(screen.queryByTestId("inbox-split-needs_you")).not.toBeInTheDocument();
+  });
+
+  it("lists Needs you, Review, and Merge and jumps to the card, Diff, or graph", async () => {
+    const user = userEvent.setup();
+    const agent = (overrides: Parameters<typeof session>[0]) =>
+      session({ kind: "agent", paneId: null, ...overrides });
+    useSessionStore.setState({
+      sessions: [
+        agent({ id: "wait", title: "Waiter", status: "needs_input" }),
+        agent({ id: "rev", title: "Reviewer", status: "idle" }),
+        agent({
+          id: "mer",
+          title: "Merger",
+          status: "stopped",
+          worktreePath: "/tmp/acme/.grokspace/worktrees/mer",
+        }),
+      ],
+      mergeReasons: { mer: null },
+    });
+    useTaskStore.setState({ tasks: [task({ id: "t-wait", assignedSessionId: "wait" })] });
+    useStepStore.setState({
+      bySession: { rev: { sessionId: "rev", phase: "approved", steps: [], isLoading: false } },
+    });
+
+    render(<WorkspaceShell project={project()} />);
+
+    expect(screen.getByTestId("inbox-split-needs_you")).toHaveTextContent("Needs you");
+    expect(screen.getByTestId("inbox-split-review")).toHaveTextContent("Review");
+    expect(screen.getByTestId("inbox-split-merge")).toHaveTextContent("Merge");
+
+    await user.click(screen.getByTestId("inbox-item-wait"));
+    expect(useUiStore.getState().tab).toBe("tasks");
+    expect(await screen.findByTestId("task-board")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("inbox-item-rev"));
+    expect(useUiStore.getState().tab).toBe("graph");
+    expect(await screen.findByTestId("graph-visualizer")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("inbox-item-mer"));
+    expect(useUiStore.getState().tab).toBe("diff");
+    expect(await screen.findByTestId("diff-panel")).toBeInTheDocument();
+    expect(useDiffStore.getState().loadDiff).toHaveBeenCalledWith("p1", "mer");
   });
 
   it("surfaces a watch failure on the store the shell already reads", async () => {

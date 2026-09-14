@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -7,6 +7,12 @@ import {
 } from "../lib/checkpoint";
 import { doomLoopNotice } from "../lib/doomLoop";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
+import {
+  inboxItems,
+  INBOX_SPLITS,
+  type InboxItem,
+  type SessionInboxReadiness,
+} from "../lib/inboxItems";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissionAlert, orphanedPermissions } from "../lib/permissions";
@@ -18,6 +24,7 @@ import {
   sessionIdsFromKey,
   sidecarLoadPlan,
 } from "../lib/sessionSidecars";
+import { useDiffStore } from "../stores/diffStore";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -332,6 +339,120 @@ function OrphanedPermissionBanner({ projectId }: { projectId: string }) {
   );
 }
 
+function openInboxItem(
+  item: InboxItem,
+  projectId: string,
+  selectGraph: (sessionId: string) => void,
+): void {
+  if (item.jump === "card") {
+    useUiStore.getState().setTab("tasks");
+    if (item.taskId !== null) {
+      const taskId = item.taskId;
+      window.setTimeout(() => {
+        document
+          .querySelector(`[data-testid="task-card-${taskId}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      }, 0);
+    }
+    return;
+  }
+  if (item.jump === "diff") {
+    useUiStore.getState().setTab("diff");
+    void useDiffStore.getState().loadDiff(projectId, item.id);
+    return;
+  }
+  selectGraph(item.id);
+  useUiStore.getState().setTab("graph");
+}
+
+/** Processing rail for agent waits. Visible on every tab; not a WorkspaceTab. */
+function AttentionInbox({
+  projectId,
+  sessions,
+  onSelectGraph,
+}: {
+  projectId: string;
+  sessions: Session[];
+  onSelectGraph: (sessionId: string) => void;
+}) {
+  const tasks = useTasksForProject(projectId);
+  const permissions = useSessionStore((state) => state.permissions);
+  const mergeReasons = useSessionStore((state) => state.mergeReasons);
+  const inspectMerge = useSessionStore((state) => state.inspectMerge);
+  const bySession = useStepStore((state) => state.bySession);
+  const stoppedKey = sessionIdKey(
+    sessions
+      .filter((session) => session.status === "stopped" && session.worktreePath !== null)
+      .map((session) => session.id),
+  );
+
+  useEffect(() => {
+    const reasons = useSessionStore.getState().mergeReasons;
+    for (const id of sessionIdsFromKey(stoppedKey)) {
+      if (Object.hasOwn(reasons, id)) continue;
+      void inspectMerge(id);
+    }
+  }, [stoppedKey, inspectMerge]);
+
+  const readiness = useMemo(() => {
+    const next: Record<string, SessionInboxReadiness> = {};
+    for (const session of sessions) {
+      const row: SessionInboxReadiness = {};
+      if (Object.hasOwn(mergeReasons, session.id)) row.merge = mergeReasons[session.id];
+      const phase = bySession[session.id]?.phase;
+      if (phase !== undefined) row.phase = phase;
+      if (session.status === "idle" && session.worktreePath !== null) row.dirty = true;
+      if (row.merge !== undefined || row.phase !== undefined || row.dirty === true) {
+        next[session.id] = row;
+      }
+    }
+    return next;
+  }, [sessions, mergeReasons, bySession]);
+
+  const items = inboxItems(sessions, tasks, permissions, readiness);
+
+  return (
+    <div
+      role="region"
+      aria-label="Attention"
+      data-testid="attention-inbox"
+      className="flex shrink-0 items-center gap-4 overflow-x-auto border-b border-line px-4 py-1.5"
+    >
+      {items.length === 0 ? (
+        <p className="text-[11px] text-ink-faint">Nothing waiting</p>
+      ) : (
+        INBOX_SPLITS.map((split) => {
+          const grouped = items.filter((item) => item.split === split.id);
+          return (
+            <div
+              key={split.id}
+              data-testid={`inbox-split-${split.id}`}
+              className="flex min-w-0 items-center gap-1.5"
+            >
+              <span className="shrink-0 text-[10px] text-ink-faint">
+                {split.label}
+                {grouped.length > 0 ? ` · ${grouped.length}` : ""}
+              </span>
+              {grouped.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`inbox-item-${item.id}`}
+                  aria-label={`${item.title}, ${split.label}`}
+                  onClick={() => openInboxItem(item, projectId, onSelectGraph)}
+                  className="max-w-36 truncate rounded-sm px-1.5 py-0.5 text-[11px] text-ink-muted transition-colors hover:bg-elevated hover:text-ink"
+                >
+                  {item.title}
+                </button>
+              ))}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
 /**
  * The graph view of the workspace: every session's graph is reachable from here,
  * and the one on screen is whichever session is selected.
@@ -553,6 +674,11 @@ export default function WorkspaceShell({ project }: { project: Project }) {
       <IsolationBanner projectId={project.id} />
       <DoomLoopBanner projectId={project.id} />
       <OrphanedPermissionBanner projectId={project.id} />
+      <AttentionInbox
+        projectId={project.id}
+        sessions={sessions}
+        onSelectGraph={setSelectedGraphId}
+      />
 
       {/*
         Switching tabs unmounts the grid, which is safe: lib/terminals.ts holds
