@@ -123,6 +123,11 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   `setup` in `.grokspace/worktrees.json`, in that tree. `$GROKSPACE_WORKTREE`
   is the dest. Output is logged. Fail or timeout is an isolation skip, not a
   silent half-prepared tree. Restart does not run the script again.
+- **Attention inbox** — a strip above the workspace lists **Needs you** (an ACP
+  agent on `needs_input` or a pending permission), **Review** (idle, with
+  approved steps or an isolated worktree), and **Merge** (stopped, isolated, and
+  Merge would not refuse). Clicking jumps to the task card, the Diff chip, or
+  the graph. Dispatch is not gated on an empty inbox.
 - **Dock attention** — an unfocused window with an ACP agent waiting on
   `needs_input` shows a badge count and one Informational bounce. A focused
   window already has Allow/Deny, so it does not bounce. A second permission on
