@@ -119,6 +119,12 @@ wire. Errors serialize as a plain string (`Error`'s `Display`).
 | `graph_skill_status` | Whether `~/.grok/skills/grokspace-graph` is current |
 | `install_graph_skill` | Install or refresh that skill |
 
+### Edges — `edges.rs`
+
+| Command | What it does |
+| --- | --- |
+| `read_project_edges` | Project `.grokspace/edges.json`, whether or not it exists. Unparsed JSON |
+
 ### Steps — `steps.rs`
 
 | Command | What it does |

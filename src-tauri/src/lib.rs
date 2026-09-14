@@ -1,6 +1,7 @@
 mod acp;
 mod db;
 mod diff;
+mod edges;
 #[cfg(test)]
 mod domain;
 mod error;
@@ -134,6 +135,7 @@ pub fn run() {
             graph::read_session_graph,
             graph::list_session_graphs,
             graph::watch_project_graphs,
+            edges::read_project_edges,
             steps::list_session_steps,
             steps::list_project_steps,
             steps::add_session_step,

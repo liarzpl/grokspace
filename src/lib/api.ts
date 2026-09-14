@@ -2,6 +2,7 @@ import { invoke, type Channel } from "@tauri-apps/api/core";
 
 import type {
   DiffState,
+  EdgesSnapshot,
   GraphSnapshot,
   MemoryEntry,
   MemoryEntryType,
@@ -297,6 +298,10 @@ export const api = {
    */
   watchProjectGraphs: (projectId: string): Promise<string[]> =>
     invoke<string[]>("watch_project_graphs", { projectId }),
+
+  /** Project `.grokspace/edges.json`, whether or not it exists. */
+  readProjectEdges: (projectId: string): Promise<EdgesSnapshot> =>
+    invoke<EdgesSnapshot>("read_project_edges", { projectId }),
 
   listSessionSteps: (sessionId: string): Promise<SessionSteps> =>
     invoke<SessionSteps>("list_session_steps", { sessionId }),

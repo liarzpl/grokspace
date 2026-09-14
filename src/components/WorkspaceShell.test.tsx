@@ -43,6 +43,7 @@ vi.mock("./PermissionActions", () => ({
 
 const watchProjectGraphs = vi.fn();
 const watchProjectSteps = vi.fn();
+const readProjectEdges = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -51,6 +52,7 @@ vi.mock("../lib/api", async () => {
     api: {
       watchProjectGraphs,
       watchProjectSteps,
+      readProjectEdges,
     },
   };
 });
@@ -84,6 +86,13 @@ describe("WorkspaceShell", () => {
     useDiffStore.setState(initialDiff, true);
     watchProjectGraphs.mockResolvedValue([]);
     watchProjectSteps.mockResolvedValue([]);
+    readProjectEdges.mockResolvedValue({
+      path: "/Users/dev/acme-api/.grokspace/edges.json",
+      exists: false,
+      json: null,
+      tooLarge: false,
+      updatedAt: null,
+    });
     vi.spyOn(useSessionStore.getState(), "loadSessions").mockResolvedValue();
     vi.spyOn(useSessionStore.getState(), "inspectMerge").mockResolvedValue();
     vi.spyOn(useTaskStore.getState(), "loadTasks").mockResolvedValue();
@@ -137,6 +146,33 @@ describe("WorkspaceShell", () => {
       expect(watchProjectGraphs).toHaveBeenCalledWith("p2");
       expect(watchProjectSteps).toHaveBeenCalledWith("p2");
     });
+  });
+
+  it("overlays cross-session edges on the Graph tab and jumps without merging graphs", async () => {
+    const user = userEvent.setup();
+    readProjectEdges.mockResolvedValue({
+      path: "/Users/dev/acme-api/.grokspace/edges.json",
+      exists: true,
+      json: JSON.stringify({
+        edges: [{ fromSession: "s1", fromNode: "plan-root", toSession: "s2", kind: "delegates" }],
+      }),
+      tooLarge: false,
+      updatedAt: 1,
+    });
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", title: "Planner" }), session({ id: "s2", title: "Coder" })],
+    });
+    useUiStore.setState({ tab: "graph" });
+
+    render(<WorkspaceShell project={project()} />);
+
+    expect(await screen.findByTestId("cross-session-edges")).toHaveTextContent(
+      "plan-root delegates → Coder",
+    );
+    expect(screen.getByTestId("graph-visualizer")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "plan-root delegates → Coder" }));
+    expect(useUiStore.getState().graphSessionId).toBe("s2");
   });
 
   it("titles Close and Discard with the worktree checkpoint copy", async () => {

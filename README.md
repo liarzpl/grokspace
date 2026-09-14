@@ -258,6 +258,7 @@ src-tauri/
     memory.rs     Shared project memory, and the file agents read it from
     skill.rs      Installing the skills GrokSpace bundles into ~/.grok/skills
     graph.rs      Graph file locations, reads, and the change watcher
+    edges.rs      Project `.grokspace/edges.json`; Graph tab overlay, not a merge
     steps/        Session steps: watch, ingest, approve
       store.rs    Types, paths, SQLite CRUD
       ingest.rs   Parse and fold the agent's file
@@ -356,6 +357,13 @@ see how many nodes landed in each column when a formula in a prompt cannot.
 the reasoning behind the watcher's filters, and how to test the panel by hand —
 including `npm run graph:demo`, which steps a graph through a run so the panel can
 be watched updating without an agent.
+
+### Cross-session edges
+
+Hand-offs live in `<project>/.grokspace/edges.json` as
+`{ fromSession, fromNode, toSession, kind }` (`delegates` | `blocks` | `reviews`).
+The Graph tab overlays rows that touch the selected session. Per-session graph
+files stay one plan each; they are not merged.
 
 ### How session steps work
 
