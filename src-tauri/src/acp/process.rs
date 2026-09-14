@@ -628,18 +628,23 @@ pub(crate) fn read_loop(
                     (callbacks.on_update)(ready);
                 }
             }
-            other => {
+            Incoming::Permission(_) | Incoming::Response { .. } | Incoming::Ignored => {
                 if let Some(ready) = pending.take() {
                     (callbacks.on_update)(ready);
                 }
-                if let Incoming::Permission(request) = other {
-                    (callbacks.on_permission)(request.clone());
-                }
             }
         }
-        let changed = lock(&tracker).observe(&incoming);
-        if let Some(status) = changed {
-            (callbacks.on_status)(status);
+        // Observe before the permission callback so an auto-Deny can reply
+        // with the options the tracker just stored. Status is read after that
+        // reply, so a handled prompt never surfaces as `needs_input`.
+        let before = lock(&tracker).status();
+        lock(&tracker).observe(&incoming);
+        if let Incoming::Permission(request) = &incoming {
+            (callbacks.on_permission)(request.clone());
+        }
+        let after = lock(&tracker).status();
+        if after != before {
+            (callbacks.on_status)(after);
         }
     }
     if let Some(ready) = pending.take() {

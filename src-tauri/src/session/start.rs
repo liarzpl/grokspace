@@ -13,7 +13,9 @@ use super::db::{
 use super::worktree_cmds::{close_with, WorktreeTeardown};
 use crate::error::{Error, Result};
 use crate::pty::{ExitHandler, OutputSink, SpawnOptions};
-use crate::{acp, graph, memory, program, project, settings, steps, task, worktree, AppState};
+use crate::{
+    acp, graph, memory, policy, program, project, settings, steps, task, worktree, AppState,
+};
 
 /// Emitted when a child terminates. Status changes are infrequent, so the event
 /// system is the right fit here; the output stream is not, and uses a channel.
@@ -229,7 +231,11 @@ struct IsolationFailed {
 
 /// The three things a live agent reports, each landing in the database first and on
 /// the event system second, so a webview that reloads reads the same story.
-fn acp_callbacks<R: Runtime>(app: AppHandle<R>, id: String) -> acp::Callbacks {
+fn acp_callbacks<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    project_path: PathBuf,
+) -> acp::Callbacks {
     let status_app = app.clone();
     let status_id = id.clone();
     let permission_app = app.clone();
@@ -290,6 +296,20 @@ fn acp_callbacks<R: Runtime>(app: AppHandle<R>, id: String) -> acp::Callbacks {
         }),
         on_permission: Box::new(move |request| {
             let state = permission_app.state::<AppState>();
+            if let Some(allow) = policy::auto_reply_for(
+                Some(project_path.as_path()),
+                &request.summary,
+                &request.options,
+            ) {
+                // Policy answers before chips. Allow-similar is allow_once only.
+                if state
+                    .acp
+                    .answer_permission(&permission_id, request.id, allow, None)
+                    .is_ok()
+                {
+                    return;
+                }
+            }
             if let Ok(conn) = state.db.lock() {
                 let _ = record_permission(
                     &conn,
@@ -527,7 +547,7 @@ pub(crate) fn start<R: Runtime>(
                 cwd,
                 env,
             },
-            acp_callbacks(app.clone(), session.id.clone()),
+            acp_callbacks(app.clone(), session.id.clone(), project_path.clone()),
         ),
     };
 

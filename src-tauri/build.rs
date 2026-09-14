@@ -42,6 +42,8 @@ const APP_COMMANDS: &[&str] = &[
     "reveal_artifact",
     "read_settings",
     "write_setting",
+    "read_permission_policy",
+    "write_permission_policy",
     "read_session_graph",
     "watch_project_graphs",
     "list_session_steps",

@@ -46,6 +46,8 @@
     "allow-reveal-artifact",
     "allow-read-settings",
     "allow-write-setting",
+    "allow-read-permission-policy",
+    "allow-write-permission-policy",
     "allow-read-session-graph",
     "allow-watch-project-graphs",
     "allow-list-session-steps",

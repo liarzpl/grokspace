@@ -7,6 +7,7 @@ mod error;
 mod graph;
 mod log;
 mod memory;
+mod policy;
 mod program;
 mod project;
 mod pty;
@@ -125,6 +126,8 @@ pub fn run() {
             diff::reveal_artifact,
             settings::read_settings,
             settings::write_setting,
+            policy::read_permission_policy,
+            policy::write_permission_policy,
             graph::read_session_graph,
             graph::watch_project_graphs,
             steps::list_session_steps,

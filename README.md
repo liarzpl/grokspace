@@ -52,7 +52,12 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   **plan | ask | acceptEdits** records host intent: plan is Spec, ask is today's
   chips, acceptEdits auto-grants that edit-class lease (still `allow_once`).
   There is no yolo chip, and the mode is not passed to `session/new` or
-  `grok agent --permission-mode`. Deny is a reject-once chip. Its words, thoughts, tools,
+  `grok agent --permission-mode`. A named
+  **permission policy** file of user-authored globs
+  (`~/.grokspace/permission-policy.json`, and optionally
+  `<project>/.grokspace/permission-policy.json`) can auto-Deny or allow-once-similar
+  before chips appear. Deny wins; allow-once-similar cannot widen a deny and
+  never becomes Always. A bad glob is skipped, not treated as Always. Deny is a reject-once chip. Its words, thoughts, tools,
   and plans surface as a transcript on the Graph tab and the Tasks rail, with
   Cancel while it is working and a follow-up field while it is idle. Five
   identical tool calls in a row (same text — different args do not count)
@@ -93,11 +98,12 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   empty-state button still installs graph alone.
   Search matches a subsequence, so `sgr` finds "Start Grok in the first free pane".
 - **Settings** — a default pane layout for projects that have never chosen one, which
-  panel the workspace opens on, and which new session a dispatch reaches for first.
-  Shared by every project, and refused rather than stored when a value is not one this
-  build knows. The dispatch preference reorders what is offered and never picks a
-  target: a setting that chose for you would be one that sends work somewhere nobody
-  looked.
+  panel the workspace opens on, which new session a dispatch reaches for first, and a
+  named permission-policy file of user globs. Shared by every project, and refused
+  rather than stored when a value is not one this build knows. The dispatch
+  preference reorders what is offered and never picks a target: a setting that
+  chose for you would be one that sends work somewhere nobody looked. Policy Deny
+  wins over ask and over allow-once-similar; Allow is never inferred as Always.
 - **A diff panel** — what changed, read out of `git`. The default view is the
   project's tree. An ACP agent that isolated into a worktree appears as a chip, and
   picking it reads that checkout. Modified, new, deleted and renamed files, with each
@@ -257,6 +263,7 @@ src-tauri/
     worktree.rs   Git worktrees for ACP agents; no Tauri needed to test
     diff.rs       What changed, read out of git, optionally in one session's tree
     settings.rs   App preferences: key-value in SQLite, typed on the way out
+    policy.rs     Named permission-policy globs; deny wins; never Always
     domain.rs     Shared enum lists; emits src/generated/domain.ts
     error.rs      Error type; serializes to a plain string for the frontend
     e2e_smoke.rs  TEST-002 host smoke (compiled only for tests)
