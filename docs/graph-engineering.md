@@ -29,19 +29,24 @@ back to `~/.grokspace/graphs/<session-id>.json`.
 
 ## What a session is told
 
-Every session — Grok or shell — is spawned with these:
+Every session — Grok, shell, or ACP agent — is spawned with these:
 
-| Variable | Value |
-| --- | --- |
-| `GROKSPACE_SESSION_ID` | The session's id, which is also its graph's file name |
-| `GROKSPACE_PROJECT_DIR` | The project folder. This is the session's cwd for a Grok pane or a shell; an ACP agent that isolated has cwd in its worktree instead. |
-| `GROKSPACE_GRAPH_DIR` | The directory the graph belongs in |
-| `GROKSPACE_GRAPH_FILE` | The absolute path to write |
-| `GROKSPACE_WORKTREE` | Set only when the session isolated; the agent's checkout |
+| Variable | When | Value |
+| --- | --- | --- |
+| `GROKSPACE_SESSION_ID` | always | The session's id, which is also its graph's and steps' file name |
+| `GROKSPACE_PROJECT_DIR` | always | The project folder. This is the session's cwd for a Grok pane or a shell; an ACP agent that isolated has cwd in its worktree instead. |
+| `GROKSPACE_GRAPH_DIR` | always | The directory the graph belongs in |
+| `GROKSPACE_GRAPH_FILE` | always | The absolute path to write the graph |
+| `GROKSPACE_STEPS_DIR` | always | The directory the step list belongs in |
+| `GROKSPACE_STEPS_FILE` | always | The absolute path to write the step list. See [`session-steps.md`](session-steps.md). |
+| `GROKSPACE_MEMORY_FILE` | always | The project's `memory.md`. Same path for every session in the project. |
+| `GROKSPACE_SESSION_ROLE` | only with a role | Planner, Coder, Reviewer, Tester, or Scout. Absent — not empty — when the session was started by hand. |
+| `GROKSPACE_WORKTREE` | only when isolated | The agent's checkout. Added at spawn, not in the shared `session_env` helper. |
 
-`GROKSPACE_GRAPH_FILE` is absolute on purpose: an agent that moves into a git
-worktree still reports into the graph its pane is drawing. `GROKSPACE_PROJECT_DIR`
-is the project even then, so memory, steps, and skills stay shared.
+`GROKSPACE_GRAPH_FILE` and `GROKSPACE_STEPS_FILE` are absolute on purpose: an
+agent that moves into a git worktree still reports into the files its pane (or
+the Graph / Tasks rail) is drawing. `GROKSPACE_PROJECT_DIR` is the project even
+then, so memory, steps, and skills stay shared.
 
 ## How the panel stays live
 

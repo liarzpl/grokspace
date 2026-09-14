@@ -264,8 +264,11 @@ written to falls back to `~/.grokspace/graphs/`.
 
 Every session is spawned knowing where its graph belongs, through
 `GROKSPACE_GRAPH_FILE` (absolute, so a worktree does not change the answer),
-`GROKSPACE_GRAPH_DIR`, `GROKSPACE_SESSION_ID`, `GROKSPACE_PROJECT_DIR`, and —
-when the session isolated — `GROKSPACE_WORKTREE`.
+`GROKSPACE_GRAPH_DIR`, `GROKSPACE_SESSION_ID`, `GROKSPACE_PROJECT_DIR`,
+`GROKSPACE_STEPS_DIR`, `GROKSPACE_STEPS_FILE`, `GROKSPACE_MEMORY_FILE`, and —
+when the session has a role or isolated — `GROKSPACE_SESSION_ROLE` and
+`GROKSPACE_WORKTREE`. The full table is in
+[`docs/graph-engineering.md`](docs/graph-engineering.md#what-a-session-is-told).
 [`src-tauri/src/graph.rs`](src-tauri/src/graph.rs) watches those directories and
 reports which session's file moved; the panel re-reads that one file, which is
 what makes the graphs live rather than a snapshot.
@@ -284,6 +287,27 @@ see how many nodes landed in each column when a formula in a prompt cannot.
 the reasoning behind the watcher's filters, and how to test the panel by hand —
 including `npm run graph:demo`, which steps a graph through a run so the panel can
 be watched updating without an agent.
+
+### How session steps work
+
+A step list belongs to a session, not to the project board:
+
+```
+<project>/.grokspace/steps/<session-id>.json
+```
+
+The agent writes the file; GrokSpace folds it into SQLite and draws the rail.
+The phase on the session row is `none`, `proposed`, or `approved`. Approve
+locks the titles and sends them back as a prompt; completing a step does not
+move a Kanban card. A project folder that cannot be written to falls back to
+`~/.grokspace/steps/`.
+
+What makes `grok` write one is a bundled skill, installed to
+`~/.grok/skills/grokspace-steps/` from the Tasks rail empty state or the
+palette's "install GrokSpace skills".
+
+[`docs/session-steps.md`](docs/session-steps.md) has the file contract, the
+phase machine, and how to test the rail by hand.
 
 ### How memory works
 
@@ -424,6 +448,10 @@ isolates. Filling a nullable column that already exists needed no new migration.
 
 [`docs/skill-merge.md`](docs/skill-merge.md) records how the bundled graph skill was
 merged with a hand-written one, every conflict, and which side won.
+
+[`docs/session-steps.md`](docs/session-steps.md) is the step-list contract (path,
+JSON, phase, skill), the same shape as
+[`docs/graph-engineering.md`](docs/graph-engineering.md) for graphs.
 
 [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
 verified `grok` CLI surface that Phases 1-3 build on, and
