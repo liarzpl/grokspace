@@ -10,6 +10,7 @@ mod handoff;
 mod hooks;
 mod ledger;
 mod log;
+mod mcp;
 mod memory;
 mod permission_heat;
 mod playbook;
@@ -110,6 +111,7 @@ pub fn run() {
             project::project_trust,
             project::set_project_trust,
             hooks::project_hooks_status,
+            mcp::mcp_visibility,
             session::list_sessions,
             session::create_session,
             session::attach_session,

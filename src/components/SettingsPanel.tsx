@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { api, errorMessage } from "../lib/api";
 import { hostHooksStatusLabel } from "../lib/hooksTrust";
+import { MCP_LOADED_BY_GROK, mcpServerNote } from "../lib/mcpVisibility";
 import { subscribeOverlay } from "../lib/overlay";
 import { homeRelative } from "../lib/paths";
 import { useProjectStore } from "../stores/projectStore";
@@ -14,6 +15,7 @@ import {
   WORKSPACE_TABS,
   WORKTREE_SETUP,
   type FolderTrustDecision,
+  type McpVisibility,
   type PermissionLedgerEntry,
   type PermissionPolicy,
   type PermissionPolicyAction,
@@ -125,6 +127,8 @@ export default function SettingsPanel() {
 
           <ProjectHooksTrust />
 
+          <McpVisibilityList />
+
           <PermissionPolicyEditor />
 
           <WorktreeGcEditor />
@@ -138,7 +142,9 @@ export default function SettingsPanel() {
             Dispatch only reorders what is offered; it never picks a target for you.
             Worktree setup stays off until you turn it on and trust the folder —
             a clone must not run that script for you. Project hooks use that same
-            host gate; GrokSpace does not run grok /hooks-trust. Inbox-zero gate
+            host gate; GrokSpace does not run grok /hooks-trust. MCP is a
+            read-only list of grok's local config; GrokSpace does not start those
+            servers. An untrusted folder keeps project MCP off. Inbox-zero gate
             stays off until you turn it on — a default-on pause would block dispatch.
             The escape is typing dispatch anyway, not a checkbox. Permission globs:
             Deny wins; allow-once-similar is never Always.
@@ -246,6 +252,62 @@ function ProjectHooksTrust() {
             </div>
           )}
         </>
+      )}
+      {error !== null && (
+        <p role="alert" className="text-[10px] text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function McpVisibilityList() {
+  const projectId = useProjectStore((state) => state.activeProjectId);
+  const [status, setStatus] = useState<McpVisibility | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void api
+      .mcpVisibility(projectId)
+      .then((next) => {
+        setStatus(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => setError(errorMessage(reason)));
+  }, [projectId]);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[12px] font-medium text-ink">MCP</h3>
+        <span className="text-[10px] text-ink-faint">Read-only · grok's config</span>
+      </div>
+      <p className="text-[11px] text-ink">{MCP_LOADED_BY_GROK}</p>
+      {(status?.servers.length ?? 0) > 0 ? (
+        <ul aria-label="MCP servers" className="flex flex-col gap-0.5">
+          {status?.servers.map((server) => (
+            <li
+              key={`${server.scope}:${server.origin}:${server.name}`}
+              className="flex min-w-0 items-baseline gap-1 text-[11px]"
+              title={server.detail}
+            >
+              <code className="min-w-0 truncate font-mono text-[10px]">{server.name}</code>
+              <span className="shrink-0 text-ink-faint">{server.transport}</span>
+              <span className="min-w-0 truncate text-[10px] text-ink-faint">{server.origin}</span>
+              <span className="shrink-0 text-[10px] text-ink-faint">{mcpServerNote(server)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        status !== null && (
+          <p className="text-[10px] text-ink-faint">No MCP servers in grok's local config</p>
+        )
+      )}
+      {status !== null && !status.projectMcpAllowed && status.servers.some((row) => row.heldOff) && (
+        <p className="text-[10px] text-ink-faint">
+          Project MCP stays off until Trust once or Trust this folder.
+        </p>
       )}
       {error !== null && (
         <p role="alert" className="text-[10px] text-danger">

@@ -17,6 +17,7 @@
     "allow-project-trust",
     "allow-set-project-trust",
     "allow-project-hooks-status",
+    "allow-mcp-visibility",
     "allow-list-sessions",
     "allow-create-session",
     "allow-attach-session",

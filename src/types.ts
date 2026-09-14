@@ -70,6 +70,22 @@ export interface ProjectHooksStatus {
   grokListsFolder: boolean;
 }
 
+/** Settings snapshot: grok's local MCP list. GrokSpace never starts these. */
+export interface McpServerInfo {
+  name: string;
+  origin: string;
+  scope: "user" | "project" | string;
+  transport: "stdio" | "http" | "unknown" | string;
+  detail: string;
+  heldOff: boolean;
+}
+
+export interface McpVisibility {
+  hostTrust: FolderTrust;
+  projectMcpAllowed: boolean;
+  servers: McpServerInfo[];
+}
+
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Task {
