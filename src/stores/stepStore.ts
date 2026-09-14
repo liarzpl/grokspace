@@ -64,6 +64,9 @@ interface StepState {
   approve: (sessionId: string) => Promise<SessionSteps | null>;
   /** Undoes Approve when the prompt never landed, so the button comes back. */
   reopen: (sessionId: string) => Promise<void>;
+  /** Starts the project's steps directory watch. Asking twice is harmless. */
+  watch: (projectId: string) => Promise<void>;
+  setError: (error: string) => void;
   clearError: () => void;
 }
 
@@ -84,7 +87,7 @@ function fromSnapshot(snapshot: SessionSteps): StepEntry {
 }
 
 /** Timers live outside the store: they are plumbing, not state to render. */
-const watch = createWatchedSessionMap({ onClosed: "forget" });
+const coalesce = createWatchedSessionMap({ onClosed: "forget" });
 
 export const useStepStore = create<StepState>((set, get) => {
   const write = (sessionId: string, changes: Partial<StepEntry>) =>
@@ -115,7 +118,16 @@ export const useStepStore = create<StepState>((set, get) => {
     bySession: {},
     error: null,
 
+    setError: (error) => set({ error }),
     clearError: () => set({ error: null }),
+
+    watch: async (projectId) => {
+      try {
+        await api.watchProjectSteps(projectId);
+      } catch (error) {
+        set({ error: errorMessage(error) });
+      }
+    },
 
     load: async (sessionId) => {
       const epoch = epochs.get(sessionId) ?? 0;
@@ -148,7 +160,7 @@ export const useStepStore = create<StepState>((set, get) => {
     refresh: (sessionId, isOpenSession) => {
       // Closing a session CASCADE-deletes its rows. A re-read would only be an
       // error, so the closed-session policy is forget.
-      watch.refresh(sessionId, isOpenSession, {
+      coalesce.refresh(sessionId, isOpenSession, {
         hasEntry: () => sessionId in get().bySession,
         load: () => void get().load(sessionId),
         forget: () => get().forget(sessionId),
@@ -157,7 +169,7 @@ export const useStepStore = create<StepState>((set, get) => {
 
     forget: (sessionId) => {
       bump(sessionId);
-      watch.cancel(sessionId);
+      coalesce.cancel(sessionId);
       set((state) => {
         if (!(sessionId in state.bySession)) return state;
         const bySession = { ...state.bySession };
@@ -168,7 +180,7 @@ export const useStepStore = create<StepState>((set, get) => {
 
     reset: (sessionId) => {
       bump(sessionId);
-      watch.cancel(sessionId);
+      coalesce.cancel(sessionId);
       set((state) => ({
         bySession: {
           ...state.bySession,

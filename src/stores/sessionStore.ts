@@ -200,6 +200,13 @@ interface SessionState {
   cancelSession: (id: string) => Promise<void>;
   toggleMaximized: (paneId: string) => void;
   setPaneView: (paneId: string, view: PaneView) => void;
+  setError: (error: string) => void;
+  /**
+   * Drops graphs, steps, and transcript for these ids. When `clearWorkspace`
+   * the session list and pane chrome go too — used when the active project
+   * is forgotten.
+   */
+  forgetSessions: (ids: readonly string[], clearWorkspace: boolean) => void;
   clearError: () => void;
 }
 
@@ -215,7 +222,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   mergeReasons: {},
 
+  setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
+
+  forgetSessions: (ids, clearWorkspace) => {
+    for (const id of ids) forgetSessionFiles(id);
+    const forgotten = new Set(ids);
+    set((state) => ({
+      transcript: Object.fromEntries(
+        Object.entries(state.transcript).filter(([sessionId]) => !forgotten.has(sessionId)),
+      ),
+      ...(clearWorkspace
+        ? { sessions: [], permissions: {}, paneViews: {}, maximizedPane: null }
+        : {}),
+    }));
+  },
 
   toggleMaximized: (paneId) =>
     set((state) => ({ maximizedPane: state.maximizedPane === paneId ? null : paneId })),

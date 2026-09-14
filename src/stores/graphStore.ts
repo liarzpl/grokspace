@@ -62,6 +62,9 @@ interface GraphStoreState {
   refresh: (sessionId: string, isOpenSession: boolean) => void;
   /** Drops a session's graph, for a session that has been closed or replaced. */
   forget: (sessionId: string) => void;
+  /** Starts the project's graph directory watch. Asking twice is harmless. */
+  watch: (projectId: string) => Promise<void>;
+  setError: (error: string) => void;
   clearError: () => void;
 }
 
@@ -75,7 +78,7 @@ const EMPTY: GraphEntry = {
 };
 
 /** Timers live outside the store: they are plumbing, not state to render. */
-const watch = createWatchedSessionMap({ onClosed: "keep-if-present" });
+const coalesce = createWatchedSessionMap({ onClosed: "keep-if-present" });
 
 export const useGraphStore = create<GraphStoreState>((set, get) => {
   const write = (sessionId: string, changes: Partial<GraphEntry>) =>
@@ -180,7 +183,7 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
       // Closing a session leaves its file and its project's watcher behind.
       // keep-if-present: a graph already on screen is re-read; a late write
       // for a session we never held is ignored.
-      watch.refresh(sessionId, isOpenSession, {
+      coalesce.refresh(sessionId, isOpenSession, {
         hasEntry: () => sessionId in get().bySession,
         load: () => void get().load(sessionId),
         forget: () => get().forget(sessionId),
@@ -188,7 +191,7 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
     },
 
     forget: (sessionId) => {
-      watch.cancel(sessionId);
+      coalesce.cancel(sessionId);
       set((state) => {
         if (!(sessionId in state.bySession)) return state;
         const bySession = { ...state.bySession };
@@ -197,6 +200,15 @@ export const useGraphStore = create<GraphStoreState>((set, get) => {
       });
     },
 
+    watch: async (projectId) => {
+      try {
+        await api.watchProjectGraphs(projectId);
+      } catch (error) {
+        set({ error: errorMessage(error) });
+      }
+    },
+
+    setError: (error) => set({ error }),
     clearError: () => set({ error: null }),
   };
 });

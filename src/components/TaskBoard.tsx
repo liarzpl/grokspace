@@ -10,6 +10,7 @@ import {
 import { ROLES, rolesInPlay } from "../lib/roles";
 import { sessionsWithSteps, stepProgress } from "../lib/steps";
 import { useSessionsForProject, useSessionStore } from "../stores/sessionStore";
+import { useSettingsStore } from "../stores/settingsStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
 import { tasksInColumn, useTaskStore } from "../stores/taskStore";
 import {
@@ -571,7 +572,8 @@ export default function TaskBoard({ project }: { project: Project }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const targets = dispatchTargets(project, sessions);
+  const defaultDispatch = useSettingsStore((state) => state.settings.defaultDispatch);
+  const targets = dispatchTargets(project, sessions, defaultDispatch);
   const capable = sessionsWithSteps(sessions);
   const selected =
     capable.find((session) => session.id === selectedId) ?? capable[0] ?? undefined;

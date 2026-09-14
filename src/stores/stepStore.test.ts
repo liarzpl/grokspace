@@ -9,6 +9,7 @@ const removeSessionStep = vi.fn();
 const reorderSessionSteps = vi.fn();
 const approveSessionSteps = vi.fn();
 const reopenSessionSteps = vi.fn();
+const watchProjectSteps = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -22,6 +23,7 @@ vi.mock("../lib/api", async () => {
       reorderSessionSteps,
       approveSessionSteps,
       reopenSessionSteps,
+      watchProjectSteps,
     },
   };
 });
@@ -325,5 +327,16 @@ describe("mutations", () => {
 
     expect(reopenSessionSteps).toHaveBeenCalledWith("s1");
     expect(entry("s1").phase).toBe("proposed");
+  });
+});
+
+describe("watch", () => {
+  it("records a failure on the store instead of throwing past the shell", async () => {
+    watchProjectSteps.mockRejectedValue("could not watch");
+
+    await useStepStore.getState().watch("p1");
+
+    expect(watchProjectSteps).toHaveBeenCalledWith("p1");
+    expect(useStepStore.getState().error).toBe("could not watch");
   });
 });

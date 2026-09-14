@@ -4,10 +4,8 @@ import { create } from "zustand";
 import { api, errorMessage } from "../lib/api";
 import { disposeTerminal } from "../lib/terminals";
 import { PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
-import { useGraphStore } from "./graphStore";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
-import { useStepStore } from "./stepStore";
 
 /** Matches the backend ordering: most recently opened first. */
 function sortByRecency(projects: Project[]): Project[] {
@@ -133,19 +131,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const sessions = await api.listSessions(id);
       for (const session of sessions) {
         disposeTerminal(session.id);
-        useGraphStore.getState().forget(session.id);
-        useStepStore.getState().forget(session.id);
       }
       await api.removeProject(id);
-      const forgotten = new Set(sessions.map((session) => session.id));
-      useSessionStore.setState((state) => ({
-        transcript: Object.fromEntries(
-          Object.entries(state.transcript).filter(([sessionId]) => !forgotten.has(sessionId)),
-        ),
-        ...(get().activeProjectId === id
-          ? { sessions: [], permissions: {}, paneViews: {}, maximizedPane: null }
-          : {}),
-      }));
+      useSessionStore
+        .getState()
+        .forgetSessions(
+          sessions.map((session) => session.id),
+          get().activeProjectId === id,
+        );
       set((state) => {
         const projects = state.projects.filter((project) => project.id !== id);
         return {

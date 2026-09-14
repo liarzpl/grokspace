@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 
-import { api, errorMessage } from "../lib/api";
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
@@ -343,7 +342,9 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   const loadSessions = useSessionStore((state) => state.loadSessions);
   const sessions = useSessionsForProject(project.id);
   const loadGraph = useGraphStore((state) => state.load);
+  const watchGraphs = useGraphStore((state) => state.watch);
   const syncSteps = useStepStore((state) => state.syncSessions);
+  const watchSteps = useStepStore((state) => state.watch);
   const loadTasks = useTaskStore((state) => state.loadTasks);
   const loadMemory = useMemoryStore((state) => state.loadMemory);
   // In a store rather than local state: the command palette switches tabs too, and
@@ -383,20 +384,14 @@ export default function WorkspaceShell({ project }: { project: Project }) {
   }, [sessionIds, syncSteps]);
 
   useEffect(() => {
-    // Watching is what makes the graphs live: the backend reports each file as it
-    // changes and the graph store re-reads it. There is nothing to undo here — the
-    // backend keeps one watch per project until it quits, precisely so that a
-    // remount cannot leave a project unwatched.
-    void api.watchProjectGraphs(project.id).catch((error) => {
-      useGraphStore.setState({ error: errorMessage(error) });
-    });
-  }, [project.id]);
+    // Watching is what makes the graphs live. The backend keeps one watch per
+    // project until it quits, so a remount cannot leave a project unwatched.
+    void watchGraphs(project.id);
+  }, [project.id, watchGraphs]);
 
   useEffect(() => {
-    void api.watchProjectSteps(project.id).catch((error) => {
-      useStepStore.setState({ error: errorMessage(error) });
-    });
-  }, [project.id]);
+    void watchSteps(project.id);
+  }, [project.id, watchSteps]);
 
   // Derived rather than stored, so closing the selected session hands the graph
   // view to another one instead of leaving an empty canvas behind.

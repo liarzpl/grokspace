@@ -84,9 +84,7 @@ function AwaitingGraph({ session, path }: { session: Session; path: string }) {
     setAsked(true);
     void askForGraph(session).catch((error) => {
       setAsked(false);
-      const message = errorMessage(error);
-      useGraphStore.setState({ error: message });
-      useSessionStore.setState({ error: message });
+      useSessionStore.getState().setError(errorMessage(error));
     });
   };
 

@@ -9,7 +9,6 @@
 
 import { layoutOf } from "../stores/projectStore";
 import { sessionForPane } from "../stores/sessionStore";
-import { useSettingsStore } from "../stores/settingsStore";
 import { paneCount, type Project, type Session } from "../types";
 
 /** Something already running, a free pane to start a terminal in, or a new agent. */
@@ -61,7 +60,11 @@ export function sessionCanTakeWork(session: Session): boolean {
  * that picked the target for you would be a setting that quietly sends work somewhere
  * nobody looked.
  */
-export function dispatchTargets(project: Project, sessions: Session[]): DispatchTarget[] {
+export function dispatchTargets(
+  project: Project,
+  sessions: Session[],
+  defaultDispatch: "pane" | "agent" = "pane",
+): DispatchTarget[] {
   const panes = Array.from({ length: paneCount(layoutOf(project)) }, (_, index) =>
     String(index),
   );
@@ -78,6 +81,7 @@ export function dispatchTargets(project: Project, sessions: Session[]): Dispatch
     .map((session) => ({ kind: "session", session }));
 
   const newAgent: DispatchTarget = { kind: "agent" };
-  const prefersAgent = useSettingsStore.getState().settings.defaultDispatch === "agent";
-  return prefersAgent ? [newAgent, ...inPanes, ...agents] : [...inPanes, ...agents, newAgent];
+  return defaultDispatch === "agent"
+    ? [newAgent, ...inPanes, ...agents]
+    : [...inPanes, ...agents, newAgent];
 }

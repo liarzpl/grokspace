@@ -200,7 +200,7 @@ export default function SessionSteps({
       await sendApproval(live, frozen.steps);
     } catch (error) {
       await useStepStore.getState().reopen(live.id);
-      useStepStore.setState({ error: errorMessage(error) });
+      useStepStore.getState().setError(errorMessage(error));
     } finally {
       setApproving(false);
     }

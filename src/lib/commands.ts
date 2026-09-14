@@ -53,7 +53,7 @@ function startInFreePane(project: Project, kind: SessionKind) {
   if (paneId === undefined) {
     // Reported through the store the shell already watches, rather than silently
     // doing nothing to a command someone chose.
-    useSessionStore.setState({ error: "Every pane in this layout is taken." });
+    useSessionStore.getState().setError("Every pane in this layout is taken.");
     return;
   }
   void useSessionStore
@@ -267,9 +267,7 @@ export function commands(project: Project | null): Command[] {
             current === undefined ||
             !canApproveSteps(current, latest.phase, latest.steps.length)
           ) {
-            useStepStore.setState({
-              error: "That session is not ready to approve.",
-            });
+            useStepStore.getState().setError("That session is not ready to approve.");
             return;
           }
           const frozen = await useStepStore.getState().approve(current.id);
@@ -278,7 +276,7 @@ export function commands(project: Project | null): Command[] {
             await sendApproval(current, frozen.steps);
           } catch (error) {
             await useStepStore.getState().reopen(current.id);
-            useStepStore.setState({ error: errorMessage(error) });
+            useStepStore.getState().setError(errorMessage(error));
           }
         })();
       },
