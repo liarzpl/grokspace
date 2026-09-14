@@ -38,6 +38,11 @@ const PROTOCOL_VERSION: u16 = 1;
 /// silent agent must not hang the command that started it.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// One `session/update` chunk, and a coalesced run of the same kind, stay
+/// under this many bytes. The frontend still folds entries; this stops a
+/// single token stream from growing without bound on the event bus.
+const UPDATE_TEXT_CAP: usize = 8 * 1024;
+
 /// Recovered from rather than propagated, for the reason `pty.rs` gives: nothing in
 /// here guards an invariant a panic could break, and losing an agent because an
 /// unrelated thread panicked would be the worse outcome.
@@ -195,7 +200,38 @@ fn content_text(update: &Value) -> Option<String> {
             .map(str::to_string)
     })?;
     let text = text.trim_end_matches('\0').to_string();
+    let text = cap_text(&text);
     (!text.is_empty()).then_some(text)
+}
+
+fn cap_text(text: &str) -> String {
+    if text.len() <= UPDATE_TEXT_CAP {
+        return text.to_string();
+    }
+    let mut end = UPDATE_TEXT_CAP;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
+}
+
+/// Folds `next` into `pending` when they are the same kind and still under
+/// the cap. Returns the update that must be emitted now, if any.
+fn coalesce_update(pending: &mut Option<AgentUpdate>, next: AgentUpdate) -> Option<AgentUpdate> {
+    match pending.as_mut() {
+        Some(last)
+            if last.kind == next.kind
+                && last.text.len().saturating_add(next.text.len()) <= UPDATE_TEXT_CAP =>
+        {
+            last.text.push_str(&next.text);
+            None
+        }
+        Some(_) => pending.replace(next),
+        None => {
+            *pending = Some(next);
+            None
+        }
+    }
 }
 
 fn tool_text(update: &Value) -> Option<String> {
@@ -897,6 +933,7 @@ fn wait_for_reply(
 /// Reports what the agent says until its output ends.
 fn read_loop(mut reader: impl BufRead, tracker: Arc<Mutex<StatusTracker>>, callbacks: Callbacks) {
     let mut line = String::new();
+    let mut pending: Option<AgentUpdate> = None;
     loop {
         line.clear();
         match reader.read_line(&mut line) {
@@ -905,16 +942,28 @@ fn read_loop(mut reader: impl BufRead, tracker: Arc<Mutex<StatusTracker>>, callb
         }
 
         let incoming = classify(&line);
-        if let Incoming::Permission(request) = &incoming {
-            (callbacks.on_permission)(request.clone());
-        }
-        if let Incoming::Update(update) = &incoming {
-            (callbacks.on_update)(update.clone());
+        match &incoming {
+            Incoming::Update(update) => {
+                if let Some(ready) = coalesce_update(&mut pending, update.clone()) {
+                    (callbacks.on_update)(ready);
+                }
+            }
+            other => {
+                if let Some(ready) = pending.take() {
+                    (callbacks.on_update)(ready);
+                }
+                if let Incoming::Permission(request) = other {
+                    (callbacks.on_permission)(request.clone());
+                }
+            }
         }
         let changed = lock(&tracker).observe(&incoming);
         if let Some(status) = changed {
             (callbacks.on_status)(status);
         }
+    }
+    if let Some(ready) = pending.take() {
+        (callbacks.on_update)(ready);
     }
     (callbacks.on_closed)();
 }
@@ -1084,6 +1133,80 @@ mod tests {
             Incoming::Update(AgentUpdate {
                 kind: UpdateKind::Message,
                 text: "hello".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_message_chunk_longer_than_the_cap_is_truncated() {
+        let huge = "x".repeat(UPDATE_TEXT_CAP + 64);
+        let line = format!(
+            r#"{{"jsonrpc":"2.0","method":"session/update","params":{{"update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"{huge}"}}}}}}}}"#
+        );
+        let Incoming::Update(update) = classify(&line) else {
+            panic!("a long chunk is still an update");
+        };
+        assert_eq!(update.text.len(), UPDATE_TEXT_CAP);
+        assert!(update.text.chars().all(|c| c == 'x'));
+    }
+
+    #[test]
+    fn consecutive_same_kind_chunks_coalesce_under_the_cap() {
+        let mut pending = None;
+        assert_eq!(
+            coalesce_update(
+                &mut pending,
+                AgentUpdate {
+                    kind: UpdateKind::Message,
+                    text: "hel".into(),
+                },
+            ),
+            None
+        );
+        assert_eq!(
+            coalesce_update(
+                &mut pending,
+                AgentUpdate {
+                    kind: UpdateKind::Message,
+                    text: "lo".into(),
+                },
+            ),
+            None
+        );
+        assert_eq!(
+            pending,
+            Some(AgentUpdate {
+                kind: UpdateKind::Message,
+                text: "hello".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_kind_change_flushes_the_coalesced_chunk() {
+        let mut pending = Some(AgentUpdate {
+            kind: UpdateKind::Message,
+            text: "hello".into(),
+        });
+        let flushed = coalesce_update(
+            &mut pending,
+            AgentUpdate {
+                kind: UpdateKind::Thought,
+                text: "hmm".into(),
+            },
+        );
+        assert_eq!(
+            flushed,
+            Some(AgentUpdate {
+                kind: UpdateKind::Message,
+                text: "hello".into(),
+            })
+        );
+        assert_eq!(
+            pending,
+            Some(AgentUpdate {
+                kind: UpdateKind::Thought,
+                text: "hmm".into(),
             })
         );
     }
