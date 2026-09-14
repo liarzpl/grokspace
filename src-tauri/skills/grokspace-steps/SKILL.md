@@ -2,13 +2,13 @@
 name: grokspace-steps
 description: >
   Before changing a project in GrokSpace, write the steps you will take to
-  $GROKSPACE_STEPS_FILE and wait to be approved. Update each step's status in
+  $GROKSPACE_STEPS_FILE and wait in Spec. Update each step's status in
   that file as you go. Load this when starting work, when a task is dispatched,
-  when asked what you are doing, or when a checklist, steps, or approval is
-  mentioned.
+  when asked what you are doing, or when a checklist, steps, Spec, Build, or
+  approval is mentioned.
 when-to-use: >
   starting work, dispatched a task, what are you doing, checklist, steps,
-  approve the plan, before editing files, GROKSPACE_STEPS_FILE
+  Spec, Build, approve the plan, before editing files, GROKSPACE_STEPS_FILE
 metadata:
   author: GrokSpace
   short-description: Session step lists that GrokSpace shows and the user approves
@@ -42,13 +42,16 @@ a path.
 ## Procedure
 
 1. **Before any tool that changes the project**, write the steps file.
-2. **Wait.** The next message is the approval (or an edited list). Do not start
-   until it arrives.
-3. After approval, follow the approved titles in order. Update **status only**
+2. **Wait (Spec).** GrokSpace shows this as Spec while the list is `proposed`.
+   The next message is Build (Approve), or an edited list. Do not start until
+   it arrives. This is a host gate, not grok `plan` mode — do not pass a plan
+   flag.
+3. After Build, follow the approved titles in order. Update **status only**
    in the file as you go. Do not rename, reorder, add, or drop steps unless the
    user asks.
-4. If the user adds or changes steps in GrokSpace, the approval message is the
-   list to follow, not the file you last wrote.
+4. If the user adds or changes steps in GrokSpace, the Build message is the
+   list to follow, not the file you last wrote. Spec on an already-built list
+   means the human reopened titles; wait again.
 
 ## Do not
 
