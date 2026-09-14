@@ -1169,14 +1169,15 @@ fn close_with(state: &crate::AppState, id: &str, teardown: WorktreeTeardown) -> 
         (session, project_path)
     };
 
-    // Dirty check before kill: Close must not eat a live agent's files, and must
-    // not kill it only to then refuse.
+    // Dirty / unmerged check before kill: Close must not eat a live agent's
+    // files or the only copy of a landed-but-unmerged branch, and must not kill
+    // it only to then refuse.
     if matches!(teardown, WorktreeTeardown::Remove) {
         if let (Some(session), Some(project_path)) = (&snapshot.0, &snapshot.1) {
             if let Some(tree) = session.worktree_path.as_deref() {
                 let tree = Path::new(tree);
-                if worktree::is_dirty(tree)? {
-                    return worktree::remove(Path::new(project_path), tree, false);
+                if let Some(reason) = worktree::close_refusal(Path::new(project_path), tree)? {
+                    return Err(Error::Invalid(reason));
                 }
             }
         }

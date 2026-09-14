@@ -258,17 +258,55 @@ fn current_branch(git_path: &str, worktree_path: &Path) -> Option<String> {
     (!name.is_empty() && name != "HEAD").then_some(name)
 }
 
-/// Unregisters the worktree. Without `force`, a dirty tree is refused so Close
-/// cannot eat uncommitted work. The branch is deleted afterwards: leaving one
-/// per session would pile up `grokspace/` names nobody merges in this half.
+const UNCOMMITTED: &str =
+    "this agent still has uncommitted work — discard it from the Diff panel first";
+const UNMERGED: &str = "this agent has unmerged commits — merge or discard them first";
+
+/// Why Close must not delete this worktree. `None` means remove may run.
+///
+/// Dirty trees and branches that are still ahead of the project are both
+/// refused: the latter is committed work whose only copy is this branch.
+pub fn close_refusal(project_path: &Path, worktree_path: &Path) -> Result<Option<String>> {
+    if !worktree_path.exists() {
+        return Ok(None);
+    }
+    if is_dirty(worktree_path)? {
+        return Ok(Some(UNCOMMITTED.into()));
+    }
+    let Some(git_path) = program::find("git") else {
+        return Ok(Some(
+            "git is not installed, so the worktree cannot be removed".into(),
+        ));
+    };
+    if has_unmerged_commits(&git_path, project_path, worktree_path)? {
+        return Ok(Some(UNMERGED.into()));
+    }
+    Ok(None)
+}
+
+fn has_unmerged_commits(git_path: &str, project_path: &Path, worktree_path: &Path) -> Result<bool> {
+    let project_head = rev_parse(git_path, project_path, "HEAD")?;
+    let worktree_head = rev_parse(git_path, worktree_path, "HEAD")?;
+    Ok(!is_ancestor(
+        git_path,
+        project_path,
+        &worktree_head,
+        &project_head,
+    ))
+}
+
+/// Unregisters the worktree. Without `force`, a dirty tree or an unmerged
+/// branch is refused so Close cannot eat work. The branch is deleted
+/// afterwards: leaving one per session would pile up `grokspace/` names
+/// nobody merges in this half.
 pub fn remove(project_path: &Path, worktree_path: &Path, force: bool) -> Result<()> {
     if !worktree_path.exists() {
         return Ok(());
     }
-    if !force && is_dirty(worktree_path)? {
-        return Err(Error::Invalid(
-            "this agent still has uncommitted work — discard it from the Diff panel first".into(),
-        ));
+    if !force {
+        if let Some(reason) = close_refusal(project_path, worktree_path)? {
+            return Err(Error::Invalid(reason));
+        }
     }
 
     let git_path = program::find("git").ok_or_else(|| {
@@ -457,6 +495,18 @@ mod tests {
         dir
     }
 
+    fn commit_in(tree: &Path, message: &str) {
+        let git = program::find("git").expect("these tests need git");
+        for args in [vec!["add", "."], vec!["commit", "-qm", message]] {
+            let done = Command::new(&git)
+                .args(&args)
+                .current_dir(tree)
+                .output()
+                .expect("git should run");
+            assert!(done.status.success(), "git {args:?} failed");
+        }
+    }
+
     fn porcelain(cwd: &Path) -> String {
         let git = program::find("git").expect("these tests need git");
         let output = Command::new(git)
@@ -606,6 +656,33 @@ mod tests {
         let error = remove(dir.path(), &tree, false).unwrap_err();
         assert!(error.to_string().contains("uncommitted"), "got: {error}");
         assert!(tree.exists(), "refusing must leave the files");
+    }
+
+    #[test]
+    fn a_clean_worktree_with_unmerged_commits_is_refused_without_force() {
+        let dir = repo();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
+        commit_in(&tree, "agent");
+
+        let error = remove(dir.path(), &tree, false).unwrap_err();
+        assert!(error.to_string().contains("unmerged"), "got: {error}");
+        assert!(tree.exists(), "refusing must leave the files");
+        assert_eq!(
+            close_refusal(dir.path(), &tree).unwrap().as_deref(),
+            Some("this agent has unmerged commits — merge or discard them first")
+        );
+    }
+
+    #[test]
+    fn force_removes_a_worktree_with_unmerged_commits() {
+        let dir = repo();
+        let tree = checkout(&dir, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee");
+        fs::write(tree.join("agent.rs"), "fn main() {}\n").unwrap();
+        commit_in(&tree, "agent");
+
+        remove(dir.path(), &tree, true).unwrap();
+        assert!(!tree.exists());
     }
 
     #[test]
