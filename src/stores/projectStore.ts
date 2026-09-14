@@ -2,7 +2,6 @@ import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import { api, errorMessage } from "../lib/api";
-import { disposeTerminal } from "../lib/terminals";
 import { PANE_LAYOUTS, type PaneLayout, type Project } from "../types";
 import { useSessionStore } from "./sessionStore";
 import { useSettingsStore } from "./settingsStore";
@@ -131,6 +130,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // Listed first so the frontend can dispose terminals even if this project
       // is not the one currently on screen. The backend then kills the children.
       const sessions = await api.listSessions(id);
+      const { disposeTerminal } = await import("../lib/terminals");
       for (const session of sessions) {
         disposeTerminal(session.id);
       }

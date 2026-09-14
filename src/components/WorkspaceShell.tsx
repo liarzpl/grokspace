@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
+import { lazy, memo, Suspense, useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
@@ -25,14 +25,15 @@ import { useStepStore } from "../stores/stepStore";
 import AgentTranscript from "./AgentTranscript";
 import { useTaskStore } from "../stores/taskStore";
 import type { Project, Session, TaskStatus } from "../types";
-import DiffPanel from "./DiffPanel";
-import GraphVisualizer from "./GraphVisualizer";
 import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
 import { PermissionActions } from "./PermissionActions";
 import SessionSteps from "./SessionSteps";
-import TaskBoard from "./TaskBoard";
 import { QuietButton } from "./ui";
+
+const GraphVisualizer = lazy(() => import("./GraphVisualizer"));
+const DiffPanel = lazy(() => import("./DiffPanel"));
+const TaskBoard = lazy(() => import("./TaskBoard"));
 
 const GRAPH_STATUS_TONE: Record<GraphStatus, string> = {
   pending: "text-ink-faint",
@@ -300,7 +301,9 @@ function GraphTab({
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <GraphVisualizer session={selected} />
+          <Suspense fallback={<div className="min-h-0 flex-1" />}>
+            <GraphVisualizer session={selected} />
+          </Suspense>
           {selected?.kind === "agent" && <AgentTranscript session={selected} />}
         </div>
         {selected !== undefined && selected.kind !== "shell" && (
@@ -522,7 +525,9 @@ export default function WorkspaceShell({ project }: { project: Project }) {
           aria-labelledby="workspace-tab-tasks"
           className="flex min-h-0 flex-1 flex-col"
         >
-          <TaskBoard project={project} />
+          <Suspense fallback={<div className="min-h-0 flex-1" />}>
+            <TaskBoard project={project} />
+          </Suspense>
         </div>
       )}
       {tab === "memory" && (
@@ -542,7 +547,9 @@ export default function WorkspaceShell({ project }: { project: Project }) {
           aria-labelledby="workspace-tab-diff"
           className="flex min-h-0 flex-1 flex-col"
         >
-          <DiffPanel project={project} />
+          <Suspense fallback={<div className="min-h-0 flex-1" />}>
+            <DiffPanel project={project} />
+          </Suspense>
         </div>
       )}
     </div>

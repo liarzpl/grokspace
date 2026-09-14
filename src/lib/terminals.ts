@@ -1,6 +1,7 @@
 import { Channel } from "@tauri-apps/api/core";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import "@xterm/xterm/css/xterm.css";
 
 import { api } from "./api";
 import { prefersReducedMotion } from "./motion";

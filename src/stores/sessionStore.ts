@@ -4,7 +4,6 @@ import { create } from "zustand";
 import { api, errorMessage } from "../lib/api";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { briefPrompt, type Role } from "../lib/roles";
-import { disposeTerminal } from "../lib/terminals";
 import { foldUpdate } from "../lib/transcript";
 import type {
   AgentUpdate,
@@ -16,6 +15,13 @@ import type {
 import { useGraphStore } from "./graphStore";
 import { useStepStore } from "./stepStore";
 import { useUiStore } from "./uiStore";
+
+function releaseTerminal(sessionId: string): void {
+  // Dynamic so opening an empty workspace does not download xterm (COMPILE-001).
+  void import("../lib/terminals").then((terminals) => {
+    terminals.disposeTerminal(sessionId);
+  });
+}
 
 /**
  * A pane holds at most one session, so starting in a pane displaces the old one.
@@ -296,7 +302,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for (const session of leaving) {
         // attach() already replays pty scrollback; keeping xterm (10k lines)
         // across projects is optional cache, not correctness.
-        disposeTerminal(session.id);
+        releaseTerminal(session.id);
         forgetSessionFiles(session.id);
         forgetInspect(session.id);
       }
@@ -435,7 +441,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const session = await api.restartSession(id, cols, rows);
       // Restarting mints a new session id, so the old terminal has nothing left
       // to attach to and the graph of the run it replaced is not its own.
-      disposeTerminal(id);
+      releaseTerminal(id);
       forgetSessionFiles(id);
       forgetInspect(id);
       set((state) => {
@@ -473,7 +479,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   closeSession: async (id) => {
     try {
       await api.closeSession(id);
-      disposeTerminal(id);
+      releaseTerminal(id);
       forgetSessionFiles(id);
       forgetInspect(id);
       set((state) => ({
