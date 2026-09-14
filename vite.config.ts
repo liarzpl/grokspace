@@ -32,5 +32,15 @@ export default defineConfig({
     // tag it would then publish — so the parts of it that decide anything live in
     // scripts and are tested like anything else. One test command for the repository.
     include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+    // HTML report only (TEST-010). Do not add a coverage.thresholds gate: a
+    // drop must not fail CI. Scope is the already-tested lib/stores surface;
+    // components wait on TEST-001.
+    coverage: {
+      provider: "v8",
+      reporter: ["html", "text-summary"],
+      reportsDirectory: "coverage",
+      include: ["src/lib/**", "src/stores/**"],
+      exclude: ["**/*.test.ts", "**/*.test.tsx"],
+    },
   },
 });
