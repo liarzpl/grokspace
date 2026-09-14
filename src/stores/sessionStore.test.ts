@@ -44,12 +44,16 @@ vi.mock("../lib/api", async () => {
 
 const {
   isolationNotice,
+  isIsolationConfirmError,
   isUnisolatedAgent,
   sessionForPane,
   sessionsForProject,
   UNISOLATED_REASON,
   useSessionStore,
 } = await import("./sessionStore");
+
+const ISOLATION_ERR =
+  "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
 const { useGraphStore } = await import("./graphStore");
 const { useStepStore } = await import("./stepStore");
 const { useUiStore } = await import("./uiStore");
@@ -113,6 +117,7 @@ const initialUiState = useUiStore.getState();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useSessionStore.getState().cancelUnisolatedStart();
   useSessionStore.setState(initialState, true);
   useGraphStore.setState(initialGraphState, true);
   useStepStore.setState(initialStepState, true);
@@ -364,6 +369,78 @@ describe("startSession", () => {
     expect(state.error).toContain("could not find `grok`");
     expect(state.sessions).toEqual([]);
     expect(state.busyPanes["1"]).toBe(false);
+  });
+
+  it("does not send allowUnisolated on a start that isolated", async () => {
+    createSession.mockResolvedValue(
+      session({ id: "a1", kind: "agent", paneId: null, worktreePath: "/wt" }),
+    );
+
+    await useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: null,
+      kind: "agent",
+      cols: 80,
+      rows: 24,
+    });
+
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
+    expect(useSessionStore.getState().isolationConfirm).toBeNull();
+  });
+
+  it("opens confirm on the isolation error and retries only after Start", async () => {
+    createSession.mockRejectedValueOnce(ISOLATION_ERR).mockResolvedValueOnce(
+      session({
+        id: "a1",
+        kind: "agent",
+        paneId: null,
+        status: "idle",
+        worktreePath: null,
+        isolationSkip: "this folder is not a git repository",
+      }),
+    );
+
+    const pending = useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: null,
+      kind: "agent",
+      cols: 80,
+      rows: 24,
+    });
+    await vi.waitFor(() =>
+      expect(useSessionStore.getState().isolationConfirm?.message).toBe(ISOLATION_ERR),
+    );
+    expect(useSessionStore.getState().error).toBeNull();
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
+
+    useSessionStore.getState().confirmUnisolatedStart();
+    expect(await pending).toMatchObject({ id: "a1" });
+    expect(createSession).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ allowUnisolated: true }),
+    );
+    expect(useSessionStore.getState().isolationReasons["a1"]).toBe(
+      "this folder is not a git repository",
+    );
+  });
+
+  it("leaves the agent unstarted when confirm is cancelled", async () => {
+    createSession.mockRejectedValue(ISOLATION_ERR);
+
+    const pending = useSessionStore.getState().startSession({
+      projectId: "p1",
+      paneId: null,
+      kind: "agent",
+      cols: 80,
+      rows: 24,
+    });
+    await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
+    useSessionStore.getState().cancelUnisolatedStart();
+
+    expect(await pending).toBeNull();
+    expect(createSession).toHaveBeenCalledTimes(1);
+    expect(useSessionStore.getState().sessions).toEqual([]);
+    expect(useSessionStore.getState().error).toBeNull();
   });
 });
 
@@ -704,6 +781,47 @@ describe("launchSwarm", () => {
     expect(useSessionStore.getState().error).toBe(
       "Planner: could not find `grok` on PATH · Reviewer: that session is no longer running",
     );
+  });
+
+  it("confirms isolation once for the swarm and retries with the flag", async () => {
+    createSession.mockImplementation((input: { allowUnisolated?: boolean; role?: string }) =>
+      input.allowUnisolated === true
+        ? Promise.resolve(
+            session({
+              id: `s-${input.role ?? "?"}`,
+              kind: "agent",
+              paneId: null,
+              status: "idle",
+              worktreePath: null,
+              isolationSkip: "this folder is not a git repository",
+            }),
+          )
+        : Promise.reject(ISOLATION_ERR),
+    );
+    promptSession.mockResolvedValue(undefined);
+
+    const pending = useSessionStore.getState().launchSwarm("p1", roles);
+    await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
+    expect(useSessionStore.getState().error).toBeNull();
+    useSessionStore.getState().confirmUnisolatedStart();
+
+    expect(await pending).toEqual([]);
+    expect(createSession.mock.calls.some((call) => call[0]?.allowUnisolated === true)).toBe(true);
+    expect(useSessionStore.getState().isolationReasons["s-Planner"]).toBe(
+      "this folder is not a git repository",
+    );
+  });
+
+  it("does not start unisolated roles when the swarm confirm is cancelled", async () => {
+    createSession.mockRejectedValue(ISOLATION_ERR);
+
+    const pending = useSessionStore.getState().launchSwarm("p1", roles);
+    await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
+    useSessionStore.getState().cancelUnisolatedStart();
+
+    expect(await pending).toEqual(["Planner", "Reviewer"]);
+    expect(createSession.mock.calls.every((call) => call[0]?.allowUnisolated !== true)).toBe(true);
+    expect(useSessionStore.getState().error).toBeNull();
   });
 });
 
@@ -1068,6 +1186,14 @@ describe("isUnisolatedAgent", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("isIsolationConfirmError", () => {
+  it("matches the Rust fail-closed sentence and nothing else", () => {
+    expect(isIsolationConfirmError(ISOLATION_ERR)).toBe(true);
+    expect(isIsolationConfirmError("could not find `grok` on PATH")).toBe(false);
+    expect(isIsolationConfirmError(UNISOLATED_REASON)).toBe(false);
   });
 });
 

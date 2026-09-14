@@ -16,6 +16,7 @@ vi.mock("./PermissionActions", () => ({
 
 const updateTask = vi.fn();
 const listTasks = vi.fn();
+const createSession = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -25,13 +26,19 @@ vi.mock("../lib/api", async () => {
       updateTask,
       listTasks,
       listSessions: vi.fn(),
+      createSession,
+      promptSession: vi.fn(),
     },
   };
 });
 
 const { default: TaskBoard } = await import("./TaskBoard");
+const { default: IsolationConfirm } = await import("./IsolationConfirm");
 const { useSessionStore } = await import("../stores/sessionStore");
 const { useTaskStore } = await import("../stores/taskStore");
+
+const ISOLATION_ERR =
+  "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
 
 const initialTasks = useTaskStore.getState();
 const initialSessions = useSessionStore.getState();
@@ -61,6 +68,7 @@ function transfer(): DataTransfer {
 describe("TaskBoard drag and drop", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useSessionStore.getState().cancelUnisolatedStart();
     useTaskStore.setState(initialTasks, true);
     useSessionStore.setState(initialSessions, true);
     updateTask.mockImplementation(async (id: string, changes: { status?: string }) => {
@@ -112,5 +120,34 @@ describe("TaskBoard drag and drop", () => {
     fireEvent.drop(screen.getByTestId("task-column-done"), { dataTransfer: transfer() });
 
     expect(updateTask).not.toHaveBeenCalled();
+  });
+});
+
+describe("TaskBoard swarm isolation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSessionStore.getState().cancelUnisolatedStart();
+    useTaskStore.setState(initialTasks, true);
+    useSessionStore.setState(initialSessions, true);
+  });
+
+  it("opens a confirm dialog instead of a raw isolation banner", async () => {
+    createSession.mockRejectedValue(ISOLATION_ERR);
+    render(
+      <>
+        <TaskBoard project={project()} />
+        <IsolationConfirm />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch a swarm" }));
+    fireEvent.click(screen.getByRole("button", { name: /Start \d/ }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Start on the project tree?" })).toBeInTheDocument(),
+    );
+    expect(useSessionStore.getState().error).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
   });
 });

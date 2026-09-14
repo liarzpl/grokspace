@@ -89,8 +89,12 @@ const initialSessions = useSessionStore.getState();
 const initialSteps = useStepStore.getState();
 const initialSkills = useSkillStore.getState();
 
+const ISOLATION_ERR =
+  "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useSessionStore.getState().cancelUnisolatedStart();
   useUiStore.setState(initialUi, true);
   useProjectStore.setState(initialProjects, true);
   useSessionStore.setState(initialSessions, true);
@@ -427,6 +431,20 @@ describe("running a command", () => {
 
     expect(useSessionStore.getState().error).toContain("could not find `grok` on PATH");
     expect(useSessionStore.getState().error).toContain("Reviewer");
+  });
+
+  it("asks before starting an agent or swarm on the project tree, not via the banner", async () => {
+    createSession.mockRejectedValue(ISOLATION_ERR);
+
+    commands(project()).find((command) => command.id === "start-agent")?.run();
+    await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
+    expect(useSessionStore.getState().error).toBeNull();
+    useSessionStore.getState().cancelUnisolatedStart();
+
+    commands(project()).find((command) => command.id === "launch-swarm")?.run();
+    await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
+    expect(useSessionStore.getState().error).toBeNull();
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
   });
 
   it("forgets a project and closes the palette", async () => {

@@ -77,8 +77,12 @@ const initialState = useTaskStore.getState();
 const initialSessionState = useSessionStore.getState();
 const initialStepState = useStepStore.getState();
 
+const ISOLATION_ERR =
+  "isolation did not happen (this folder is not a git repository); confirm to start on the project tree";
+
 beforeEach(() => {
   vi.clearAllMocks();
+  useSessionStore.getState().cancelUnisolatedStart();
   useTaskStore.setState(initialState, true);
   useSessionStore.setState(initialSessionState, true);
   useStepStore.setState(initialStepState, true);
@@ -641,6 +645,25 @@ describe("dispatchToNewSession", () => {
     expect(writeSession).not.toHaveBeenCalled();
     expect(useTaskStore.getState().error).toBeNull();
     expect(useSessionStore.getState().error).toBe("could not find `grok` on PATH");
+  });
+
+  it("retries the new agent with allowUnisolated after confirm", async () => {
+    useTaskStore.setState({ tasks: [task()] });
+    createSession
+      .mockRejectedValueOnce(ISOLATION_ERR)
+      .mockResolvedValueOnce(session({ id: "a1", kind: "agent", paneId: null }));
+    promptSession.mockResolvedValue(undefined);
+    dispatchTask.mockResolvedValue(task({ status: "in_progress", assignedSessionId: "a1" }));
+
+    const pending = useTaskStore.getState().dispatchToNewSession("t1", "p1", null);
+    await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
+    useSessionStore.getState().confirmUnisolatedStart();
+
+    expect(await pending).toBe(true);
+    expect(createSession).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ allowUnisolated: true }),
+    );
   });
 });
 
