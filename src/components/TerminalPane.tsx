@@ -17,7 +17,12 @@ import {
 import { sessionStatusPhrase } from "../lib/statusText";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { stepsFor, useStepStore } from "../stores/stepStore";
-import { useSessionStore } from "../stores/sessionStore";
+import {
+  PERMISSION_MODES,
+  permissionModeFor,
+  useSessionStore,
+  type PermissionMode,
+} from "../stores/sessionStore";
 import { useUiStore } from "../stores/uiStore";
 import type { Session, SessionKind } from "../types";
 import SessionSteps from "./SessionSteps";
@@ -102,6 +107,60 @@ function ViewSwitch({ session, paneId }: { session: Session; paneId: string }) {
           {option === "steps" && hasSteps && (
             <span aria-hidden="true" className="ml-1 inline-block size-1 rounded-full bg-accent align-middle" />
           )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const PERMISSION_MODE_TITLE: Record<PermissionMode, string> = {
+  plan: "Spec — the steps list can still change. Not passed to grok.",
+  ask: "Prompt each tool, same as today",
+  acceptEdits: "Allow matching file edits this session as Allow once",
+};
+
+/**
+ * Host-only plan | ask | acceptEdits. plan is Spec. acceptEdits uses the
+ * session edit-class lease, still allow_once. No yolo chip.
+ */
+function PermissionModeChip({ session }: { session: Session }) {
+  const stored = useSessionStore((state) => state.permissionModes[session.id]);
+  const setPermissionMode = useSessionStore((state) => state.setPermissionMode);
+  const phase = useStepStore(
+    (state) => stepsFor(state.bySession, session.id).phase,
+  );
+  const mode = permissionModeFor(phase, stored);
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Permission mode"
+      onKeyDown={(event) =>
+        moveSegmented(
+          event,
+          PERMISSION_MODES,
+          mode,
+          (option) => void setPermissionMode(session.id, option),
+          (option) => `permission-mode-${session.id}-${option}`,
+        )
+      }
+      className="flex shrink-0 items-center gap-0.5 rounded-sm border border-line px-0.5"
+    >
+      {PERMISSION_MODES.map((option) => (
+        <button
+          key={option}
+          id={`permission-mode-${session.id}-${option}`}
+          type="button"
+          role="radio"
+          aria-checked={mode === option}
+          tabIndex={mode === option ? 0 : -1}
+          title={PERMISSION_MODE_TITLE[option]}
+          onClick={() => void setPermissionMode(session.id, option)}
+          className={`rounded-sm px-1 text-[10px] transition-colors ${
+            mode === option ? "bg-accent-soft text-ink" : "text-ink-faint hover:text-ink-muted"
+          }`}
+        >
+          {option}
         </button>
       ))}
     </div>
@@ -308,6 +367,9 @@ function TerminalPane({
         )}
 
         <div className="flex shrink-0 items-center gap-1">
+          {session && session.kind !== "shell" ? (
+            <PermissionModeChip session={session} />
+          ) : null}
           {session ? <ViewSwitch session={session} paneId={paneId} /> : null}
           <div className="flex items-center">
             {session ? (

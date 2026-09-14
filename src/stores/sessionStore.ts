@@ -8,7 +8,13 @@ import {
   noteToolRepeat,
   type ToolRepeat,
 } from "../lib/doomLoop";
+import { unlockGraphTitles } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
+import {
+  grantSessionLease,
+  leaseCanAutoAnswer,
+  proposedLease,
+} from "../lib/permissionLease";
 import { batonPrompt, briefPrompt, sourceGraphFile, type Role } from "../lib/roles";
 import { talkToSession, transcriptExcerpt } from "../lib/talkToSession";
 import { foldUpdate } from "../lib/transcript";
@@ -18,6 +24,7 @@ import type {
   Session,
   SessionKind,
   SessionStatus,
+  StepsPhase,
 } from "../types";
 import { useGraphStore } from "./graphStore";
 import { useStepStore } from "./stepStore";
@@ -202,6 +209,40 @@ function isolationFrom(
   return next;
 }
 
+/**
+ * Host permission mode on agent chrome. `plan` is Spec. `ask` is today's
+ * chips. `acceptEdits` auto-grants FEAT-005 edit-class leases, still
+ * `allow_once` to ACP. Never `yolo` / `bypassPermissions`. Never sent on
+ * `session/new` or `grok agent --permission-mode`.
+ */
+export const PERMISSION_MODES = ["plan", "ask", "acceptEdits"] as const;
+export type PermissionMode = (typeof PERMISSION_MODES)[number];
+
+/** Mutating file tools. Read is a file tool but not an edit. Bash is out. */
+const EDIT_CLASS_TOOLS = new Set(["edit", "write", "delete", "move", "create"]);
+
+export function isPermissionMode(value: string): value is PermissionMode {
+  return (PERMISSION_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * Chip value. Spec (`proposed`) is plan until the user picks another mode.
+ */
+export function permissionModeFor(
+  phase: StepsPhase | undefined,
+  stored: PermissionMode | undefined,
+): PermissionMode {
+  if (stored !== undefined) return stored;
+  return phase === "proposed" ? "plan" : "ask";
+}
+
+function editClassLease(summary: string) {
+  const offer = proposedLease(summary);
+  if (offer === null) return null;
+  if (!EDIT_CLASS_TOOLS.has(offer.tool.toLowerCase())) return null;
+  return offer;
+}
+
 interface SessionState {
   sessions: Session[];
   /** Panes with a start or restart in flight, so the UI can show progress. */
@@ -238,8 +279,15 @@ interface SessionState {
    * written here after click — it cannot be known before `git merge` runs.
    */
   mergeReasons: Record<string, string | null>;
+  /**
+   * Host permission mode per session. Absent means derive from steps: Spec
+   * (`proposed`) is plan, otherwise ask. Dropped on Stop / Restart / Close.
+   */
+  permissionModes: Record<string, PermissionMode>;
 
   loadSessions: (projectId: string) => Promise<void>;
+  /** Host-only. Rejects yolo. Does not pass mode into ACP. */
+  setPermissionMode: (id: string, mode: PermissionMode) => Promise<void>;
   createSession: (
     input: StartInput,
     options?: {
@@ -341,11 +389,25 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   isLoading: false,
   error: null,
   mergeReasons: {},
+  permissionModes: {},
 
   setError: (error) => set({ error }),
   clearError: () => set({ error: null }),
   confirmUnisolatedStart: () => settleIsolationConfirm(set, true),
   cancelUnisolatedStart: () => settleIsolationConfirm(set, false),
+
+  setPermissionMode: async (id, mode) => {
+    if (!isPermissionMode(mode)) return;
+    if (!get().sessions.some((session) => session.id === id)) return;
+    set((state) => ({
+      permissionModes: { ...state.permissionModes, [id]: mode },
+    }));
+    if (mode !== "plan") return;
+    const phase = useStepStore.getState().bySession[id]?.phase;
+    if (phase !== "approved") return;
+    await useStepStore.getState().reopen(id);
+    unlockGraphTitles(id);
+  },
 
   forgetSessions: (ids, clearWorkspace) => {
     for (const id of ids) forgetSessionFiles(id);
@@ -360,7 +422,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       doomLoops: Object.fromEntries(
         Object.entries(state.doomLoops).filter(([sessionId]) => !forgotten.has(sessionId)),
       ),
-      ...(clearWorkspace ? { sessions: [], permissions: {} } : {}),
+      permissionModes: Object.fromEntries(
+        Object.entries(state.permissionModes).filter(([sessionId]) => !forgotten.has(sessionId)),
+      ),
+      ...(clearWorkspace ? { sessions: [], permissions: {}, permissionModes: {} } : {}),
     }));
     if (clearWorkspace) {
       useUiStore.getState().resetPaneChrome();
@@ -380,7 +445,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       isLoading: true,
       error: null,
       ...(switching
-        ? { sessions: [], permissions: {}, busyPanes: {}, mergeReasons: {}, isolationReasons: {} }
+        ? {
+            sessions: [],
+            permissions: {},
+            permissionModes: {},
+            busyPanes: {},
+            mergeReasons: {},
+            isolationReasons: {},
+          }
         : {}),
     });
     if (switching) {
@@ -423,6 +495,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           new Set([...arriving, ...liveSessionIds(switching ? leaving : [])]),
         ),
         mergeReasons: keepOnly(state.mergeReasons, arriving),
+        permissionModes: keepOnly(state.permissionModes, arriving),
       }));
     } catch (error) {
       if (generation !== loadGeneration) return;
@@ -434,6 +507,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isLoading: false,
         sessions: [],
         permissions: {},
+        permissionModes: {},
         mergeReasons: {},
       });
     }
@@ -635,6 +709,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           transcript: without(state.transcript, id),
           ...dropDoom(state, id),
           mergeReasons: without(state.mergeReasons, id),
+          permissionModes: without(state.permissionModes, id),
         };
       });
       return session;
@@ -670,6 +745,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         ...dropDoom(state, id),
         isolationReasons: without(state.isolationReasons, id),
         mergeReasons: without(state.mergeReasons, id),
+        permissionModes: without(state.permissionModes, id),
       }));
     } catch (error) {
       set({ error: errorMessage(error) });
@@ -763,6 +839,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         // Nothing can answer what a session that has gone was asking.
         permissions: without(state.permissions, id),
         ...dropDoom(state, id),
+        permissionModes: without(state.permissionModes, id),
       };
     }),
 
@@ -778,13 +855,46 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           session.id === id ? { ...session, status } : session,
         ),
         ...(status === "idle" || status === "stopped" ? dropDoom(state, id) : {}),
+        ...(status === "stopped" ? { permissionModes: without(state.permissionModes, id) } : {}),
       };
     }),
 
-  askPermission: (id, request) =>
-    set((state) => {
-      if (!state.sessions.some((session) => session.id === id)) return state;
-      const existing = state.permissions[id] ?? [];
+  askPermission: (id, request) => {
+    const state = get();
+    if (!state.sessions.some((session) => session.id === id)) return;
+    const mode = permissionModeFor(
+      useStepStore.getState().bySession[id]?.phase,
+      state.permissionModes[id],
+    );
+    const offer = mode === "acceptEdits" ? editClassLease(request.summary) : null;
+    if (offer !== null && leaseCanAutoAnswer(request)) {
+      grantSessionLease(id, offer);
+      void (async () => {
+        try {
+          await api.answerSessionPermission(id, request.requestId, true);
+        } catch (error) {
+          set((current) => {
+            if (!current.sessions.some((session) => session.id === id)) {
+              return { error: errorMessage(error) };
+            }
+            const existing = current.permissions[id] ?? [];
+            if (existing.some((item) => item.requestId === request.requestId)) {
+              return { error: errorMessage(error) };
+            }
+            return {
+              error: errorMessage(error),
+              permissions: {
+                ...current.permissions,
+                [id]: [...existing, request],
+              },
+            };
+          });
+        }
+      })();
+      return;
+    }
+    set((current) => {
+      const existing = current.permissions[id] ?? [];
       const index = existing.findIndex((item) => item.requestId === request.requestId);
       // Distinct requestIds stay queued — an agent can be blocked on more than
       // one. The same id after loadSessions REPLACE must not stack a second chip.
@@ -794,11 +904,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           : existing.map((item, i) => (i === index ? request : item));
       return {
         permissions: {
-          ...state.permissions,
+          ...current.permissions,
           [id]: next,
         },
       };
-    }),
+    });
+  },
 
   answerPermission: async (id, requestId, allow, optionId) => {
     try {
