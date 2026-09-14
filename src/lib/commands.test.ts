@@ -25,6 +25,7 @@ const cancelSession = vi.fn();
 const answerSessionPermission = vi.fn();
 const installSkill = vi.fn();
 const skillStatus = vi.fn();
+const exportSessionPack = vi.fn();
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -50,6 +51,7 @@ vi.mock("../lib/api", async () => {
       answerSessionPermission,
       installSkill,
       skillStatus,
+      exportSessionPack,
     },
   };
 });
@@ -153,6 +155,7 @@ describe("the command list", () => {
     expect(without).toContain("Open a project folder…");
     expect(without.some((label) => label.startsWith("Start"))).toBe(false);
     expect(without.some((label) => label.includes("layout"))).toBe(false);
+    expect(without.some((label) => label.startsWith("Export pack"))).toBe(false);
   });
 
   it("offers the sessions and layouts once there is one", () => {
@@ -196,6 +199,8 @@ describe("the command list", () => {
     expect(shown).toContain("Cancel Reviewer");
     expect(shown).toContain("Stop Reviewer");
     expect(shown).toContain("Close Reviewer");
+    expect(shown).toContain("Export pack for Reviewer");
+    expect(shown).toContain("Export pack for Grok");
     expect(shown).not.toContain("Stop Grok");
     expect(shown).not.toContain("Close Grok");
   });
@@ -299,6 +304,7 @@ describe("the command list", () => {
 
     expect(shown).not.toContain("Stop Other");
     expect(shown).not.toContain("Cancel Other");
+    expect(shown).not.toContain("Export pack for Other");
   });
 
   it("offers Approve when a session has a proposed list", () => {
@@ -686,6 +692,25 @@ describe("running a command", () => {
     await vi.waitFor(() => expect(mergeSessionWorktree).toHaveBeenCalledWith("agent-1"));
 
     expect(useSessionStore.getState().sessions[0]?.worktreePath).toBeNull();
+  });
+
+  it("exports a pack with the capped transcript and closes the palette", async () => {
+    exportSessionPack.mockResolvedValue("/tmp/handoff-reviewer");
+    useUiStore.setState({ isPaletteOpen: true });
+    useSessionStore.setState({
+      sessions: [session({ id: "s1", title: "Reviewer", kind: "agent", paneId: null })],
+      transcript: { s1: [{ kind: "message", text: "hello from the agent" }] },
+    });
+
+    commands(project()).find((command) => command.id === "export-pack-s1")?.run();
+    await vi.waitFor(() => expect(exportSessionPack).toHaveBeenCalled());
+
+    expect(exportSessionPack).toHaveBeenCalledWith(
+      "s1",
+      expect.stringContaining("hello from the agent"),
+    );
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
+    expect(useSessionStore.getState().error).toBeNull();
   });
 
   it("allows the first wait as allow_once, never always", async () => {

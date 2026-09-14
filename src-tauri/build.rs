@@ -40,6 +40,7 @@ const APP_COMMANDS: &[&str] = &[
     "project_diff",
     "file_diff",
     "reveal_artifact",
+    "export_session_pack",
     "read_settings",
     "write_setting",
     "read_permission_policy",

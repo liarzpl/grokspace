@@ -5,6 +5,7 @@ mod diff;
 mod domain;
 mod error;
 mod graph;
+mod handoff;
 mod log;
 mod memory;
 mod policy;
@@ -127,6 +128,7 @@ pub fn run() {
             diff::project_diff,
             diff::file_diff,
             diff::reveal_artifact,
+            handoff::export_session_pack,
             settings::read_settings,
             settings::write_setting,
             policy::read_permission_policy,
