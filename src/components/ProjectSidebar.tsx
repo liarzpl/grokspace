@@ -69,6 +69,7 @@ export default function ProjectSidebar() {
                     <input
                       autoFocus
                       defaultValue={project.name}
+                      aria-label={`Rename ${project.name}`}
                       onBlur={(event) => commitRename(project, event.target.value)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") event.currentTarget.blur();

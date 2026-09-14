@@ -216,6 +216,7 @@ export default function TerminalPane({
           <input
             autoFocus
             defaultValue={session.title ?? ""}
+            aria-label={`Rename ${session.title ?? `pane ${Number(paneId) + 1}`}`}
             onBlur={(event) => commitRename(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") event.currentTarget.blur();

@@ -103,6 +103,7 @@ export default function AgentTranscript({ session }: { session: Session }) {
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            aria-label={`Follow up to ${session.title ?? "agent"}`}
             placeholder="Follow up…"
             className="min-w-0 flex-1 rounded-sm border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-ink outline-none placeholder:text-ink-faint selectable focus:border-accent"
           />

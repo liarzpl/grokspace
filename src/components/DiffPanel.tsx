@@ -156,6 +156,7 @@ function HunkPromptBar({
       <input
         type="text"
         value={sentence}
+        aria-label="Ask about this hunk"
         onChange={(event) => setSentence(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
