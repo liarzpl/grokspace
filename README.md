@@ -8,7 +8,8 @@ pane grid, and hand work to them from a Kanban board. Agents are teammates, not
 tools: they plan, code, and review while you stay in the loop.
 
 Everything runs on your machine. There is no mandatory cloud dependency and no
-telemetry; workspace state lives in `~/.grokspace`.
+telemetry; workspace state lives in `~/.grokspace`. Host and renderer errors are
+appended to `~/.grokspace/logs/grokspace.log` on this machine only.
 
 > **Status: Phase 5 done.** Projects, a multi-pane terminal grid, a live graph
 > per session, a task board that hands work to an agent, agents driven over ACP that
@@ -410,7 +411,12 @@ directory, so it is easy to inspect and back up:
 
 ```bash
 sqlite3 ~/.grokspace/grokspace.db '.tables'
+tail -n 50 ~/.grokspace/logs/grokspace.log
 ```
+
+Command failures, ErrorBoundary crashes, store banners, and failed pane
+attach/resize/emit land in that log. Typing into a session that has already
+exited does not. Nothing is uploaded.
 
 Migrations are an append-only list in
 [`src-tauri/src/db.rs`](src-tauri/src/db.rs), tracked with SQLite's

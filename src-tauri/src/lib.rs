@@ -5,6 +5,7 @@ mod diff;
 mod domain;
 mod error;
 mod graph;
+mod log;
 mod memory;
 mod program;
 mod project;
@@ -58,13 +59,19 @@ impl AppState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before the database: a failed open still has somewhere to land.
+    log::init();
+
     let connection =
         db::open_default().expect("failed to open the GrokSpace database in ~/.grokspace");
 
     // Terminal children do not survive the app, so anything the database still
     // believes is running is left over from the previous run.
     if let Err(error) = session::reconcile_on_start(&connection) {
-        eprintln!("could not reconcile sessions from the previous run: {error}");
+        log::error(
+            "startup",
+            &format!("could not reconcile sessions from the previous run: {error}"),
+        );
     }
 
     let app = tauri::Builder::default()
@@ -77,6 +84,7 @@ pub fn run() {
             steps: StepWatchers::new(),
         })
         .invoke_handler(tauri::generate_handler![
+            log::log_client_error,
             project::list_projects,
             project::open_project,
             project::update_project,

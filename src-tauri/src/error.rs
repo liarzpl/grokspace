@@ -45,10 +45,11 @@ impl Error {
 }
 
 /// The frontend receives errors as plain strings, so `invoke` rejections read as
-/// the same message the Rust side logs.
+/// the same message written to `~/.grokspace/logs/grokspace.log`.
 impl Serialize for Error {
     // Spelled out because the `Result` alias below shadows the std one.
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        crate::log::command_error(self);
         serializer.serialize_str(&self.to_string())
     }
 }

@@ -19,7 +19,7 @@ use std::time::UNIX_EPOCH;
 
 use notify::RecommendedWatcher;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Runtime, State};
 
 use crate::error::{Error, Result};
 use crate::skill::{Skill, SkillFile};
@@ -295,7 +295,7 @@ impl GraphWatchers {
         }
 
         let watcher = watch_dirs(&existing, move |change| {
-            let _ = app.emit(CHANGE_EVENT, change);
+            crate::log::emit(&app, CHANGE_EVENT, change);
         })?;
 
         let mut watchers = self.watchers.lock().map_err(|_| Error::StatePoisoned)?;

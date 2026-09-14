@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { logClientError } from "../lib/log";
 import { paint } from "../lib/theme";
 
 /**
@@ -29,6 +30,11 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error(error, info.componentStack);
+    const stack = info.componentStack ?? "";
+    logClientError(
+      "error-boundary",
+      stack === "" ? error.message : `${error.message}\n${stack}`,
+    );
     this.setState({ stack: info.componentStack ?? null });
   }
 

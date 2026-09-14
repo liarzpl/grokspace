@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { api } from "./api";
+import { clientErrorMessage, isQuietHostError, logClientError } from "./log";
 import { prefersReducedMotion } from "./motion";
 import { terminalTheme } from "./theme";
 
@@ -84,7 +85,10 @@ export function acquireTerminal(sessionId: string): PaneTerminal {
   term.onData((data) => {
     // Typing into a session that has already exited is expected; the exit event
     // is what tells the user about it, so the rejection is not worth surfacing.
-    void api.writeSession(sessionId, data).catch(() => {});
+    void api.writeSession(sessionId, data).catch((error) => {
+      if (isQuietHostError(error)) return;
+      logClientError("write", `${sessionId}: ${clientErrorMessage(error)}`);
+    });
   });
 
   const entry: PaneTerminal = { container, term, fit, opened: false, attached: false };
