@@ -11,6 +11,8 @@
  * be tested by asserting what was sent.
  */
 
+import type { PermissionPolicyRule } from "../types";
+
 export interface Role {
   /** Stored on the session, shown in its pane, and exported as GROKSPACE_SESSION_ROLE. */
   name: string;
@@ -90,6 +92,72 @@ export function rolesInPlay(sessions: readonly { role: string | null; status: st
 }
 
 /**
+ * Closed capability defaults. The role name titles the session; these rules
+ * are what actually narrow it. Deny suggestions and the brief only — the host
+ * does not auto-Deny a tool the agent already asked (that stalls ACP).
+ *
+ * There is no swarm-coordinator profile with write. Validator uses Reviewer.
+ */
+export interface RoleCapabilityProfile {
+  kind: "read" | "write" | "review";
+  /** One line appended to the brief. */
+  brief: string;
+  /** FEAT-014 globs. Deny wins. Never used to auto-answer. */
+  rules: readonly PermissionPolicyRule[];
+  /**
+   * Write-tool path prefixes this role may lease. `null` is any worktree path
+   * (Coder). Empty is none (Reviewer / Tester / Validator).
+   */
+  writePrefixes: readonly string[] | null;
+}
+
+const DENY_RM_MERGE: readonly PermissionPolicyRule[] = [
+  { action: "deny", pattern: "* rm*" },
+  { action: "deny", pattern: "rm *" },
+  { action: "deny", pattern: "*git merge*" },
+  { action: "deny", pattern: "* merge*" },
+  { action: "deny", pattern: "Merge *" },
+];
+
+const READ_PROFILE: RoleCapabilityProfile = {
+  kind: "read",
+  brief:
+    "Stay on read, graph, steps, and memory paths; do not write the project tree or merge.",
+  rules: DENY_RM_MERGE,
+  writePrefixes: [".grokspace/", "$GROKSPACE_"],
+};
+
+const WRITE_PROFILE: RoleCapabilityProfile = {
+  kind: "write",
+  brief: "You may write in the worktree; do not merge or run rm.",
+  rules: DENY_RM_MERGE,
+  writePrefixes: null,
+};
+
+const REVIEW_PROFILE: RoleCapabilityProfile = {
+  kind: "review",
+  brief: "Read and run tests; do not write the project tree, merge, or run rm.",
+  rules: DENY_RM_MERGE,
+  writePrefixes: [],
+};
+
+const CAPABILITY_BY_ROLE: Record<string, RoleCapabilityProfile> = {
+  Planner: READ_PROFILE,
+  Scout: READ_PROFILE,
+  Coder: WRITE_PROFILE,
+  Reviewer: REVIEW_PROFILE,
+  Tester: REVIEW_PROFILE,
+  Validator: REVIEW_PROFILE,
+};
+
+export function capabilityProfileFor(
+  roleName: string | null | undefined,
+): RoleCapabilityProfile | undefined {
+  if (roleName === null || roleName === undefined || roleName === "") return undefined;
+  return CAPABILITY_BY_ROLE[roleName];
+}
+
+/**
  * What a role's session is asked first.
  *
  * One line, for the same reason a dispatched task is: a newline submits in a TUI, so
@@ -103,7 +171,9 @@ export function rolesInPlay(sessions: readonly { role: string | null; status: st
  */
 export function briefPrompt(role: Role): string {
   const brief = role.brief.replace(/\s+/g, " ").trim();
-  return `${brief} Start by reading $GROKSPACE_MEMORY_FILE for what this project has already decided.`;
+  const capability = capabilityProfileFor(role.name)?.brief ?? "";
+  const cap = capability === "" ? "" : ` ${capability}`;
+  return `${brief}${cap} Start by reading $GROKSPACE_MEMORY_FILE for what this project has already decided.`;
 }
 
 /** Coder and Reviewer: the pipeline after a plan, not a second swarm. */

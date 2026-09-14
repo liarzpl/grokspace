@@ -5,6 +5,7 @@ import {
   grantSessionLease,
   leaseCanAutoAnswer,
   leaseLabel,
+  leaseMatches,
   matchSessionLease,
   proposedLease,
   resetSessionLeases,
@@ -80,6 +81,40 @@ describe("session lease match", () => {
     expect(
       matchSessionLease("s1", "Edit src/auth.ts", [{ id: "s1", status: "stopped" }]),
     ).toBeUndefined();
+  });
+});
+
+describe("role capability leases", () => {
+  beforeEach(() => {
+    resetSessionLeases();
+  });
+
+  it("lets a Coder lease match src/ and refuses Reviewer rm / merge / src writes", () => {
+    expect(proposedLease("Edit src/auth.ts", "Coder")).toEqual({ tool: "Edit", prefix: "src/" });
+    expect(grantSessionLease("coder", { tool: "Edit", prefix: "src/" }, "Coder")).toBe(true);
+    expect(leaseMatches({ tool: "Edit", prefix: "src/" }, "Edit src/lib/a.ts", "Coder")).toBe(true);
+
+    expect(proposedLease("Edit src/auth.ts", "Reviewer")).toBeNull();
+    expect(grantSessionLease("rev", { tool: "Edit", prefix: "src/" }, "Reviewer")).toBe(false);
+    expect(leaseMatches({ tool: "Edit", prefix: "src/" }, "Edit src/lib/a.ts", "Reviewer")).toBe(
+      false,
+    );
+    expect(leaseMatches({ tool: "Edit", prefix: "src/" }, "Bash rm -rf /tmp", "Reviewer")).toBe(
+      false,
+    );
+    expect(leaseMatches({ tool: "Edit", prefix: "src/" }, "git merge main", "Reviewer")).toBe(false);
+
+    expect(grantSessionLease("open", { tool: "Edit", prefix: "src/" })).toBe(true);
+    expect(
+      matchSessionLease("open", "Edit src/auth.ts", [
+        { id: "open", status: "running", role: "Reviewer" },
+      ]),
+    ).toBeUndefined();
+    expect(
+      matchSessionLease("open", "Edit src/auth.ts", [
+        { id: "open", status: "running", role: "Coder" },
+      ])?.prefix,
+    ).toBe("src/");
   });
 });
 

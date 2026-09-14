@@ -263,8 +263,8 @@ export function permissionModeFor(
   return phase === "proposed" ? "plan" : "ask";
 }
 
-function editClassLease(summary: string) {
-  const offer = proposedLease(summary);
+function editClassLease(summary: string, role?: string | null) {
+  const offer = proposedLease(summary, role);
   if (offer === null) return null;
   if (!EDIT_CLASS_TOOLS.has(offer.tool.toLowerCase())) return null;
   return offer;
@@ -926,14 +926,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   askPermission: (id, request) => {
     const state = get();
-    if (!state.sessions.some((session) => session.id === id)) return;
+    const row = state.sessions.find((session) => session.id === id);
+    if (row === undefined) return;
     const mode = permissionModeFor(
       useStepStore.getState().bySession[id]?.phase,
       state.permissionModes[id],
     );
-    const offer = mode === "acceptEdits" ? editClassLease(request.summary) : null;
+    const offer = mode === "acceptEdits" ? editClassLease(request.summary, row.role) : null;
     if (offer !== null && leaseCanAutoAnswer(request)) {
-      grantSessionLease(id, offer);
+      grantSessionLease(id, offer, row.role);
       void (async () => {
         try {
           await api.answerSessionPermission(id, request.requestId, true);

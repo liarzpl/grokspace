@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import type { PermissionOption, PermissionRequest, Task } from "../types";
-import { orphanedPermissionAlert, orphanedPermissions, permissionChips } from "./permissions";
+import {
+  decidePolicy,
+  orphanedPermissionAlert,
+  orphanedPermissions,
+  permissionChips,
+  policyGlobMatches,
+  roleDenySuggestion,
+  roleSuggestsDeny,
+} from "./permissions";
 
 function task(overrides: Partial<Task> = {}): Task {
   return {
@@ -131,5 +139,37 @@ describe("orphanedPermissionAlert", () => {
     expect(orphanedPermissionAlert([])).toBe("An agent needs permission");
     expect(orphanedPermissionAlert(["", "  "])).toBe("An agent needs permission");
     expect(orphanedPermissionAlert(["Planner", "Planner"])).toBe("Planner needs permission");
+  });
+});
+
+describe("FEAT-014 matcher", () => {
+  it("lets deny win and skips a bad glob instead of Always", () => {
+    const rules = [
+      { action: "allow-once-similar" as const, pattern: "Edit **" },
+      { action: "deny" as const, pattern: "Edit secrets/**" },
+      { action: "deny" as const, pattern: "* rm*" },
+    ];
+    expect(decidePolicy(rules, "Edit src/auth.ts")).toBe("allow-once-similar");
+    expect(decidePolicy(rules, "Edit secrets/token.env")).toBe("deny");
+    expect(decidePolicy(rules, "Bash rm -rf /tmp")).toBe("deny");
+    expect(policyGlobMatches("Edit src/[", "Edit src/auth.ts")).toBeNull();
+    expect(decidePolicy([{ action: "allow-once-similar", pattern: "Edit src/[" }], "Edit src/auth.ts")).toBe(
+      "ask",
+    );
+    expect(decidePolicy([{ action: "allow-once-similar", pattern: "*" }], "Edit a.ts")).toBe("ask");
+  });
+});
+
+describe("role capability suggestions", () => {
+  it("suggests Deny for Reviewer rm / merge / project-tree write, not for Coder src/", () => {
+    expect(roleSuggestsDeny("Reviewer", "Bash rm -rf /tmp")).toBe(true);
+    expect(roleSuggestsDeny("Reviewer", "git merge origin/main")).toBe(true);
+    expect(roleSuggestsDeny("Reviewer", "Edit src/auth.ts")).toBe(true);
+    expect(roleDenySuggestion("Reviewer", "Edit src/auth.ts")).toBe("Reviewer profile suggests Deny");
+    expect(roleSuggestsDeny("Coder", "Edit src/auth.ts")).toBe(false);
+    expect(roleDenySuggestion("Coder", "Edit src/auth.ts")).toBeNull();
+    expect(roleSuggestsDeny("Planner", "Edit .grokspace/graphs/s.json")).toBe(false);
+    expect(roleSuggestsDeny("Validator", "Write src/a.ts")).toBe(true);
+    expect(roleSuggestsDeny(null, "Edit src/auth.ts")).toBe(false);
   });
 });
