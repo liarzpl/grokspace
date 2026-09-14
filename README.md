@@ -456,7 +456,7 @@ JSON, phase, skill), the same shape as
 [`docs/graph-engineering.md`](docs/graph-engineering.md) for graphs.
 
 [`docs/grok-cli-integration.md`](docs/grok-cli-integration.md) records the
-verified `grok` CLI surface that Phases 1-3 build on, and
+verified `grok` CLI surface the app builds on, and
 [`docs/releasing.md`](docs/releasing.md) covers signing, notarizing and what to check
 the first time a real release runs.
 
