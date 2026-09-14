@@ -111,7 +111,8 @@ function isolationFrom(
   const next: Record<string, string> = {};
   for (const session of sessions) {
     if (isUnisolatedAgent(session)) {
-      next[session.id] = previous[session.id] ?? UNISOLATED_REASON;
+      const stored = session.isolationSkip?.trim();
+      next[session.id] = previous[session.id] ?? (stored ? stored : UNISOLATED_REASON);
     }
   }
   return next;
@@ -139,7 +140,7 @@ interface SessionState {
   transcript: Record<string, AgentUpdate[]>;
   /**
    * Why isolation failed, keyed by session. Live events fill the skip reason;
-   * reload derives the generic sentence from a live agent with a null path.
+   * reload prefers `session.isolationSkip`, then the generic sentence.
    */
   isolationReasons: Record<string, string>;
   isLoading: boolean;
