@@ -244,6 +244,12 @@ pub fn set_status(
         )?;
         return Ok(());
     }
+    // Stopped is terminal. A late ACP handshake Idle must not revive a child
+    // the waiter already marked dead — the same rule as `record_live_process`.
+    let current = get(conn, id)?;
+    if current.status == SessionStatus::Stopped {
+        return Ok(());
+    }
     conn.execute(
         "UPDATE sessions SET status = ?2, exit_code = ?3, updated_at = ?4 WHERE id = ?1",
         rusqlite::params![id, status.as_str(), exit_code, now_ms()],
@@ -565,22 +571,38 @@ fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
             };
             let state = status_app.state::<AppState>();
             let mut reviewed_project = None;
-            if let Ok(conn) = state.db.lock() {
-                // The exit code stays as it is: this is a change of what the agent
-                // is doing, not of whether its process is alive.
-                let _ = set_status(&conn, &status_id, status, None);
-                if status == SessionStatus::Idle {
-                    if let Ok(session) = get(&conn, &status_id) {
-                        if let Ok(project) = project::get(&conn, &session.project_id) {
-                            if let Ok(moved) =
-                                task::review_on_idle(&conn, &status_id, Path::new(&project.path))
-                            {
-                                reviewed_project =
-                                    moved.first().map(|task| task.project_id.clone());
+            let applied = if let Ok(conn) = state.db.lock() {
+                match get(&conn, &status_id) {
+                    // The process is gone, or the row already is. A late handshake
+                    // Idle must not write or emit and bring a dead agent back.
+                    Ok(current) if current.status == SessionStatus::Stopped => false,
+                    Err(_) => false,
+                    Ok(_) => {
+                        // The exit code stays as it is: this is a change of what
+                        // the agent is doing, not of whether its process is alive.
+                        let _ = set_status(&conn, &status_id, status, None);
+                        if status == SessionStatus::Idle {
+                            if let Ok(session) = get(&conn, &status_id) {
+                                if let Ok(project) = project::get(&conn, &session.project_id) {
+                                    if let Ok(moved) = task::review_on_idle(
+                                        &conn,
+                                        &status_id,
+                                        Path::new(&project.path),
+                                    ) {
+                                        reviewed_project =
+                                            moved.first().map(|task| task.project_id.clone());
+                                    }
+                                }
                             }
                         }
+                        true
                     }
                 }
+            } else {
+                false
+            };
+            if !applied {
+                return;
             }
             let _ = status_app.emit(
                 STATUS_EVENT,
@@ -1586,6 +1608,37 @@ mod tests {
         let reloaded = get(&conn, &session.id).unwrap();
         assert_eq!(reloaded.status, SessionStatus::Stopped);
         assert_eq!(reloaded.process_id, None);
+    }
+
+    #[test]
+    fn a_stopped_session_ignores_a_later_idle() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        set_status(&conn, &session.id, SessionStatus::Stopped, Some(0)).unwrap();
+
+        set_status(&conn, &session.id, SessionStatus::Idle, None).unwrap();
+        set_status(&conn, &session.id, SessionStatus::Running, None).unwrap();
+
+        let reloaded = get(&conn, &session.id).unwrap();
+        assert_eq!(reloaded.status, SessionStatus::Stopped);
+        assert_eq!(
+            reloaded.exit_code,
+            Some(0),
+            "a late status must not clear the exit code"
+        );
+    }
+
+    #[test]
+    fn record_live_process_does_not_revive_a_stopped_agent() {
+        let (conn, project_id) = fixture();
+        let session = insert(&conn, &project_id, None, SessionKind::Agent, "Agent", None).unwrap();
+        set_status(&conn, &session.id, SessionStatus::Stopped, Some(1)).unwrap();
+
+        record_live_process(&conn, &session.id, SessionKind::Agent, Some(99)).unwrap();
+
+        let reloaded = get(&conn, &session.id).unwrap();
+        assert_eq!(reloaded.status, SessionStatus::Stopped);
+        assert_eq!(reloaded.exit_code, Some(1));
     }
 
     #[test]
