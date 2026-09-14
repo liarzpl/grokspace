@@ -48,6 +48,9 @@ pub struct SpawnOptions {
     /// Extra variables for the child, on top of the terminal ones every session
     /// gets. This is how an agent learns which graph file is its own.
     pub env: Vec<(String, String)>,
+    /// Names dropped from the inherited environment. A shell session uses this
+    /// so `printenv` cannot read the host API key; grok and ACP keep theirs.
+    pub unset_env: Vec<String>,
     pub cols: u16,
     pub rows: u16,
 }
@@ -132,6 +135,9 @@ impl PtyManager {
         // colour nor cursor addressing.
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
+        for key in &options.unset_env {
+            command.env_remove(key);
+        }
         for (key, value) in &options.env {
             command.env(key, value);
         }
@@ -338,6 +344,14 @@ mod tests {
         }
 
         fn spawn_with_env(script: &str, env: Vec<(String, String)>) -> Self {
+            Self::spawn_configured(script, env, Vec::new())
+        }
+
+        fn spawn_configured(
+            script: &str,
+            env: Vec<(String, String)>,
+            unset_env: Vec<String>,
+        ) -> Self {
             let manager = PtyManager::new();
             let collector = Arc::new(Collector::default());
             let (tx, exits) = mpsc::channel();
@@ -351,6 +365,7 @@ mod tests {
                         args: vec!["-c".into(), script.into()],
                         cwd: std::env::temp_dir(),
                         env,
+                        unset_env,
                         cols: 80,
                         rows: 24,
                     },
@@ -421,6 +436,33 @@ mod tests {
     }
 
     #[test]
+    fn unset_env_drops_an_inherited_secret_from_the_child() {
+        // Shell panes inherit the app process; they must not also inherit the
+        // host API key. A dummy name keeps this off `XAI_API_KEY` so parallel
+        // tests cannot race the real one.
+        let key = "GROKSPACE_TEST_SECRET";
+        let previous = std::env::var_os(key);
+        std::env::set_var(key, "should-not-leak");
+        let fixture = Fixture::spawn_configured(
+            r#"printf 'key:%s' "${GROKSPACE_TEST_SECRET-}" ; printf '|done'"#,
+            Vec::new(),
+            vec![key.into()],
+        );
+
+        fixture.wait_for_output("|done");
+        match previous {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+
+        let text = fixture.collector.text();
+        assert!(
+            !text.contains("should-not-leak"),
+            "the child must not see the stripped key, got: {text:?}"
+        );
+    }
+
+    #[test]
     fn input_written_to_the_session_reaches_the_child() {
         let fixture = Fixture::spawn("read line; printf 'echoed:%s' \"$line\"");
 
@@ -483,6 +525,7 @@ mod tests {
                     args: vec!["-c".into(), "printf 'printed-before-attach'".into()],
                     cwd: std::env::temp_dir(),
                     env: Vec::new(),
+                    unset_env: Vec::new(),
                     cols: 80,
                     rows: 24,
                 },
@@ -518,6 +561,7 @@ mod tests {
                     args: vec!["-c".into(), "sleep 30".into()],
                     cwd: std::env::temp_dir(),
                     env: Vec::new(),
+                    unset_env: Vec::new(),
                     cols: 80,
                     rows: 24,
                 },
@@ -551,6 +595,7 @@ mod tests {
                     args: vec![],
                     cwd: std::env::temp_dir(),
                     env: Vec::new(),
+                    unset_env: Vec::new(),
                     cols: 80,
                     rows: 24,
                 },

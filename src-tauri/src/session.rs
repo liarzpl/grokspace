@@ -454,6 +454,25 @@ fn session_env(project_path: &Path, session_id: &str) -> Vec<(String, String)> {
     ]
 }
 
+/// Host credential names a login shell must not inherit. Grok TUI and ACP
+/// children still see them: those processes are the ones that call the API.
+const SHELL_UNSET_ENV: &[&str] = &[
+    "XAI_API_KEY",
+    "GROK_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+];
+
+fn env_to_unset(kind: SessionKind) -> Vec<String> {
+    match kind {
+        SessionKind::Shell => SHELL_UNSET_ENV
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect(),
+        SessionKind::Grok | SessionKind::Agent => Vec::new(),
+    }
+}
+
 /// The role a session was started as, for a skill or a hook to read.
 ///
 /// Kept out of `session_env` because that one is derived from the project and the
@@ -733,6 +752,7 @@ fn start(app: &AppHandle, state: &State<'_, AppState>, request: StartRequest) ->
                 program,
                 args,
                 env,
+                unset_env: env_to_unset(request.kind),
                 cwd,
                 cols: request.cols,
                 rows: request.rows,
@@ -1481,6 +1501,14 @@ mod tests {
                 .expect("the graph file should be exported")
         };
         assert_ne!(graph_file(&first), graph_file(&second));
+    }
+
+    #[test]
+    fn a_shell_unsets_the_host_api_key_and_agents_do_not() {
+        let unset = env_to_unset(SessionKind::Shell);
+        assert!(unset.iter().any(|name| name == "XAI_API_KEY"));
+        assert!(env_to_unset(SessionKind::Grok).is_empty());
+        assert!(env_to_unset(SessionKind::Agent).is_empty());
     }
 
     #[test]

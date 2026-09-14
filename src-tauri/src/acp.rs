@@ -457,6 +457,8 @@ impl AcpManager {
         callbacks: Callbacks,
         timeout: Duration,
     ) -> Result<Option<u32>> {
+        // Parent env is inherited on purpose: `grok agent` reads `XAI_API_KEY`.
+        // Shell panes strip that key in the pty layer; this path must not.
         let mut child = Command::new(&options.program)
             .args(["agent", "stdio"])
             .current_dir(&options.cwd)
