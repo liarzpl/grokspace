@@ -3,6 +3,8 @@ import { invoke, type Channel } from "@tauri-apps/api/core";
 import type {
   DiffState,
   EdgesSnapshot,
+  FolderTrust,
+  FolderTrustDecision,
   GraphSnapshot,
   MemoryEntry,
   MemoryEntryType,
@@ -57,8 +59,14 @@ export const api = {
 
   touchProject: (id: string): Promise<Project> => invoke<Project>("touch_project", { id }),
 
-  /** Forgets the project. Nothing on disk is deleted. */
+  /** Forgets the project. Nothing on disk is deleted. Folder trust stays. */
   removeProject: (id: string): Promise<void> => invoke<void>("remove_project", { id }),
+
+  projectTrust: (id: string): Promise<FolderTrust> => invoke<FolderTrust>("project_trust", { id }),
+
+  /** Deny / Trust once / Trust this folder. Only `folder` is written to ~/.grokspace. */
+  setProjectTrust: (id: string, decision: FolderTrustDecision): Promise<FolderTrust> =>
+    invoke<FolderTrust>("set_project_trust", { id, decision }),
 
   listSessions: (projectId: string): Promise<Session[]> =>
     invoke<Session[]>("list_sessions", { projectId }),

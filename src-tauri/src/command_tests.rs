@@ -71,6 +71,7 @@ impl CommandApp {
                 acp: acp::AcpManager::new(),
                 graphs: GraphWatchers::new(),
                 steps: StepWatchers::new(),
+                folder_trust: std::sync::Mutex::new(project::FolderTrustSession::default()),
             })
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("mock AppHandle");
@@ -319,6 +320,8 @@ fn create_session_refuses_when_worktree_setup_fails() {
         let state = app.state();
         let conn = state.db.lock().expect("db");
         crate::settings::put(&conn, "runWorktreeSetup", "on").unwrap();
+        let project = crate::project::get(&conn, &app.project_id).unwrap();
+        crate::project::persist_folder_trust(&conn, &project.path).unwrap();
     }
     let _override = OverrideLaunch::missing();
 
@@ -343,6 +346,38 @@ fn create_session_refuses_when_worktree_setup_fails() {
     assert!(
         worktree_dirs(&app.project_path).is_empty(),
         "a failed setup must not leave a silent tree"
+    );
+}
+
+#[test]
+fn create_session_does_not_run_setup_when_folder_untrusted() {
+    let app = CommandApp::with_git_repo();
+    let grokspace = app.project_path.join(".grokspace");
+    std::fs::create_dir_all(&grokspace).unwrap();
+    std::fs::write(
+        grokspace.join("worktree-setup"),
+        "#!/bin/sh\necho boom\nexit 7\n",
+    )
+    .unwrap();
+    {
+        let state = app.state();
+        let conn = state.db.lock().expect("db");
+        crate::settings::put(&conn, "runWorktreeSetup", "on").unwrap();
+    }
+    let _override = OverrideLaunch::missing();
+
+    let error = app
+        .create(new_session(&app.project_id, "agent", None))
+        .expect_err("spawn still fails after isolation");
+
+    let text = error.to_string();
+    assert!(
+        text.contains("could not start"),
+        "untrusted must skip setup, not fail isolation: {text}"
+    );
+    assert!(
+        !text.contains("worktree setup"),
+        "untrusted open must not run setup: {text}"
     );
 }
 

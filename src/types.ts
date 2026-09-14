@@ -57,6 +57,10 @@ export interface Project {
   createdAt: number;
 }
 
+/** First-open trust for setup scripts and project hooks. Only `folder` persists. */
+export type FolderTrust = "unknown" | "denied" | "once" | "folder";
+export type FolderTrustDecision = Exclude<FolderTrust, "unknown">;
+
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Task {
@@ -311,7 +315,8 @@ export interface Settings {
   defaultDispatch: DispatchTarget;
   /**
    * Run `<project>/.grokspace/worktree-setup` (or `setup` in `worktrees.json`)
-   * after a fresh isolated checkout. Off by default — a script is code.
+   * after a fresh isolated checkout. Off by default — a script is code. The
+   * folder must also be trusted.
    */
   runWorktreeSetup: RunWorktreeSetup;
 }

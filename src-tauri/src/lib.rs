@@ -57,6 +57,7 @@ pub struct AppState {
     pub acp: AcpManager,
     pub graphs: GraphWatchers,
     pub steps: StepWatchers,
+    pub folder_trust: Mutex<project::FolderTrustSession>,
 }
 
 impl AppState {
@@ -92,6 +93,7 @@ pub fn run() {
             acp: AcpManager::new(),
             graphs: GraphWatchers::new(),
             steps: StepWatchers::new(),
+            folder_trust: Mutex::new(project::FolderTrustSession::default()),
         })
         .invoke_handler(tauri::generate_handler![
             log::log_client_error,
@@ -100,6 +102,8 @@ pub fn run() {
             project::update_project,
             project::touch_project,
             project::remove_project,
+            project::project_trust,
+            project::set_project_trust,
             session::list_sessions,
             session::create_session,
             session::attach_session,
@@ -177,6 +181,7 @@ mod tests {
             acp: AcpManager::new(),
             graphs: GraphWatchers::new(),
             steps: StepWatchers::new(),
+            folder_trust: Mutex::new(project::FolderTrustSession::default()),
         }
     }
 

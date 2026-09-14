@@ -15,6 +15,7 @@ import { openInboxItem } from "../lib/commands";
 import { sessionChipA11yLabel, sessionStatusPhrase } from "../lib/statusText";
 import { moveSegmented } from "../lib/segmented";
 import { sessionIdKey, sessionIdsFromKey } from "../lib/sessionSidecars";
+import { useProjectStore } from "../stores/projectStore";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useEntriesForProject, useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -255,6 +256,36 @@ function DoomLoopBanner({ projectId }: { projectId: string }) {
           />
         </div>
       ))}
+    </div>
+  );
+}
+
+function FolderTrustBanner({ projectId }: { projectId: string }) {
+  const decision = useProjectStore((state) => state.folderTrust[projectId]);
+  const loadFolderTrust = useProjectStore((state) => state.loadFolderTrust);
+  const setFolderTrust = useProjectStore((state) => state.setFolderTrust);
+
+  useEffect(() => {
+    void loadFolderTrust(projectId);
+  }, [projectId, loadFolderTrust]);
+
+  if (decision !== "unknown") return null;
+
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 items-start gap-3 border-b border-warning/40 bg-warning/10 px-4 py-2"
+    >
+      <p className="min-w-0 flex-1 text-[11px] leading-snug text-ink-muted">
+        Trust this folder for setup scripts and project hooks
+      </p>
+      <QuietButton label="Deny" title="Keep setup and project hooks off" onClick={() => void setFolderTrust(projectId, "denied")} />
+      <QuietButton label="Trust once" title="Allow setup and hooks until quit" onClick={() => void setFolderTrust(projectId, "once")} />
+      <QuietButton
+        label="Trust this folder"
+        title="Remember this path in ~/.grokspace"
+        onClick={() => void setFolderTrust(projectId, "folder")}
+      />
     </div>
   );
 }
@@ -629,6 +660,7 @@ export default function WorkspaceShell({ project }: { project: Project }) {
         {tab === "memory" && <MemorySummary projectId={project.id} />}
       </header>
 
+      <FolderTrustBanner projectId={project.id} />
       <IsolationBanner projectId={project.id} />
       <DoomLoopBanner projectId={project.id} />
       <OrphanedPermissionBanner projectId={project.id} />

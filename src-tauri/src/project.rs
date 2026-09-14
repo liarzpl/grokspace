@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row};
@@ -343,6 +344,130 @@ pub(crate) fn remove_and_stop_sessions(state: &AppState, id: &str) -> Result<()>
     }
     let conn = state.db.lock().map_err(|_| Error::StatePoisoned)?;
     remove(&conn, id)
+}
+
+/// First-open trust for setup scripts and project hooks. Only `folder` is
+/// persisted (canonical path in `trusted_folders`). Forgetting a project keeps it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FolderTrust {
+    #[default]
+    Unknown,
+    Denied,
+    Once,
+    Folder,
+}
+
+/// Process-only Deny / Trust once answers. Folder rows live in SQLite.
+#[derive(Debug, Default)]
+pub struct FolderTrustSession {
+    once: HashSet<String>,
+    denied: HashSet<String>,
+}
+
+/// Setup scripts and project hooks (FEAT-007 / 038 / 039) run only for these.
+pub fn allows_project_hooks(trust: FolderTrust) -> bool {
+    matches!(trust, FolderTrust::Once | FolderTrust::Folder)
+}
+
+pub fn setup_may_run(conn: &Connection, session: &FolderTrustSession, path: &str) -> bool {
+    allows_project_hooks(trust_of(conn, session, path).unwrap_or_default())
+}
+
+pub fn trust_of(
+    conn: &Connection,
+    session: &FolderTrustSession,
+    path: &str,
+) -> Result<FolderTrust> {
+    if folder_is_trusted(conn, path)? {
+        return Ok(FolderTrust::Folder);
+    }
+    if session.once.contains(path) {
+        return Ok(FolderTrust::Once);
+    }
+    if session.denied.contains(path) {
+        return Ok(FolderTrust::Denied);
+    }
+    Ok(FolderTrust::Unknown)
+}
+
+fn folder_is_trusted(conn: &Connection, path: &str) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM trusted_folders WHERE path = ?1",
+            [path],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+pub fn persist_folder_trust(conn: &Connection, path: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO trusted_folders (path, trusted_at) VALUES (?1, ?2)
+         ON CONFLICT (path) DO UPDATE SET trusted_at = excluded.trusted_at",
+        rusqlite::params![path, now_ms()],
+    )?;
+    Ok(())
+}
+
+fn decide_trust(
+    conn: &Connection,
+    session: &mut FolderTrustSession,
+    project_id: &str,
+    decision: FolderTrust,
+) -> Result<FolderTrust> {
+    if !matches!(
+        decision,
+        FolderTrust::Denied | FolderTrust::Once | FolderTrust::Folder
+    ) {
+        return Err(Error::Invalid(
+            "trust must be Deny, Trust once, or Trust this folder".into(),
+        ));
+    }
+    let project = get(conn, project_id)?;
+    match decision {
+        FolderTrust::Folder => persist_folder_trust(conn, &project.path)?,
+        FolderTrust::Once => {
+            session.denied.remove(&project.path);
+            session.once.insert(project.path.clone());
+        }
+        FolderTrust::Denied => {
+            session.once.remove(&project.path);
+            session.denied.insert(project.path.clone());
+        }
+        FolderTrust::Unknown => {}
+    }
+    trust_of(conn, session, &project.path)
+}
+
+/// Whether this project's folder may run setup scripts and project hooks.
+#[tauri::command]
+pub fn project_trust(state: State<'_, AppState>, id: String) -> Result<FolderTrust> {
+    state.with_db(|conn| {
+        let project = get(conn, &id)?;
+        let session = state
+            .folder_trust
+            .lock()
+            .map_err(|_| Error::StatePoisoned)?;
+        trust_of(conn, &session, &project.path)
+    })
+}
+
+/// Deny, Trust once, or Trust this folder. Only `folder` is written to disk.
+#[tauri::command]
+pub fn set_project_trust(
+    state: State<'_, AppState>,
+    id: String,
+    decision: FolderTrust,
+) -> Result<FolderTrust> {
+    state.with_db(|conn| {
+        let mut session = state
+            .folder_trust
+            .lock()
+            .map_err(|_| Error::StatePoisoned)?;
+        decide_trust(conn, &mut session, &id, decision)
+    })
 }
 
 #[cfg(test)]
@@ -733,6 +858,7 @@ mod tests {
             acp: crate::acp::AcpManager::new(),
             graphs: crate::graph::GraphWatchers::new(),
             steps: crate::steps::StepWatchers::new(),
+            folder_trust: std::sync::Mutex::new(FolderTrustSession::default()),
         };
 
         remove_and_stop_sessions(&state, &project.id).unwrap();
@@ -747,5 +873,45 @@ mod tests {
             !graph_file.exists(),
             "close deletes the graph; a cascade-only forget would leave it"
         );
+    }
+
+    #[test]
+    fn folder_trust_gates_hooks_and_persists_only_trust_this_folder() {
+        let conn = conn();
+        let project = upsert_by_path(&conn, "/tmp/trusted-acme", "acme").unwrap();
+        let mut session = FolderTrustSession::default();
+        assert!(!allows_project_hooks(FolderTrust::Unknown));
+        assert!(!allows_project_hooks(FolderTrust::Denied));
+        assert!(!setup_may_run(&conn, &session, &project.path));
+
+        assert_eq!(
+            decide_trust(&conn, &mut session, &project.id, FolderTrust::Once).unwrap(),
+            FolderTrust::Once
+        );
+        assert!(setup_may_run(&conn, &session, &project.path));
+        assert!(!setup_may_run(
+            &conn,
+            &FolderTrustSession::default(),
+            &project.path
+        ));
+
+        assert_eq!(
+            decide_trust(&conn, &mut session, &project.id, FolderTrust::Denied).unwrap(),
+            FolderTrust::Denied
+        );
+        assert!(!setup_may_run(&conn, &session, &project.path));
+        assert!(decide_trust(&conn, &mut session, &project.id, FolderTrust::Unknown).is_err());
+
+        assert_eq!(
+            decide_trust(&conn, &mut session, &project.id, FolderTrust::Folder).unwrap(),
+            FolderTrust::Folder
+        );
+        assert!(setup_may_run(
+            &conn,
+            &FolderTrustSession::default(),
+            &project.path
+        ));
+        remove(&conn, &project.id).unwrap();
+        assert!(folder_is_trusted(&conn, &project.path).unwrap());
     }
 }
