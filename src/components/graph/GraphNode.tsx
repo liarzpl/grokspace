@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 
 import type { FlowDirection, GraphNode, GraphNodeType, NodeStatus } from "../../lib/graph";
@@ -51,7 +52,7 @@ export const STATUS_META: Record<NodeStatus, { label: string; border: string; do
   skipped: { label: "Skipped", border: "border-line", dot: "bg-ink-faint" },
 };
 
-export default function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNode>) {
+function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNode>) {
   const { node, direction } = data;
   const type = TYPE_META[node.type] ?? TYPE_META.agent;
   const status = STATUS_META[node.status] ?? STATUS_META.pending;
@@ -108,3 +109,5 @@ export default function GraphNodeCard({ data, selected }: NodeProps<GraphFlowNod
     </>
   );
 }
+
+export default memo(GraphNodeCard);

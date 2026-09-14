@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useState, type KeyboardEvent } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
@@ -102,7 +103,7 @@ function sessionLabel(session: Session): string {
  * Agents have no pane, so Stop and Close live here (and in the palette) rather
  * than only on a terminal header that will never exist for them.
  */
-function SessionChip({
+const SessionChip = memo(function SessionChip({
   session,
   active,
   onClick,
@@ -189,7 +190,7 @@ function SessionChip({
       )}
     </div>
   );
-}
+});
 
 /**
  * Allow/Deny for agents that no task card owns. Swarm launches and palette-started
@@ -200,9 +201,14 @@ function SessionChip({
  * reload still shows it; the live skip reason is extra, not the only path.
  */
 function IsolationBanner({ projectId }: { projectId: string }) {
-  const sessions = useSessionsForProject(projectId);
+  const unisolated = useSessionStore(
+    useShallow((state) =>
+      state.sessions.filter(
+        (session) => session.projectId === projectId && isUnisolatedAgent(session),
+      ),
+    ),
+  );
   const reasons = useSessionStore((state) => state.isolationReasons);
-  const unisolated = sessions.filter(isUnisolatedAgent);
   if (unisolated.length === 0) return null;
 
   return (

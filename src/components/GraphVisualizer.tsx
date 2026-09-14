@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -183,6 +183,9 @@ function GraphCanvas({
   const direction = useMemo(() => inferDirection(graph.nodes), [graph.nodes]);
   const reduceMotion = prefersReducedMotion();
 
+  // Selection stays out of this memo: putting `selectedId` here rebuilt every
+  // React Flow node on a click. The inspector still uses `selectedId`; the ring
+  // is React Flow's own selection.
   const nodes = useMemo<GraphFlowNode[]>(
     () =>
       graph.nodes.map((node) => ({
@@ -192,9 +195,8 @@ function GraphCanvas({
         width: NODE_WIDTH,
         height: NODE_HEIGHT,
         data: { node, direction },
-        selected: node.id === selectedId,
       })),
-    [graph.nodes, direction, selectedId],
+    [graph.nodes, direction],
   );
 
   const edges = useMemo<Edge[]>(
@@ -219,7 +221,11 @@ function GraphCanvas({
   // closes the inspector on its own.
   const selected = graph.nodes.find((node) => node.id === selectedId) ?? null;
 
-  const onNodeClick: NodeMouseHandler = (_event, node) => setSelectedId(node.id);
+  const onNodeClick = useCallback<NodeMouseHandler>((_event, node) => {
+    setSelectedId(node.id);
+  }, []);
+
+  const onPaneClick = useCallback(() => setSelectedId(null), []);
 
   const notes = graph.state?.notes;
   const footer = [...(notes !== undefined ? [notes] : []), ...warnings];
@@ -248,7 +254,7 @@ function GraphCanvas({
               nodesConnectable={false}
               edgesFocusable={false}
               onNodeClick={onNodeClick}
-              onPaneClick={() => setSelectedId(null)}
+              onPaneClick={onPaneClick}
               // Bottom-left holds the controls and bottom-right the minimap.
               attributionPosition="bottom-center"
               className="bg-canvas"

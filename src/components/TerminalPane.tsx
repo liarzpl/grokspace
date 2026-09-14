@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 
 import { api } from "../lib/api";
 import { isKeyboardClick } from "../lib/keyboardClick";
@@ -190,7 +190,7 @@ function TerminalSurface({ session }: { session: Session }) {
   );
 }
 
-export default function TerminalPane({
+function TerminalPane({
   paneId,
   projectId,
   session,
@@ -313,4 +313,5 @@ export default function TerminalPane({
   );
 }
 
+export default memo(TerminalPane);
 export { TerminalPane };

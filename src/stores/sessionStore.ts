@@ -646,6 +646,18 @@ export function sessionForPane(sessions: Session[], paneId: string): Session | u
 }
 
 /**
+ * The session in one pane. Selects the store object itself, so a status tick
+ * on another pane does not rebuild this one (`Object.is` stays true).
+ */
+export function useSessionForPane(projectId: string, paneId: string): Session | undefined {
+  return useSessionStore((state) =>
+    state.sessions.find(
+      (session) => session.projectId === projectId && session.paneId === paneId,
+    ),
+  );
+}
+
+/**
  * Sessions that belong to this project. The store can still hold the previous
  * project's list until `loadSessions` returns; anything that draws panes or
  * rails has to filter, or a reused pane id shows the last project's session.
