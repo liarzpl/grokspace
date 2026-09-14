@@ -220,6 +220,18 @@ export interface GraphSnapshot {
   updatedAt: number | null;
 }
 
+/**
+ * The project's cross-session edges file. JSON is handed over unparsed:
+ * `lib/edges.ts` decides what a usable document is. Not a session graph.
+ */
+export interface EdgesSnapshot {
+  path: string;
+  exists: boolean;
+  json: string | null;
+  tooLarge: boolean;
+  updatedAt: number | null;
+}
+
 /** What happened to one file, in the words `git status` uses. */
 export type FileChange = "added" | "modified" | "deleted" | "renamed" | "untracked";
 

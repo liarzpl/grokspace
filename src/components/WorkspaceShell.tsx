@@ -32,6 +32,7 @@ import MemoryPanel from "./MemoryPanel";
 import PaneGrid, { LayoutPicker } from "./PaneGrid";
 import { PermissionActions } from "./PermissionActions";
 import SessionSteps from "./SessionSteps";
+import EdgesOverlay from "./graph/EdgesOverlay";
 import { QuietButton } from "./ui";
 
 const GraphVisualizer = lazy(() => import("./GraphVisualizer"));
@@ -422,10 +423,12 @@ function AttentionInbox({
  * and the one on screen is whichever session is selected.
  */
 function GraphTab({
+  projectId,
   sessions,
   selected,
   onSelect,
 }: {
+  projectId: string;
   sessions: Session[];
   selected: Session | undefined;
   onSelect: (sessionId: string) => void;
@@ -444,6 +447,12 @@ function GraphTab({
           ))}
         </div>
       )}
+      <EdgesOverlay
+        projectId={projectId}
+        sessionId={selected?.id}
+        sessions={sessions}
+        onSelectSession={onSelect}
+      />
 
       <div className="flex min-h-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -648,7 +657,12 @@ export default function WorkspaceShell({ project }: { project: Project }) {
           aria-labelledby="workspace-tab-graph"
           className="flex min-h-0 flex-1 flex-col"
         >
-          <GraphTab sessions={sessions} selected={graphSession} onSelect={selectGraph} />
+          <GraphTab
+            projectId={project.id}
+            sessions={sessions}
+            selected={graphSession}
+            onSelect={selectGraph}
+          />
         </div>
       )}
       {tab === "tasks" && (
