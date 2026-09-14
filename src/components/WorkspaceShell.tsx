@@ -4,6 +4,12 @@ import { statusTally, type GraphNode, type GraphStatus } from "../lib/graph";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
 import { homeRelative } from "../lib/paths";
 import { orphanedPermissions } from "../lib/permissions";
+import {
+  scheduleIdle,
+  sessionIdKey,
+  sessionIdsFromKey,
+  sidecarLoadPlan,
+} from "../lib/sessionSidecars";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useMemoryStore } from "../stores/memoryStore";
 import { TABS, useUiStore } from "../stores/uiStore";
@@ -370,18 +376,30 @@ export default function WorkspaceShell({ project }: { project: Project }) {
     void loadMemory(project.id);
   }, [project.id, loadMemory]);
 
-  // Read every session's graph up front, not just the one on screen: the chips
-  // here and the dot on each pane's switch are how a plan waiting in another
-  // terminal gets noticed at all. Joined into a string so this depends on which
-  // sessions exist rather than on the array, which a status change replaces.
-  const sessionIds = sessions.map((session) => session.id).join(" ");
+  // Visible chips/panes first; the rest after idle. Joined on NUL so this
+  // depends on which sessions exist rather than on the array, which a status
+  // change replaces, and so an id that contained a space could not split.
+  const sessionKey = sessionIdKey(sessions.map((session) => session.id));
+  const paneKey = sessionIdKey(
+    sessions
+      .filter((session) => session.paneId !== null)
+      .map((session) => session.id),
+  );
   useEffect(() => {
-    for (const id of sessionIds.split(" ").filter(Boolean)) void loadGraph(id);
-  }, [sessionIds, loadGraph]);
-
-  useEffect(() => {
-    void syncSteps(sessionIds.split(" ").filter(Boolean));
-  }, [sessionIds, syncSteps]);
+    const sessionIds = sessionIdsFromKey(sessionKey);
+    const plan = sidecarLoadPlan({
+      sessionIds,
+      paneSessionIds: sessionIdsFromKey(paneKey),
+      tab,
+      selectedGraphId,
+    });
+    for (const id of plan.immediate) void loadGraph(id);
+    void syncSteps(sessionIds, plan.immediate);
+    const cancel = scheduleIdle(() => {
+      for (const id of plan.deferred) void loadGraph(id);
+    });
+    return cancel;
+  }, [sessionKey, paneKey, tab, selectedGraphId, loadGraph, syncSteps]);
 
   useEffect(() => {
     // Watching is what makes the graphs live. The backend keeps one watch per

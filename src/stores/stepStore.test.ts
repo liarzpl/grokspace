@@ -126,6 +126,25 @@ describe("syncSessions", () => {
     expect(Object.keys(useStepStore.getState().bySession)).toEqual(["s2"]);
   });
 
+  it("loads urgent sessions now and the rest after idle", async () => {
+    vi.stubGlobal("requestIdleCallback", undefined);
+    vi.useFakeTimers();
+    listSessionSteps.mockImplementation((id: string) =>
+      Promise.resolve(snapshot({ sessionId: id, steps: [] })),
+    );
+
+    const done = useStepStore.getState().syncSessions(["s1", "s2"], ["s1"]);
+    await done;
+
+    expect(listSessionSteps).toHaveBeenCalledWith("s1");
+    expect(listSessionSteps).not.toHaveBeenCalledWith("s2");
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listSessionSteps).toHaveBeenCalledWith("s2");
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
   it("lets the later sync win when two complete out of order", async () => {
     let resolveFirst: (value: SessionSteps) => void = () => {};
     listSessionSteps.mockImplementation((id: string) => {
