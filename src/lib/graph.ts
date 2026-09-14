@@ -347,3 +347,81 @@ export function statusTally(nodes: GraphNode[]): Record<NodeStatus, number> {
   for (const node of nodes) tally[node.status] += 1;
   return tally;
 }
+
+/**
+ * Host lock of graph node labels at Build. This is not a field on the agent's
+ * file and must not be written back into `$GROKSPACE_GRAPH_FILE`.
+ */
+export interface GraphTitleStamp {
+  titles: Readonly<Record<string, string>>;
+}
+
+export function stampGraphTitles(graph: GraphDocument): GraphTitleStamp {
+  const titles: Record<string, string> = {};
+  for (const node of graph.nodes) titles[node.id] = node.label;
+  return { titles };
+}
+
+/**
+ * After Build, ingest keeps stamped titles. Status and the rest of the node may
+ * move. New or rewritten titles are a revise-plan signal; they do not replace
+ * the stamp.
+ */
+export function ingestLockedGraph(
+  incoming: GraphDocument,
+  stamp: GraphTitleStamp,
+): { graph: GraphDocument; revisedTitles: boolean } {
+  const incomingIds = new Set<string>();
+  let revisedTitles = false;
+  let labelsMoved = false;
+
+  const nodes = incoming.nodes.map((node) => {
+    incomingIds.add(node.id);
+    const locked = stamp.titles[node.id];
+    if (locked === undefined) {
+      revisedTitles = true;
+      return node;
+    }
+    if (node.label === locked) return node;
+    revisedTitles = true;
+    labelsMoved = true;
+    return { ...node, label: locked };
+  });
+
+  for (const id of Object.keys(stamp.titles)) {
+    if (!incomingIds.has(id)) revisedTitles = true;
+  }
+
+  return {
+    graph: labelsMoved ? { ...incoming, nodes } : incoming,
+    revisedTitles,
+  };
+}
+
+/** First lock wins so a later drifted file cannot restamp. */
+const titleStamps = new Map<string, GraphTitleStamp>();
+
+export function graphTitleStampFor(sessionId: string): GraphTitleStamp | undefined {
+  return titleStamps.get(sessionId);
+}
+
+export function lockGraphTitles(
+  sessionId: string,
+  graph: GraphDocument | null,
+): GraphTitleStamp | undefined {
+  const existing = titleStamps.get(sessionId);
+  if (existing !== undefined) return existing;
+  if (graph === null) return undefined;
+  const stamp = stampGraphTitles(graph);
+  titleStamps.set(sessionId, stamp);
+  return stamp;
+}
+
+export function unlockGraphTitles(sessionId: string): void {
+  titleStamps.delete(sessionId);
+}
+
+/** Drops every session stamp. Tests only. */
+export function resetGraphTitleStamps(): void {
+  titleStamps.clear();
+}

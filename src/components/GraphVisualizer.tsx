@@ -11,7 +11,16 @@ import {
 } from "@xyflow/react";
 
 import { errorMessage } from "../lib/api";
-import { inferDirection, type GraphDocument, type GraphNode } from "../lib/graph";
+import {
+  graphTitleStampFor,
+  inferDirection,
+  ingestLockedGraph,
+  lockGraphTitles,
+  unlockGraphTitles,
+  type GraphDocument,
+  type GraphNode,
+  type GraphTitleStamp,
+} from "../lib/graph";
 import { prefersReducedMotion } from "../lib/motion";
 import { askForGraph, canAskForGraph } from "../lib/graphAsk";
 import {
@@ -23,6 +32,7 @@ import { homeRelative } from "../lib/paths";
 import { graphNodeA11yLabel, nodeStatusLabel } from "../lib/statusText";
 import { graphFor, useGraphStore } from "../stores/graphStore";
 import { useSessionStore } from "../stores/sessionStore";
+import { stepsFor, useStepStore } from "../stores/stepStore";
 import type { Session } from "../types";
 import GraphNodeCard, {
   NODE_HEIGHT,
@@ -248,11 +258,15 @@ function GraphCanvas({
   warnings,
   compact,
   session,
+  revisedTitles,
+  onReopenSpec,
 }: {
   graph: GraphDocument;
   warnings: string[];
   compact: boolean;
   session: Session;
+  revisedTitles: boolean;
+  onReopenSpec: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -320,7 +334,19 @@ function GraphCanvas({
   const footer = [...(notes !== undefined ? [notes] : []), ...warnings];
 
   return (
-    <div className="relative flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {revisedTitles && (
+        <div
+          role="status"
+          className="flex shrink-0 items-center gap-2 border-b border-line bg-panel px-3 py-1.5"
+        >
+          <p className="min-w-0 flex-1 text-[11px] leading-snug text-ink-muted">
+            Graph titles changed after Build. Reopen Spec to revise the plan.
+          </p>
+          <TextButton label="Reopen Spec" onClick={onReopenSpec} />
+        </div>
+      )}
+      <div className="relative flex min-h-0 flex-1">
       {!compact && (
         <GraphNodePicker
           nodes={graph.nodes}
@@ -426,6 +452,7 @@ function GraphCanvas({
             claimedPaths={claimedPaths}
           />
         ))}
+      </div>
     </div>
   );
 }
@@ -445,6 +472,8 @@ export default function GraphVisualizer({
   const sessionId = session?.id;
   const entry = useGraphStore((state) => graphFor(state.bySession, sessionId));
   const load = useGraphStore((state) => state.load);
+  const stepsEntry = useStepStore((state) => stepsFor(state.bySession, sessionId));
+  const [stamp, setStamp] = useState<GraphTitleStamp | undefined>();
 
   useEffect(() => {
     // The first read, for a pane mounted before WorkspaceShell had read every
@@ -456,9 +485,45 @@ export default function GraphVisualizer({
     }
   }, [sessionId, load]);
 
+  useEffect(() => {
+    if (sessionId === undefined) return;
+    // Steps may not be loaded on the Graph tab yet. Build can still have
+    // stamped; do not unlock on the empty placeholder.
+    if (stepsEntry.isLoading) {
+      const existing = graphTitleStampFor(sessionId);
+      if (existing !== undefined) setStamp(existing);
+      return;
+    }
+    if (stepsEntry.phase === "approved") {
+      const next = lockGraphTitles(sessionId, entry.graph);
+      if (next !== undefined) setStamp(next);
+      return;
+    }
+    unlockGraphTitles(sessionId);
+    setStamp(undefined);
+  }, [sessionId, stepsEntry.isLoading, stepsEntry.phase, entry.graph]);
+
+  const locked = useMemo(() => {
+    if (entry.graph === null || stamp === undefined) {
+      return { graph: entry.graph, revisedTitles: false };
+    }
+    return ingestLockedGraph(entry.graph, stamp);
+  }, [entry.graph, stamp]);
+
+  const reopenSpec = useCallback(() => {
+    if (sessionId === undefined) return;
+    void useStepStore
+      .getState()
+      .reopen(sessionId)
+      .then(() => {
+        unlockGraphTitles(sessionId);
+        setStamp(undefined);
+      });
+  }, [sessionId]);
+
   if (!session) return <NoSession />;
   if (entry.error !== null) return <UnreadableGraph error={entry.error} path={entry.path} />;
-  if (entry.graph === null) {
+  if (locked.graph === null) {
     // Saying "no graph" before the first read has finished would be a guess.
     if (entry.isLoading) {
       return (
@@ -477,10 +542,12 @@ export default function GraphVisualizer({
 
   return (
     <GraphCanvas
-      graph={entry.graph}
+      graph={locked.graph}
       warnings={entry.warnings}
       compact={compact}
       session={session}
+      revisedTitles={locked.revisedTitles}
+      onReopenSpec={reopenSpec}
     />
   );
 }

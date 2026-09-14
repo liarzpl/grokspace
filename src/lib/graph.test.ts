@@ -3,9 +3,19 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
-import { inferDirection, parseGraph, statusTally, type GraphDocState } from "./graph";
+import {
+  inferDirection,
+  ingestLockedGraph,
+  lockGraphTitles,
+  parseGraph,
+  resetGraphTitleStamps,
+  stampGraphTitles,
+  statusTally,
+  unlockGraphTitles,
+  type GraphDocState,
+} from "./graph";
 import { SAMPLE_GRAPH } from "./graphFixture";
 
 /** Minimal well-formed document; individual tests override the parts they care about. */
@@ -351,6 +361,73 @@ describe("inferDirection", () => {
     );
 
     expect(inferDirection(graph.nodes)).toBe("horizontal");
+  });
+});
+
+describe("graph title stamp", () => {
+  afterEach(() => resetGraphTitleStamps());
+
+  it("ingest after lock keeps titles and lets status move", () => {
+    const locked = expectOk(doc()).graph;
+    const incoming = {
+      ...locked,
+      nodes: locked.nodes.map((node) => ({
+        ...node,
+        label: `Renamed ${node.label}`,
+        status: node.id === "a" ? ("running" as const) : ("completed" as const),
+      })),
+    };
+
+    const result = ingestLockedGraph(incoming, stampGraphTitles(locked));
+
+    expect(result.graph.nodes.map((node) => node.label)).toEqual(["A", "B"]);
+    expect(result.graph.nodes.map((node) => node.status)).toEqual(["running", "completed"]);
+    expect(result.revisedTitles).toBe(true);
+  });
+
+  it("status-only ingest is not a revise-plan", () => {
+    const locked = expectOk(doc()).graph;
+    const incoming = {
+      ...locked,
+      nodes: locked.nodes.map((node) => ({
+        ...node,
+        status: node.id === "a" ? ("failed" as const) : ("completed" as const),
+      })),
+    };
+
+    const result = ingestLockedGraph(incoming, stampGraphTitles(locked));
+
+    expect(result.graph.nodes.map((node) => node.status)).toEqual(["failed", "completed"]);
+    expect(result.revisedTitles).toBe(false);
+    expect(result.graph).toBe(incoming);
+  });
+
+  it("new or dropped node ids are a revise-plan and still draw", () => {
+    const locked = expectOk(doc()).graph;
+    const incoming = {
+      ...locked,
+      nodes: [
+        locked.nodes[0]!,
+        { ...locked.nodes[1]!, id: "c", label: "New lane", status: "pending" as const },
+      ],
+    };
+
+    const result = ingestLockedGraph(incoming, stampGraphTitles(locked));
+
+    expect(result.revisedTitles).toBe(true);
+    expect(result.graph.nodes.map((node) => node.label)).toEqual(["A", "New lane"]);
+  });
+
+  it("lockGraphTitles keeps the first stamp", () => {
+    const first = expectOk(doc()).graph;
+    const later = { ...first, nodes: [{ ...first.nodes[0]!, label: "Drifted" }] };
+
+    expect(lockGraphTitles("s1", first)?.titles).toEqual({ a: "A", b: "B" });
+    expect(lockGraphTitles("s1", later)?.titles).toEqual({ a: "A", b: "B" });
+    unlockGraphTitles("s1");
+    expect(lockGraphTitles("s1", later)?.titles).toEqual({ a: "Drifted" });
+    unlockGraphTitles("s1");
+    expect(lockGraphTitles("s1", null)).toBeUndefined();
   });
 });
 

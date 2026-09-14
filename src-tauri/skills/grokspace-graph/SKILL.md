@@ -69,7 +69,9 @@ T0 still writes the graph file. A small graph is still worth seeing.
   be read-only.
 - GrokSpace Spec is the session step list still `proposed`. Build is after the
   human Approves. That gate is the steps file, not grok `plan` mode. A
-  `human-gate` node still waits.
+  `human-gate` node still waits. After Build, GrokSpace locks node labels with a
+  host stamp — not a field in this file. Update **status only**. A new title is
+  a revise-plan: wait for Spec. Do not write a second plan document.
 - Arena means isolated producers and a separate judge. It is not an equal-weight merge
   of everyone's answer.
 - High effort belongs on the lead, the debug root-cause, and the judge — not on every
