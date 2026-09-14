@@ -21,6 +21,7 @@ const approveSessionSteps = vi.fn();
 const reopenSessionSteps = vi.fn();
 const writeSession = vi.fn();
 const promptSession = vi.fn();
+const cancelSession = vi.fn();
 const installSkill = vi.fn();
 const skillStatus = vi.fn();
 
@@ -44,6 +45,7 @@ vi.mock("../lib/api", async () => {
       reopenSessionSteps,
       writeSession,
       promptSession,
+      cancelSession,
       installSkill,
       skillStatus,
     },
@@ -162,6 +164,33 @@ describe("the command list", () => {
     expect(shown).toContain("Close Reviewer");
     expect(shown).not.toContain("Stop Grok");
     expect(shown).not.toContain("Close Grok");
+  });
+
+  it("offers Hand to Coder and Reviewer from a live Planner, not a stopped one", () => {
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "planner-1",
+          paneId: null,
+          kind: "agent",
+          title: "Planner",
+          role: "Planner",
+          status: "idle",
+        }),
+        session({
+          id: "dead-1",
+          paneId: null,
+          kind: "agent",
+          title: "Old Planner",
+          role: "Planner",
+          status: "stopped",
+        }),
+      ],
+    });
+    expect(labels(project())).toEqual(
+      expect.arrayContaining(["Hand to Coder", "Hand to Reviewer"]),
+    );
+    expect(labels(project()).filter((label) => label === "Hand to Coder")).toHaveLength(1);
   });
 
   it("offers Restart for a stopped agent, and Discard when it still has a worktree", () => {
@@ -480,6 +509,36 @@ describe("running a command", () => {
     await vi.waitFor(() => expect(useSessionStore.getState().isolationConfirm).not.toBeNull());
     expect(useSessionStore.getState().error).toBeNull();
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty("allowUnisolated");
+  });
+
+  it("hands a live Planner to Coder from the palette", async () => {
+    useUiStore.setState({ isPaletteOpen: true });
+    useSessionStore.setState({
+      sessions: [
+        session({
+          id: "planner-1",
+          paneId: null,
+          kind: "agent",
+          title: "Planner",
+          role: "Planner",
+          status: "idle",
+        }),
+      ],
+    });
+    createSession.mockReset();
+    promptSession.mockReset();
+    createSession.mockResolvedValue(
+      session({ id: "coder-1", paneId: null, kind: "agent", role: "Coder", status: "idle" }),
+    );
+    promptSession.mockResolvedValue(undefined);
+
+    commands(project()).find((command) => command.id === "hand-planner-1-to-Coder")?.run();
+    await vi.waitFor(() =>
+      expect(promptSession).toHaveBeenCalledWith("coder-1", expect.stringContaining("read-only")),
+    );
+
+    expect(useUiStore.getState().isPaletteOpen).toBe(false);
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ role: "Coder", kind: "agent" }));
   });
 
   it("forgets a project and closes the palette", async () => {

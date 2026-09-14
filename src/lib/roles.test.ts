@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { briefPrompt, ROLES, rolesInPlay } from "./roles";
+import { BATON_ROLES, batonPrompt, briefPrompt, ROLES, rolesInPlay, sourceGraphFile } from "./roles";
 
 describe("the role presets", () => {
   it("are the five the roadmap names", () => {
@@ -33,6 +33,7 @@ describe("the role presets", () => {
   it("can be found by the name stored on a session", () => {
     expect(ROLES.find((role) => role.name === "Reviewer")?.summary).toContain("change");
     expect(ROLES.find((role) => role.name === "Nonesuch")).toBeUndefined();
+    expect(BATON_ROLES.map((role) => role.name)).toEqual(["Coder", "Reviewer"]);
   });
 });
 
@@ -87,5 +88,40 @@ describe("rolesInPlay", () => {
 
   it("counts a role twice over only once", () => {
     expect(rolesInPlay([session("Planner"), session("Planner")]).size).toBe(1);
+  });
+});
+
+describe("sourceGraphFile", () => {
+  it("prefers a watched path and otherwise uses the project-tree file", () => {
+    expect(sourceGraphFile("s1", "/p", "/watched/s1.json")).toBe("/watched/s1.json");
+    expect(sourceGraphFile("s1", "/tmp/acme/", null)).toBe("/tmp/acme/.grokspace/graphs/s1.json");
+  });
+});
+
+describe("batonPrompt", () => {
+  const coder = ROLES.find((role) => role.name === "Coder")!;
+  const graph = "/p/.grokspace/graphs/planner.json";
+
+  it("names memory, the source graph as read-only, and the new session's own graph", () => {
+    const prompt = batonPrompt({
+      role: coder,
+      sourceGraphPath: graph,
+      approvedTitles: ["Lock the titles"],
+      excerpt: "the plan is done",
+    });
+
+    expect(prompt).not.toContain("\n");
+    expect(prompt).toContain("$GROKSPACE_MEMORY_FILE");
+    expect(prompt).toContain(graph);
+    expect(prompt).toContain("read-only");
+    expect(prompt).toContain("$GROKSPACE_GRAPH_FILE");
+    expect(prompt).toContain("1. Lock the titles");
+    expect(prompt).toContain("the plan is done");
+  });
+
+  it("omits proposed-looking titles when none were approved", () => {
+    const prompt = batonPrompt({ role: coder, sourceGraphPath: graph, approvedTitles: [], excerpt: "" });
+    expect(prompt).not.toContain("Approved steps");
+    expect(prompt).not.toContain("Excerpt:");
   });
 });
