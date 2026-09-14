@@ -20,7 +20,7 @@ import { TABS, useUiStore } from "../stores/uiStore";
 import { paneCount, PANE_LAYOUTS, type Project, type SessionKind } from "../types";
 import { errorMessage } from "./api";
 import { FALLBACK_PTY_SIZE } from "./limits";
-import { ROLES } from "./roles";
+import { BATON_ROLES, ROLES } from "./roles";
 import type { ShortcutId } from "./shortcuts";
 import { canApproveSteps, sendApproval } from "./steps";
 
@@ -234,6 +234,27 @@ export function commands(project: Project | null): Command[] {
           void useSessionStore.getState().stopSession(session.id);
         },
       });
+      for (const role of BATON_ROLES) {
+        if (session.role === role.name) continue;
+        list.push({
+          id: `hand-${session.id}-to-${role.name}`,
+          label: `Hand to ${role.name}`,
+          group: "Session",
+          run: () => {
+            useUiStore.getState().closePalette();
+            void (async () => {
+              const ok = await useSessionStore
+                .getState()
+                .handToRole(session.id, role, project.path);
+              if (!ok && useSessionStore.getState().error === null) {
+                useSessionStore.setState({
+                  error: `Could not hand to ${role.name}.`,
+                });
+              }
+            })();
+          },
+        });
+      }
     }
     if (session.status === "stopped") {
       list.push({

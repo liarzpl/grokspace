@@ -9,7 +9,8 @@ import {
   type ToolRepeat,
 } from "../lib/doomLoop";
 import { FALLBACK_PTY_SIZE } from "../lib/limits";
-import { briefPrompt, type Role } from "../lib/roles";
+import { batonPrompt, briefPrompt, sourceGraphFile, type Role } from "../lib/roles";
+import { talkToSession, transcriptExcerpt } from "../lib/talkToSession";
 import { foldUpdate } from "../lib/transcript";
 import type {
   AgentUpdate,
@@ -266,6 +267,13 @@ interface SessionState {
    * would not start, so the caller can say which rather than only that some did.
    */
   launchSwarm: (projectId: string, roles: readonly Role[]) => Promise<string[]>;
+  /**
+   * Hands the source's locked plan to Coder or Reviewer. Cancels an in-flight
+   * prompt on the source (idle, not Close). Prompts an idle peer, or starts one.
+   * Briefing failure closes only the new session, like a swarm role that never
+   * got its brief.
+   */
+  handToRole: (sourceId: string, role: Role, projectPath: string) => Promise<boolean>;
   stopSession: (id: string) => Promise<void>;
   restartSession: (id: string, cols: number, rows: number) => Promise<Session | null>;
   renameSession: (id: string, title: string) => Promise<void>;
@@ -535,6 +543,66 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ error: reasons.join(" · ") });
     }
     return failed;
+  },
+
+  handToRole: async (sourceId, role, projectPath) => {
+    const source = get().sessions.find((session) => session.id === sourceId);
+    if (source === undefined || source.status === "stopped") {
+      set({ error: "That session is not running." });
+      return false;
+    }
+    if (source.status === "running") {
+      set({ error: null });
+      await get().cancelSession(sourceId);
+      if (get().error !== null) return false;
+    }
+
+    const storedPath = useGraphStore.getState().bySession[sourceId]?.path;
+    const steps = useStepStore.getState().bySession[sourceId];
+    const approvedTitles =
+      steps?.phase === "approved" ? steps.steps.map((step) => step.title) : [];
+    const prompt = batonPrompt({
+      role,
+      sourceGraphPath: sourceGraphFile(sourceId, projectPath, storedPath),
+      approvedTitles,
+      excerpt: transcriptExcerpt(get().transcript[sourceId] ?? []),
+    });
+
+    const idle = get().sessions.find(
+      (session) =>
+        session.id !== sourceId &&
+        session.projectId === source.projectId &&
+        session.kind === "agent" &&
+        session.role === role.name &&
+        session.status === "idle",
+    );
+    if (idle !== undefined) {
+      try {
+        await talkToSession(idle, prompt);
+        return true;
+      } catch (error) {
+        set({ error: `${role.name}: ${errorMessage(error)}` });
+        return false;
+      }
+    }
+
+    const created = await get().createSession({
+      projectId: source.projectId,
+      paneId: null,
+      kind: "agent",
+      role: role.name,
+      ...FALLBACK_PTY_SIZE,
+    });
+    if (created === null) return false;
+    try {
+      await talkToSession(created, prompt);
+      return true;
+    } catch (error) {
+      const reason = errorMessage(error);
+      await get().closeSession(created.id);
+      set({ error: `${role.name}: ${reason}` });
+      return false;
+    }
   },
 
   stopSession: async (id) => {

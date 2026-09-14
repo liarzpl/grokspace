@@ -13,7 +13,7 @@ vi.mock("./api", async () => {
   };
 });
 
-const { talkToSession } = await import("./talkToSession");
+const { talkToSession, transcriptExcerpt, BATON_EXCERPT_BYTES } = await import("./talkToSession");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -59,5 +59,26 @@ describe("talkToSession", () => {
 
     expect(writeSession).toHaveBeenCalledWith("s1", "ls\r");
     expect(promptSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcriptExcerpt", () => {
+  it("flattens to one line and keeps a short transcript", () => {
+    expect(
+      transcriptExcerpt([
+        { text: "hello\nthere" },
+        { text: "  world" },
+      ]),
+    ).toBe("hello there world");
+  });
+
+  it("caps at 2 KiB and does not paste the full transcript", () => {
+    const unique = "HEAD-" + "x".repeat(BATON_EXCERPT_BYTES) + "-TAIL";
+    const excerpt = transcriptExcerpt([{ text: unique }]);
+
+    expect(new TextEncoder().encode(excerpt).length).toBeLessThanOrEqual(BATON_EXCERPT_BYTES);
+    expect(excerpt).not.toBe(unique);
+    expect(excerpt).not.toContain("HEAD-");
+    expect(excerpt.endsWith("-TAIL")).toBe(true);
   });
 });

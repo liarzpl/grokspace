@@ -105,3 +105,48 @@ export function briefPrompt(role: Role): string {
   const brief = role.brief.replace(/\s+/g, " ").trim();
   return `${brief} Start by reading $GROKSPACE_MEMORY_FILE for what this project has already decided.`;
 }
+
+/** Coder and Reviewer: the pipeline after a plan, not a second swarm. */
+export const BATON_ROLES: readonly Role[] = ROLES.filter(
+  (role) => role.name === "Coder" || role.name === "Reviewer",
+);
+
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** Watched path if we have one; otherwise `<project>/.grokspace/graphs/<id>.json`. */
+export function sourceGraphFile(
+  sessionId: string,
+  projectPath: string,
+  storedPath?: string | null,
+): string {
+  const stored = storedPath?.trim();
+  if (stored) return stored;
+  return `${projectPath.replace(/\/+$/, "")}/.grokspace/graphs/${sessionId}.json`;
+}
+
+/** Next-role brief: source graph path is read-only; excerpt is already capped. */
+export function batonPrompt(input: {
+  role: Role;
+  sourceGraphPath: string;
+  approvedTitles: readonly string[];
+  excerpt: string;
+}): string {
+  const parts = [
+    briefPrompt(input.role),
+    `The source session's graph is at ${oneLine(input.sourceGraphPath)} (read-only; do not write it).`,
+    "Your own graph is $GROKSPACE_GRAPH_FILE.",
+  ];
+  if (input.approvedTitles.length > 0) {
+    const titles = input.approvedTitles
+      .map((title, index) => `${index + 1}. ${oneLine(title)}`)
+      .join(" ");
+    parts.push(`Approved steps: ${titles}.`);
+  }
+  const excerpt = oneLine(input.excerpt);
+  if (excerpt !== "") {
+    parts.push(`Excerpt: ${excerpt}`);
+  }
+  return parts.join(" ");
+}

@@ -57,6 +57,8 @@ const ISOLATION_ERR =
 const { useGraphStore } = await import("./graphStore");
 const { useStepStore } = await import("./stepStore");
 const { useUiStore } = await import("./uiStore");
+const { BATON_ROLES, rolesInPlay } = await import("../lib/roles");
+const { BATON_EXCERPT_BYTES } = await import("../lib/talkToSession");
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -823,6 +825,117 @@ describe("launchSwarm", () => {
     expect(await pending).toEqual(["Planner", "Reviewer"]);
     expect(createSession.mock.calls.every((call) => call[0]?.allowUnisolated !== true)).toBe(true);
     expect(useSessionStore.getState().error).toBeNull();
+  });
+});
+
+describe("handToRole", () => {
+  const coder = BATON_ROLES.find((role) => role.name === "Coder")!;
+  const planner = (status: Session["status"] = "running") =>
+    session({
+      id: "planner-1",
+      kind: "agent",
+      paneId: null,
+      role: "Planner",
+      title: "Planner",
+      status,
+    });
+  const startedCoder = () =>
+    session({ id: "coder-1", kind: "agent", paneId: null, role: "Coder", status: "idle" });
+
+  it("starts Coder with memory, the source graph path, approved titles, and a capped excerpt", async () => {
+    const head = "SECRET-HEAD-";
+    const body = "n".repeat(BATON_EXCERPT_BYTES);
+    useSessionStore.setState({
+      sessions: [planner()],
+      transcript: {
+        "planner-1": [
+          { kind: "message", text: head + body },
+          { kind: "message", text: "recent-tail" },
+        ],
+      },
+    });
+    useGraphStore.setState({
+      bySession: { "planner-1": { ...graphEntry(), path: "/p/.grokspace/graphs/planner-1.json" } },
+    });
+    useStepStore.setState({
+      bySession: {
+        "planner-1": {
+          ...stepEntry(),
+          sessionId: "planner-1",
+          phase: "approved",
+          steps: [{ ...stepEntry().steps[0]!, title: "Ship the gate" }],
+        },
+      },
+    });
+    createSession.mockResolvedValue(startedCoder());
+    promptSession.mockResolvedValue(undefined);
+
+    const ok = await useSessionStore.getState().handToRole("planner-1", coder, "/p");
+    const sent = promptSession.mock.calls[0]?.[1] as string;
+
+    expect(ok).toBe(true);
+    expect(cancelSession).toHaveBeenCalledWith("planner-1");
+    expect(closeSession).not.toHaveBeenCalledWith("planner-1");
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ paneId: null, kind: "agent", role: "Coder" }),
+    );
+    expect(createSession.mock.calls[0]?.[0]?.allowUnisolated).toBeUndefined();
+    expect(sent).toContain("$GROKSPACE_MEMORY_FILE");
+    expect(sent).toContain("/p/.grokspace/graphs/planner-1.json");
+    expect(sent).toContain("read-only");
+    expect(sent).toContain("1. Ship the gate");
+    expect(sent).toContain("recent-tail");
+    expect(sent).not.toContain(head);
+    expect(sent).not.toContain(`${head}${body} recent-tail`);
+    expect([...rolesInPlay(useSessionStore.getState().sessions)].sort()).toEqual([
+      "Coder",
+      "Planner",
+    ]);
+  });
+
+  it("prompts an idle Coder instead of starting another", async () => {
+    useSessionStore.setState({
+      sessions: [planner("idle"), startedCoder()],
+    });
+    promptSession.mockResolvedValue(undefined);
+
+    const ok = await useSessionStore.getState().handToRole("planner-1", coder, "/p");
+
+    expect(ok).toBe(true);
+    expect(createSession).not.toHaveBeenCalled();
+    expect(cancelSession).not.toHaveBeenCalled();
+    expect(promptSession).toHaveBeenCalledWith("coder-1", expect.stringContaining("read-only"));
+    expect(rolesInPlay(useSessionStore.getState().sessions).has("Coder")).toBe(true);
+  });
+
+  it("closes a new Coder that started but could not be briefed, and leaves the source", async () => {
+    useSessionStore.setState({ sessions: [planner("idle")] });
+    createSession.mockResolvedValue(startedCoder());
+    promptSession.mockRejectedValue("that session is no longer running");
+    closeSession.mockResolvedValue(undefined);
+
+    const ok = await useSessionStore.getState().handToRole("planner-1", coder, "/p");
+
+    expect(ok).toBe(false);
+    expect(closeSession).toHaveBeenCalledWith("coder-1");
+    expect(closeSession).not.toHaveBeenCalledWith("planner-1");
+    expect(useSessionStore.getState().sessions.map((row) => row.id)).toEqual(["planner-1"]);
+    expect(useSessionStore.getState().error).toBe("Coder: that session is no longer running");
+    expect(rolesInPlay(useSessionStore.getState().sessions).has("Coder")).toBe(false);
+  });
+
+  it("does not paste proposed step titles", async () => {
+    useSessionStore.setState({ sessions: [planner("idle")] });
+    useStepStore.setState({
+      bySession: { "planner-1": { ...stepEntry(), sessionId: "planner-1", phase: "proposed" } },
+    });
+    createSession.mockResolvedValue(startedCoder());
+    promptSession.mockResolvedValue(undefined);
+
+    await useSessionStore.getState().handToRole("planner-1", coder, "/p");
+
+    expect(promptSession.mock.calls[0]?.[1]).not.toContain("Approved steps");
+    expect(promptSession.mock.calls[0]?.[1]).not.toContain("Read it");
   });
 });
 

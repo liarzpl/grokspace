@@ -77,9 +77,11 @@ appended to `~/.grokspace/logs/grokspace.log` on this machine only.
   Reviewer, Tester, or Scout. The role is remembered, titles the session, is exported
   as `GROKSPACE_SESSION_ROLE`, and is what the agent is told first. One click starts
   one agent per chosen role, each briefed for its job; a role that will not start is
-  named rather than losing the rest.
+  named rather than losing the rest. Palette **Hand to Coder** / **Hand to Reviewer**
+  starts that role (or prompts an idle one) with the source graph path (read-only),
+  approved step titles, and a ≤2 KiB transcript excerpt; the source is left idle.
 - **A command palette** — `⌘K` reaches the tabs, layouts, session starts, swarm
-  launches, project switches, skill installs, and Merge for a stopped isolated
+  launches, Hand to Coder/Reviewer, project switches, skill installs, and Merge for a stopped isolated
   agent from one place, and it opens over a focused terminal rather than being swallowed by it. `⌘O` / `Ctrl+O` opens a
   project folder. The palette lists each bundled skill as installed or missing
   and can refresh that list; there is no remote catalog. "Install or refresh
