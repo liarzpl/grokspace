@@ -1,14 +1,40 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::db::now_ms;
 use crate::error::{Error, Result};
 use crate::session;
 use crate::settings;
 use crate::AppState;
+
+/// Folders that must never become a project, even if the native picker
+/// returns them. Exact match after canonicalize — a repo under `$HOME` is fine;
+/// `$HOME` itself is not. XSS used to pass these as `open_project` paths.
+const FORBIDDEN_ROOTS: &[&str] = &[
+    "/",
+    "/etc",
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/System",
+    "/Library",
+    "/private",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/var",
+    "/opt",
+    "/Users",
+    "/home",
+    "/root",
+    "/Applications",
+    "/Volumes",
+    "/Network",
+];
 
 const COLUMNS: &str = "id, name, path, last_opened, settings, created_at";
 
@@ -126,6 +152,7 @@ pub fn open_folder(conn: &Connection, raw_path: &str) -> Result<Project> {
     // Canonicalizing keeps symlinked and relative spellings of the same folder
     // from registering as separate projects.
     let canonical = path.canonicalize()?;
+    reject_forbidden_root(&canonical)?;
     let canonical_path = canonical
         .to_str()
         .ok_or_else(|| Error::Invalid(format!("`{raw_path}` is not valid UTF-8")))?;
@@ -135,6 +162,43 @@ pub fn open_folder(conn: &Connection, raw_path: &str) -> Result<Project> {
         .unwrap_or("Untitled");
 
     upsert_by_path(conn, canonical_path, name)
+}
+
+fn reject_forbidden_root(canonical: &Path) -> Result<()> {
+    if is_forbidden_project_root(canonical) {
+        return Err(Error::Invalid(format!(
+            "`{}` cannot be opened as a project",
+            canonical.display()
+        )));
+    }
+    Ok(())
+}
+
+fn is_forbidden_project_root(canonical: &Path) -> bool {
+    if FORBIDDEN_ROOTS
+        .iter()
+        .any(|root| same_canonical_path(canonical, Path::new(root)))
+    {
+        return true;
+    }
+    matches!(
+        dirs::home_dir(),
+        Some(home) if same_canonical_path(canonical, &home)
+    )
+}
+
+fn same_canonical_path(canonical: &Path, other: &Path) -> bool {
+    match other.canonicalize() {
+        Ok(other) => canonical == other,
+        Err(_) => canonical == other,
+    }
+}
+
+fn picked_folder_path(folder: tauri_plugin_dialog::FilePath) -> Result<PathBuf> {
+    folder
+        .simplified()
+        .into_path()
+        .map_err(|err| Error::Invalid(err.to_string()))
 }
 
 /// The folder GrokSpace writes into a user project: memory, graphs, steps, worktrees.
@@ -220,9 +284,24 @@ pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>> {
     state.with_db(list)
 }
 
+/// Opens the native folder picker and registers the chosen folder.
+///
+/// The webview cannot supply a path: a compromised frontend used to `invoke`
+/// this with `$HOME` and then spawn a shell there. Cancel returns `Ok(None)`.
 #[tauri::command]
-pub fn open_project(state: State<'_, AppState>, path: String) -> Result<Project> {
-    state.with_db(|conn| open_folder(conn, &path))
+pub fn open_project(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<Option<Project>> {
+    let mut picker = app.dialog().file().set_title("Open a project folder");
+    if let Some(window) = app.get_webview_window("main") {
+        picker = picker.set_parent(&window);
+    }
+    let Some(folder) = picker.blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let path = picked_folder_path(folder)?;
+    let path = path
+        .to_str()
+        .ok_or_else(|| Error::Invalid("the chosen folder is not valid UTF-8".into()))?;
+    state.with_db(|conn| open_folder(conn, path)).map(Some)
 }
 
 #[tauri::command]
@@ -324,6 +403,86 @@ mod tests {
         assert!(open_folder(&conn, file.to_str().unwrap()).is_err());
         assert!(open_folder(&conn, dir.path().join("nope").to_str().unwrap()).is_err());
         assert!(list(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn opening_system_roots_is_rejected() {
+        let conn = conn();
+        for root in ["/", "/home", "/etc"] {
+            if !Path::new(root).is_dir() {
+                continue;
+            }
+            let err = open_folder(&conn, root).expect_err(root);
+            match err {
+                Error::Invalid(message) => {
+                    assert!(
+                        message.contains("cannot be opened as a project"),
+                        "{root}: {message}"
+                    );
+                }
+                other => panic!("{root} must be Invalid, got {other:?}"),
+            }
+        }
+        assert!(list(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn opening_the_home_directory_is_rejected() {
+        let conn = conn();
+        let home = dirs::home_dir().expect("home directory");
+        let err = open_folder(&conn, home.to_str().expect("utf-8 home"))
+            .expect_err("home must be refused");
+        assert!(matches!(err, Error::Invalid(_)));
+        assert!(list(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_folder_inside_home_is_still_openable() {
+        let home = dirs::home_dir().expect("home directory");
+        let Ok(dir) = tempfile::TempDir::new_in(&home) else {
+            return;
+        };
+        let conn = conn();
+        let project = open_folder(&conn, dir.path().to_str().expect("utf-8 temp")).expect("open");
+        assert_eq!(
+            project.path,
+            dir.path()
+                .canonicalize()
+                .expect("canonical")
+                .to_str()
+                .expect("utf-8")
+        );
+    }
+
+    #[test]
+    fn default_capability_allows_every_handler_command() {
+        let handler = include_str!("lib.rs");
+        let capability = include_str!("../capabilities/default.json");
+        let start = handler
+            .find("generate_handler![")
+            .expect("generate_handler in lib.rs");
+        let block = &handler[start..];
+        let end = block.find(']').expect("handler list terminator");
+        let mut found = 0;
+        for line in block[..end].lines() {
+            let name = line.trim().trim_end_matches(',');
+            let Some(command) = name.rsplit("::").next() else {
+                continue;
+            };
+            if command.is_empty() || command.contains('!') || command.contains('[') {
+                continue;
+            }
+            found += 1;
+            let permission = format!("allow-{}", command.replace('_', "-"));
+            assert!(
+                capability.contains(&format!("\"{permission}\"")),
+                "capabilities/default.json is missing {permission}"
+            );
+        }
+        assert!(
+            found >= 40,
+            "expected to parse the invoke list, found {found}"
+        );
     }
 
     #[test]

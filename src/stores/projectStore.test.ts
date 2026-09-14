@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Project } from "../types";
 
-const openFolderDialog = vi.fn();
 const listProjects = vi.fn();
 const openProject = vi.fn();
 const touchProject = vi.fn();
@@ -10,7 +9,6 @@ const updateProject = vi.fn();
 const removeProject = vi.fn();
 const listSessions = vi.fn();
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openFolderDialog }));
 vi.mock("../lib/terminals", () => ({ disposeTerminal: vi.fn(), detachTerminal: vi.fn() }));
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
@@ -99,32 +97,28 @@ describe("loadProjects", () => {
 
 describe("pickAndOpenProject", () => {
   it("opens the folder chosen in the picker and makes it active", async () => {
-    openFolderDialog.mockResolvedValue("/Users/dev/acme-api");
     openProject.mockResolvedValue(project());
 
     const opened = await useProjectStore.getState().pickAndOpenProject();
 
-    expect(openFolderDialog).toHaveBeenCalledWith(
-      expect.objectContaining({ directory: true, multiple: false }),
-    );
-    expect(openProject).toHaveBeenCalledWith("/Users/dev/acme-api");
+    expect(openProject).toHaveBeenCalledWith();
     expect(opened?.id).toBe("p1");
     expect(useProjectStore.getState().activeProjectId).toBe("p1");
   });
 
   it("does nothing when the picker is cancelled", async () => {
-    openFolderDialog.mockResolvedValue(null);
+    openProject.mockResolvedValue(null);
 
     const opened = await useProjectStore.getState().pickAndOpenProject();
 
     expect(opened).toBeNull();
-    expect(openProject).not.toHaveBeenCalled();
     expect(useProjectStore.getState().projects).toEqual([]);
+    expect(useProjectStore.getState().isOpening).toBe(false);
+    expect(useProjectStore.getState().error).toBeNull();
   });
 
   it("reopening a known project updates it in place rather than duplicating it", async () => {
     useProjectStore.setState({ projects: [project({ lastOpened: 1000 })] });
-    openFolderDialog.mockResolvedValue("/Users/dev/acme-api");
     openProject.mockResolvedValue(project({ lastOpened: 5000 }));
 
     await useProjectStore.getState().pickAndOpenProject();
@@ -132,6 +126,18 @@ describe("pickAndOpenProject", () => {
     const { projects } = useProjectStore.getState();
     expect(projects).toHaveLength(1);
     expect(projects[0]?.lastOpened).toBe(5000);
+  });
+
+  it("surfaces a refused folder instead of throwing", async () => {
+    openProject.mockRejectedValue("`/Users/dev` cannot be opened as a project");
+
+    const opened = await useProjectStore.getState().pickAndOpenProject();
+
+    expect(opened).toBeNull();
+    expect(useProjectStore.getState().error).toBe(
+      "`/Users/dev` cannot be opened as a project",
+    );
+    expect(useProjectStore.getState().isOpening).toBe(false);
   });
 });
 
