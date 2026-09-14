@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use super::db::{
     delete, get, insert, record_live_process, record_permission, sessions_for_pane,
@@ -60,6 +60,17 @@ pub(crate) enum Launch {
 }
 
 pub(crate) fn command_for(kind: SessionKind) -> Result<Launch> {
+    #[cfg(test)]
+    if let Some(program) = crate::TEST_LAUNCH_PROGRAM.with(|slot| slot.borrow().clone()) {
+        return Ok(match kind {
+            SessionKind::Agent => Launch::Agent { program },
+            SessionKind::Grok | SessionKind::Shell => Launch::Terminal {
+                program,
+                args: Vec::new(),
+            },
+        });
+    }
+
     match kind {
         SessionKind::Grok => Ok(Launch::Terminal {
             program: program::resolve("grok")?,
@@ -163,7 +174,7 @@ struct SessionExited {
     exit_code: Option<i32>,
 }
 
-fn exit_handler(app: AppHandle, id: String) -> ExitHandler {
+fn exit_handler<R: Runtime>(app: AppHandle<R>, id: String) -> ExitHandler {
     Box::new(move |exit| {
         let state = app.state::<AppState>();
         // Dropping the pty handles is what lets the reader thread finish.
@@ -218,7 +229,7 @@ struct IsolationFailed {
 
 /// The three things a live agent reports, each landing in the database first and on
 /// the event system second, so a webview that reloads reads the same story.
-fn acp_callbacks(app: AppHandle, id: String) -> acp::Callbacks {
+fn acp_callbacks<R: Runtime>(app: AppHandle<R>, id: String) -> acp::Callbacks {
     let status_app = app.clone();
     let status_id = id.clone();
     let permission_app = app.clone();
@@ -369,8 +380,8 @@ pub(crate) fn isolate_agent(
 /// Creates the row first and spawns second. The other order races: a child that
 /// exits immediately would fire its exit handler before the row it needs to
 /// update exists.
-pub(crate) fn start(
-    app: &AppHandle,
+pub(crate) fn start<R: Runtime>(
+    app: &AppHandle<R>,
     state: &State<'_, AppState>,
     request: StartRequest,
 ) -> Result<Session> {

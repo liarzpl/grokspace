@@ -14,6 +14,15 @@ mod steps;
 mod task;
 mod worktree;
 
+#[cfg(test)]
+mod command_tests;
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEST_LAUNCH_PROGRAM: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 use std::sync::Mutex;
 
 use rusqlite::Connection;
