@@ -35,6 +35,7 @@ lists what landed after the feature wave.
 - Dependabot version updates: weekly, grouped minor-and-patch pull requests for npm, cargo, and GitHub Actions, with the majors skipped on purpose (`dirs` 7, `notify` 9, `tauri-plugin-dialog` 3, `vitest` 5) ignored ([#179](https://github.com/liarzpl/grokspace/pull/179)).
 - CI `audit` job: `cargo audit` over `src-tauri/Cargo.lock` on every pull request, installed with `cargo install` rather than a new action; `src-tauri/.cargo/audit.toml` denies `unsound` advisories and documents the one ignore, RUSTSEC-2024-0429 (glib 0.18, pinned by Tauri 2's Linux stack) ([#183](https://github.com/liarzpl/grokspace/pull/183)).
 - CI job summaries: the Vitest counts and coverage text-summary from `frontend`, and every `cargo test` result line with its total from `backend`, on the run page ([#190](https://github.com/liarzpl/grokspace/pull/190)).
+- CodeQL code scanning for JavaScript/TypeScript and the GitHub Actions workflows, on pull requests, pushes to `main`, and a weekly schedule; Rust is not scanned because CodeQL would need a full Tauri build ([#192](https://github.com/liarzpl/grokspace/pull/192)).
 
 ### Changed
 
