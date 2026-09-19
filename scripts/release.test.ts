@@ -205,6 +205,22 @@ describe("release-plan.sh", () => {
     },
   );
 
+  it("tells the bundler not to sign when the plan says unsigned", () => {
+    // An unset secret still reaches the job as an empty string, and the bundler
+    // treats an empty APPLE_CERTIFICATE as one to import — the v0.1.0 dry run failed
+    // with `failed to import keychain certificate` and no secrets at all.
+    const ran = run("release-plan.sh", [], { VERSION: "0.2.0", ...SECRETS, APPLE_CERTIFICATE: "" });
+
+    expect(outputs(ran.stdout)).toMatchObject({ signed: "false", build_args: "--no-sign" });
+  });
+
+  it("passes no extra build arguments when it is signing", () => {
+    // `--no-sign` on a signed build would ship an unsigned DMG under signed notes.
+    const ran = run("release-plan.sh", [], { VERSION: "0.2.0", ...SECRETS });
+
+    expect(outputs(ran.stdout)).toMatchObject({ signed: "true", build_args: "" });
+  });
+
   it("says plainly in the notes that an unsigned build is unsigned", () => {
     // Shipping one that looks signed is the worst option: Gatekeeper refuses it and the
     // app looks broken rather than unsigned.

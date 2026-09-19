@@ -130,10 +130,12 @@ jobs:
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # tauri-action imports the certificate into a temporary keychain, signs,
-          # submits for notarization and staples the ticket — but only when all of
-          # these are set. Any one missing and it quietly produces an unsigned bundle,
-          # which is why the step above checks rather than trusting.
+          # The bundler imports the certificate into a temporary keychain, signs,
+          # submits for notarization and staples the ticket. An unset secret still
+          # arrives here as an empty string, and the bundler treats an empty
+          # APPLE_CERTIFICATE as a certificate to import — which fails. So when the
+          # step above decides the build is unsigned, `build_args` adds `--no-sign`
+          # and none of these are read.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -143,7 +145,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target universal-apple-darwin
+          args: --target universal-apple-darwin ${{ steps.plan.outputs.build_args }}
           tagName: ${{ steps.plan.outputs.tag }}
           releaseName: ${{ steps.plan.outputs.name }}
           releaseBody: ${{ steps.plan.outputs.notes }}

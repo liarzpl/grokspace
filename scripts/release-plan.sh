@@ -15,6 +15,7 @@
 # cannot be.
 #
 # Reads: VERSION, DRY_RUN, APPLE_SIGNING_IDENTITY, APPLE_CERTIFICATE, APPLE_ID.
+# Writes: signed, build_args, tag, name, notes.
 set -euo pipefail
 
 version="${VERSION:?VERSION is required}"
@@ -33,6 +34,18 @@ else
   signed=false
 fi
 echo "signed=$signed"
+
+# An unsigned build has to say so to the bundler, not just to the release notes. A
+# secret that is not set still reaches the job as an empty string, and the bundler
+# checks whether APPLE_CERTIFICATE exists rather than whether it says anything — so
+# without this it imports an empty certificate and the build fails (`failed to import
+# keychain certificate`, first seen on the v0.1.0 dry run). `--no-sign` skips signing
+# and notarization entirely, which is the honest build when the plan says unsigned.
+if [ "$signed" = "true" ]; then
+  echo "build_args="
+else
+  echo "build_args=--no-sign"
+fi
 
 # tauri-action publishes nothing when both of these are empty, which is what a dry run
 # wants: everything up to and including notarization, and no release.

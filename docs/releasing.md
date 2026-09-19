@@ -74,6 +74,9 @@ for this purpose. Do not copy it.
 
 Set these as repository secrets. The workflow checks for them and builds an
 *explicitly labelled* unsigned DMG when they are absent, rather than pretending.
+Absent means the plan step passes `--no-sign` to `tauri build`: an unset secret still
+reaches the job as an empty string, and the bundler treats an empty `APPLE_CERTIFICATE`
+as a certificate to import, which fails with `failed to import keychain certificate`.
 
 | Secret | What it is |
 | --- | --- |
