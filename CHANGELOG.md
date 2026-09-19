@@ -26,7 +26,7 @@ lists what landed after the feature wave.
 
 ### Added
 
-- `v0.1.0`: the release notes entry, and a README line pointing at the Releases page and how to open the unsigned `.dmg`.
+- `v0.1.0`: the release notes entry, and a README line pointing at the Releases page and how to open the unsigned `.dmg` ([#191](https://github.com/liarzpl/grokspace/pull/191)).
 - `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), reported through a private security advisory rather than a personal address ([#178](https://github.com/liarzpl/grokspace/pull/178)).
 - This changelog, and a "CHANGELOG updated, or not needed" item in the pull request template.
 - Issue forms for bug reports and feature requests: the bug form asks for the macOS version, `grok --version`, the GrokSpace commit, the pane type, and a collapsed `grokspace.log` excerpt; the chooser links Security Advisories and the README, and blank issues are off ([#182](https://github.com/liarzpl/grokspace/pull/182)).
