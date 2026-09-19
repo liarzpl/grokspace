@@ -18,6 +18,7 @@ several PRs, and each milestone heading links to its commit range on GitHub.
 ### Added
 
 - OpenSSF Scorecard: a weekly (and on every push to `main`) supply-chain scan whose results are published to `api.scorecard.dev`, uploaded to the Security tab, and shown as a README badge ([#199](https://github.com/liarzpl/grokspace/pull/199)).
+- SECURITY: a paragraph under Scope on what the Scorecard *Vulnerabilities* count is — seven RustSec entries in Tauri 2's tree (five `unic-*` and `proc-macro-error` unmaintained notices, plus the Linux-only `glib` 0.18 advisory already ignored in `audit.toml`), none fixable here before Tauri 3 ([#204](https://github.com/liarzpl/grokspace/pull/204)).
 
 ### Fixed
 
