@@ -1,0 +1,27 @@
+# EditorConfig: https://editorconfig.org
+#
+# Describes what the tree already does, so an editor that reads this file
+# produces diffs with no whitespace noise: two-space indents in TypeScript,
+# JSON, YAML, shell, CSS and Markdown; LF line endings; a final newline.
+# Nothing in CI reads it. Rust formatting is decided by rustfmt
+# (`cargo fmt --check`); the Rust section below only mirrors its defaults.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.rs]
+indent_size = 4
+max_line_length = 100
+
+[*.sql]
+indent_size = 4
+
+# Two trailing spaces are a hard line break in Markdown.
+[*.md]
+trim_trailing_whitespace = false

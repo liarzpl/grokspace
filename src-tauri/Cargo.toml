@@ -6,6 +6,13 @@ authors = ["GrokSpace"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.88"
+readme = "../README.md"
+homepage = "https://github.com/liarzpl/grokspace#readme"
+repository = "https://github.com/liarzpl/grokspace"
+# crates.io limits: at most five keywords and five categories; category
+# names must be slugs from https://crates.io/category_slugs.
+keywords = ["tauri", "grok", "acp", "ai-agents", "local-first"]
+categories = ["development-tools", "gui"]
 
 [lib]
 name = "grokspace_lib"
