@@ -6,7 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). No `v*` tag
 has been pushed yet: `main` is the `v0.1.0` track, so everything below is unreleased.
 How a tag becomes a release is in [docs/releasing.md](docs/releasing.md); the release
-workflow writes its own notes and does not read this file.
+workflow writes its own notes and does not read this file. That held until 2026-09-19:
+`v0.1.0` is the first tag, and the tag contains everything from `[0.1.0]` down.
 
 The history before this file existed is backfilled from the merged pull requests,
 newest first, grouped by the milestone each change landed in. A bullet usually covers
@@ -14,8 +15,18 @@ several PRs, and each milestone heading links to its commit range on GitHub.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-19
+
+First tagged release, published as a pre-release: an **unsigned** universal macOS
+`.dmg` (Apple Silicon and Intel) built by the release workflow, since no Apple signing
+secrets are set. Right-click the app and choose Open, or run
+`xattr -d com.apple.quarantine /Applications/GrokSpace.app`. macOS only; the Linux
+build is dev-only. Every earlier milestone below is part of this tag; this section
+lists what landed after the feature wave.
+
 ### Added
 
+- `v0.1.0`: the release notes entry, and a README line pointing at the Releases page and how to open the unsigned `.dmg`.
 - `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), reported through a private security advisory rather than a personal address ([#178](https://github.com/liarzpl/grokspace/pull/178)).
 - This changelog, and a "CHANGELOG updated, or not needed" item in the pull request template.
 - Issue forms for bug reports and feature requests: the bug form asks for the macOS version, `grok --version`, the GrokSpace commit, the pane type, and a collapsed `grokspace.log` excerpt; the chooser links Security Advisories and the README, and blank issues are off ([#182](https://github.com/liarzpl/grokspace/pull/182)).
@@ -151,7 +162,8 @@ Foundation and terminal core. The first commits, 2026-08-16 to 2026-08-17, mostl
 - Phase 0: the Tauri shell, the SQLite store, and project CRUD ([f0f01c0](https://github.com/liarzpl/grokspace/commit/f0f01c0)), with docs and icon artwork ([3486caf](https://github.com/liarzpl/grokspace/commit/3486caf)).
 - Phase 1: pty-backed terminal sessions ([1f9452f](https://github.com/liarzpl/grokspace/commit/1f9452f)), xterm panes and the terminal grid ([acabdf2](https://github.com/liarzpl/grokspace/commit/acabdf2)), honest reporting of signalled exits ([5702385](https://github.com/liarzpl/grokspace/commit/5702385)), a React Flow graph canvas ([870a845](https://github.com/liarzpl/grokspace/commit/870a845)) with minimap, zoom, and control fixes ([f38a8e1](https://github.com/liarzpl/grokspace/commit/f38a8e1)), terminals repainted on re-attach ([fe9648e](https://github.com/liarzpl/grokspace/commit/fe9648e)), and a live graph per session ([#1](https://github.com/liarzpl/grokspace/pull/1)) with refresh, retry, and closed-session leak fixes ([#3](https://github.com/liarzpl/grokspace/pull/3)).
 
-[Unreleased]: https://github.com/liarzpl/grokspace/compare/8968fff...HEAD
+[Unreleased]: https://github.com/liarzpl/grokspace/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/liarzpl/grokspace/compare/8968fff...v0.1.0
 [Feature wave]: https://github.com/liarzpl/grokspace/compare/76e4950...8968fff
 [Audit wave]: https://github.com/liarzpl/grokspace/compare/0cbefe1...76e4950
 [Public-readiness docs]: https://github.com/liarzpl/grokspace/compare/9a0a4f5...0cbefe1
