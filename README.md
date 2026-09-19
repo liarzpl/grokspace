@@ -1,5 +1,10 @@
 # GrokSpace
 
+<!-- Badges are GitHub-native only: the Actions badge and a link to LICENSE.
+     No third-party image CDN. -->
+[![CI](https://github.com/liarzpl/grokspace/actions/workflows/ci.yml/badge.svg)](https://github.com/liarzpl/grokspace/actions/workflows/ci.yml)
+[License: MIT](LICENSE)
+
 A local-first macOS command center for running and coordinating multiple
 [Grok Build](https://docs.x.ai/build) sessions across your projects.
 
@@ -25,6 +30,29 @@ replays the last 20). Nothing is uploaded.
 > no signed or notarized download yet, and it is not an App Store build. A few
 > checks still need a Mac with a licensed `grok` — see
 > [issue #8](https://github.com/liarzpl/grokspace/issues/8).
+
+## Why
+
+GrokSpace is a local-first macOS command center for running and coordinating
+several Grok Build coding agents across your projects: a grid of real
+terminals, a Kanban board that hands work to ACP-driven agents, per-agent git
+worktrees that merge back through the app, a permission gate that never
+silently becomes always-approve, and a shared project memory. Tauri 2 + Rust +
+React. No telemetry; everything stays in `~/.grokspace`.
+
+The longer documents — file contracts, the IPC inventory, the `grok` CLI
+surface, releasing — are indexed in [`docs/README.md`](docs/README.md), which
+also has a one-page map of the host / renderer / ACP boundary.
+
+<!--
+Screenshots go here once they exist. Capture on macOS (the Linux build draws
+different window chrome), drop the PNGs into docs/img/, and replace this
+comment with the images:
+
+![Pane grid with the Tasks board](docs/img/pane-grid-board.png)
+![ACP agent session with permission chips](docs/img/acp-permission-chips.png)
+![Diff panel reading an isolated worktree](docs/img/diff-panel-worktree.png)
+-->
 
 ## What works today
 
@@ -253,6 +281,10 @@ On a Mac you can still watch the same path by hand with `npm run tauri:dev`
 and `npm run graph:demo -- "$GROKSPACE_GRAPH_FILE"`.
 
 ### Where things live
+
+This tree is the map; [`docs/README.md`](docs/README.md) is the index of the
+longer documents, with a reading order and a one-page summary of how the host,
+the renderer, and an ACP agent talk to each other.
 
 ```
 .github/          The CI workflow: the same checks, on every pull request
@@ -667,6 +699,19 @@ the permission the Overlay chrome cannot be dragged.
 It also builds and runs on Linux, which is useful for CI. Those two options are
 macOS-only, so on Linux you get the ordinary window decorations in addition to
 the in-app title bar, and the space reserved for the traffic lights is empty.
+
+## Community
+
+- [Contributing](CONTRIBUTING.md) — how to run the checks CI runs, and the hard
+  rules around `grok` and ACP.
+- [Code of Conduct](CODE_OF_CONDUCT.md) — what is expected in issues, pull
+  requests, and reviews.
+- [Security policy](SECURITY.md) — report a vulnerability privately through
+  GitHub Security Advisories, never in a public issue.
+- [Issues](https://github.com/liarzpl/grokspace/issues) — bugs, questions, and
+  ideas. [`help wanted`](https://github.com/liarzpl/grokspace/labels/help%20wanted)
+  marks places to start; the checks that still need a Mac with a licensed
+  `grok` are on [issue #8](https://github.com/liarzpl/grokspace/issues/8).
 
 ## License
 
