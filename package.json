@@ -8,6 +8,30 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "description": "Local-first macOS multi-agent coding workspace powered by Grok Build",
+  "homepage": "https://github.com/liarzpl/grokspace#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liarzpl/grokspace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/liarzpl/grokspace/issues"
+  },
+  "keywords": [
+    "tauri",
+    "react",
+    "rust",
+    "typescript",
+    "grok",
+    "xai",
+    "acp",
+    "agent-client-protocol",
+    "ai-agents",
+    "coding-agents",
+    "desktop-app",
+    "kanban",
+    "local-first",
+    "macos"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
