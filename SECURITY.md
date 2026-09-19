@@ -51,6 +51,8 @@ Anything else in this repository is welcome too — the IPC surface, the CSP in 
 - **Denial of service against your own machine** — a runaway agent filling the disk, a pane that hangs. Those are bugs; open an issue.
 - **An unsigned `.dmg` you built yourself.** There is no signed or notarized release yet; the README says so.
 
+**What the Scorecard badge counts.** The OpenSSF Scorecard *Vulnerabilities* check behind the README badge and the Security tab counts every [OSV](https://osv.dev) entry matching `Cargo.lock` or `package-lock.json`, and RustSec files *unmaintained* notices there next to real vulnerabilities. At the first run (2026-09-19) all seven findings sit in Tauri 2's own tree and none is fixable from this repository: the five `unic-*` crates behind `urlpattern` and `proc-macro-error` behind `glib-macros` are unmaintained notices, not exploitable bugs, and `glib` 0.18 (RUSTSEC-2024-0429) is Linux-only code that a macOS build never compiles — Tauri 3 drops all of them. The `audit` CI job is the verdict that matters: `cargo audit` fails on vulnerabilities and unsound advisories and only warns on unmaintained crates, [`src-tauri/.cargo/audit.toml`](src-tauri/.cargo/audit.toml) lists every ignored advisory with its reason, and `npm audit` is clean on both the runtime and the dev tree.
+
 ## Secrets
 
 Never commit:
