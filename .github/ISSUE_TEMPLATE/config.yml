@@ -1,8 +1,10 @@
 # Template chooser for https://github.com/liarzpl/grokspace/issues/new/choose.
 # Blank issues are off: every issue goes through bug_report.yml or feature_request.yml.
-# Discussions are not enabled on this repository; add a contact link here if they are.
 blank_issues_enabled: false
 contact_links:
+  - name: Questions and ideas
+    url: https://github.com/liarzpl/grokspace/discussions
+    about: Not sure it is a bug, or want to talk through a change before filing it? Start a discussion; it can become an issue later.
   - name: Report a security vulnerability
     url: https://github.com/liarzpl/grokspace/security/advisories/new
     about: Private vulnerability reporting is enabled. Use it instead of an issue so the report stays private until a fix is ready (see SECURITY.md).
