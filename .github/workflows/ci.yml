@@ -116,6 +116,37 @@ jobs:
       - name: Test
         run: cargo test
 
+  # The Rust counterpart of `npm audit` above: Cargo.lock against the RustSec
+  # advisory database. Its own job rather than a step in `backend` because it
+  # needs neither the system libraries nor a build of the tree, and a red check
+  # should name the advisory, not the test suite. What fails and the one
+  # documented ignore live in src-tauri/.cargo/audit.toml, which cargo-audit
+  # reads from the directory it runs in — so `cargo audit` by hand in src-tauri
+  # gives the same verdict.
+  audit:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The same cache as `backend`, wanted here for ~/.cargo/bin: it keeps the
+      # cargo-audit binary between runs, so only the first run compiles it.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: ./src-tauri -> target
+
+      # From crates.io with `cargo install`, not an install action: nothing new
+      # to pin or to trust. The version is pinned the way the actions above are
+      # and `--locked` builds it from its own lockfile. When the cache already
+      # holds this version, cargo says so and does nothing.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit Cargo.lock
+        run: cargo audit
+
   # TEST-002. Host smoke (fixture folder, shell pane, graph:demo → Graph
   # snapshot). A WebView/Playwright drive is skipped: this runner has WebKitGTK
   # so Tauri links, not a usable window. `npm run test:e2e` is the same check.
