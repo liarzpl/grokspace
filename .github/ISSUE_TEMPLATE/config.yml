@@ -1,0 +1,11 @@
+# Template chooser for https://github.com/liarzpl/grokspace/issues/new/choose.
+# Blank issues are off: every issue goes through bug_report.yml or feature_request.yml.
+# Discussions are not enabled on this repository; add a contact link here if they are.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/liarzpl/grokspace/security/advisories/new
+    about: Private vulnerability reporting is enabled. Use it instead of an issue so the report stays private until a fix is ready (see SECURITY.md).
+  - name: README, getting started, and platform notes
+    url: https://github.com/liarzpl/grokspace#readme
+    about: What works today, the grok CLI requirement, where ~/.grokspace state and logs live, and which pieces are macOS-only. Check here before filing.

@@ -1,0 +1,110 @@
+name: Bug report
+description: Something in GrokSpace does not behave the way the README says it should.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Fill in what you can; an honest "don't know" beats a guess.
+
+        **Security vulnerabilities do not belong here.** Report them privately through
+        [GitHub Security Advisories](https://github.com/liarzpl/grokspace/security/advisories/new)
+        (see [SECURITY.md](https://github.com/liarzpl/grokspace/blob/main/SECURITY.md)).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you saw, and what you expected instead. Screenshots help.
+      placeholder: |
+        Clicked Merge on an isolated agent session; the Diff panel went blank and the card stayed in `review`.
+        Expected: the branch lands on the project and the card moves to `done`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps from a fresh start. Say which grid layout you used, whether the project folder was trusted, and whether the session was already running.
+      placeholder: |
+        1. Open a project folder, 2x2 grid.
+        2. Tasks tab: hand a card to a new ACP agent.
+        3. Agent goes idle; click Merge.
+        4. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pane-type
+    attributes:
+      label: Pane / session type
+      description: A plain shell and the `grok` TUI both run in a pty pane. An ACP agent holds no pane and reports `running` / `idle` / `needs_input`.
+      options:
+        - Shell (pty pane running a plain shell)
+        - Grok in a terminal (pty pane running the grok TUI)
+        - ACP agent (no pane, driven over ACP)
+        - Swarm of ACP agents
+        - Not tied to a session (board, graph, diff panel, settings, palette)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: "`sw_vers -productVersion`. GrokSpace targets macOS. If you are on Linux (what CI builds on), say so and name the distro; it builds there but is not supported."
+      placeholder: "15.6.1"
+    validations:
+      required: true
+
+  - type: input
+    id: grok-version
+    attributes:
+      label: grok --version
+      description: The `grok` CLI GrokSpace drove. Leave empty if no agent was involved (plain shell, board only, settings).
+      placeholder: "grok 1.2.3"
+
+  - type: input
+    id: grokspace-commit
+    attributes:
+      label: GrokSpace commit
+      description: "There is no binary release yet, so this is the checkout you built from: `git rev-parse --short HEAD`. Add how you ran it: `npm run tauri:dev`, or the `.app` / `.dmg` from `npm run tauri:build`."
+      placeholder: "8968fff, npm run tauri:dev"
+    validations:
+      required: true
+
+  - type: textarea
+    id: log-excerpt
+    attributes:
+      label: Log excerpt
+      description: >-
+        Host and renderer errors are appended to `~/.grokspace/logs/grokspace.log`
+        (rotated once, to `grokspace.log.1`). Paste the lines from around the time of
+        the bug: `tail -n 50 ~/.grokspace/logs/grokspace.log` is usually enough. Keep it
+        under about 100 lines; attach the file instead if you need more. Nothing is
+        uploaded on its own, so check for prompts, file paths, or tokens you do not want
+        public before posting. The block below stays collapsed in the issue.
+      value: |
+        <details>
+        <summary>grokspace.log excerpt</summary>
+
+        ```text
+        paste the lines here
+        ```
+
+        </details>
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: This is not a security vulnerability (those go to Security Advisories, linked above).
+          required: true
+        - label: The log excerpt and screenshots contain no secrets (`XAI_API_KEY`, tokens) or private paths I mind sharing.
+          required: true
+        - label: I searched the open and closed issues, including [#8](https://github.com/liarzpl/grokspace/issues/8) for the known real-`grok` gaps on macOS.
+          required: false

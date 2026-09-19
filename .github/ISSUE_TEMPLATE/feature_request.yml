@@ -1,0 +1,65 @@
+name: Feature request
+description: Propose a new capability or a change to how GrokSpace behaves.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check [What works today](https://github.com/liarzpl/grokspace#what-works-today) and the
+        [Roadmap](https://github.com/liarzpl/grokspace#roadmap) first; what you want may already exist or be planned.
+
+        Some things are out by design and requests for them are closed rather than left open:
+        telemetry or any mandatory cloud dependency, passing `--always-approve` to `grok`, and an
+        Allow that silently becomes always-approve. The reasoning is in the README and in
+        [CONTRIBUTING: Hard rules](https://github.com/liarzpl/grokspace/blob/main/CONTRIBUTING.md#hard-rules).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and where does GrokSpace get in the way today? A concrete session (which panes, which agents, what you clicked) beats an abstract wish.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should happen instead. If it touches permissions, say what the user sees and clicks. If it touches worktrees, say what happens to dirty files.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Closest match.
+      options:
+        - Terminal grid, panes, sessions
+        - Task board and dispatch
+        - ACP agents and transcript
+        - Permissions (chips, leases, policy file, ledger)
+        - Graph, steps, skills
+        - Worktrees, diff panel, merge
+        - Memory, roles, swarm
+        - Command palette and settings
+        - Build, CI, release, packaging
+        - Docs
+        - Something else
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What you do instead today, and other designs you considered, including why they fall short.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Scope
+      options:
+        - label: This does not need telemetry, a cloud service, `--always-approve`, or an Allow that becomes always-approve.
+          required: false
+        - label: I would be willing to open a pull request for this.
+          required: false
