@@ -50,8 +50,26 @@ jobs:
       - name: Type-check and build
         run: npm run build
 
+      # WP-O10. The counts and the coverage text-summary go to the job summary as
+      # well as the log, so the run page says how many tests ran and what they
+      # cover without anyone opening the log. The exit status returned is
+      # vitest's, not tee's (pipefail), and the summary is written before it is
+      # returned, so a red run still shows its numbers.
       - name: Test and coverage HTML
-        run: npm run test:coverage
+        run: |
+          set -o pipefail
+          status=0
+          npm run test:coverage 2>&1 | tee "$RUNNER_TEMP/vitest.log" || status=$?
+          {
+            echo '### Vitest'
+            echo '```'
+            grep -E '^ *(Test Files|Tests) ' "$RUNNER_TEMP/vitest.log" \
+              || echo 'No test counts in the output: did Vitest start?'
+            echo
+            sed -n '/Coverage summary/,/^==*$/p' "$RUNNER_TEMP/vitest.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Upload coverage HTML
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -113,8 +131,31 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
+      # WP-O10. Each test binary's `test result:` line and their sum go to the
+      # job summary, for the same reason as the Vitest block in `frontend`, and
+      # with the same care over the exit status.
       - name: Test
-        run: cargo test
+        run: |
+          set -o pipefail
+          status=0
+          cargo test 2>&1 | tee "$RUNNER_TEMP/cargo-test.log" || status=$?
+          {
+            echo '### cargo test'
+            echo '```'
+            # One header and one result line per test binary; the hashed
+            # target path after the header says nothing a reader wants.
+            grep -E '^ *(Running|Doc-tests) |^test result:' "$RUNNER_TEMP/cargo-test.log" \
+              | sed -E 's# \(target/.*\)$##' \
+              || echo 'No test results in the output: did the tests compile?'
+            echo '```'
+            # `test result: ok. 345 passed; 0 failed; 0 ignored; ...`: the
+            # counts are fields 4, 6 and 8.
+            awk '/^test result:/ { passed += $4; failed += $6; ignored += $8; binaries++ }
+                 END { printf "**%d passed, %d failed, %d ignored** in %d test binaries\n",
+                              passed, failed, ignored, binaries }' \
+              "$RUNNER_TEMP/cargo-test.log"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
   # The Rust counterpart of `npm audit` above: Cargo.lock against the RustSec
   # advisory database. Its own job rather than a step in `backend` because it
