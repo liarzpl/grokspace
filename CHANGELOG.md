@@ -15,6 +15,10 @@ several PRs, and each milestone heading links to its commit range on GitHub.
 
 ## [Unreleased]
 
+### Added
+
+- OpenSSF Scorecard: a weekly (and on every push to `main`) supply-chain scan whose results are published to `api.scorecard.dev`, uploaded to the Security tab, and shown as a README badge ([#199](https://github.com/liarzpl/grokspace/pull/199)).
+
 ## [0.1.0] - 2026-09-19
 
 First tagged release, published as a pre-release: an **unsigned** universal macOS
