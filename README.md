@@ -230,6 +230,8 @@ comment with the images:
 
 ## Getting started
 
+Prebuilt `.dmg` files are on the [Releases page](https://github.com/liarzpl/grokspace/releases); they are **unsigned**, so macOS refuses a double-click — right-click the app and choose Open, or run `xattr -d com.apple.quarantine /Applications/GrokSpace.app`.
+
 **Requirements**
 
 - Node.js 20.19+ or 22.12+ and npm (`package.json` `engines` matches Vite)
