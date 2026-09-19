@@ -102,7 +102,7 @@ Isolation and review. Pull requests #19–#30, 2026-08-20 to 2026-08-21.
 
 ### Fixed
 
-- ACP `initialize` sends `protocolVersion` as the integer `1` with `clientInfo` ([#22](https://github.com/liarzpl/grokspace/pull/22)); ACP `authenticate` fails closed with a `grok login` hint instead of hanging on a device code ([#28](https://github.com/liarzpl/grokspace/pull/28)); a blank window caused by the height chain and a React 19 selector loop ([af78119](https://github.com/liarzpl/grokspace/commit/af78119)).
+- ACP `initialize` sends `protocolVersion` as the integer `1` with `clientInfo` ([#22](https://github.com/liarzpl/grokspace/pull/22)); ACP `authenticate` fails closed with a `grok login` hint instead of hanging on a device code ([#28](https://github.com/liarzpl/grokspace/pull/28)); a blank window caused by the height chain and a React 19 selector loop ([#21](https://github.com/liarzpl/grokspace/pull/21)).
 
 ## [Phase 4] - 2026-08-19
 
