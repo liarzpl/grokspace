@@ -1,0 +1,22 @@
+# Policy for `cargo audit` (the `audit` job in .github/workflows/ci.yml).
+# cargo-audit reads this file from the directory it runs in, so `cargo audit`
+# run by hand in src-tauri reaches the same verdict as CI.
+
+[advisories]
+# RUSTSEC-2024-0429 (GHSA-wrw7-89jp-8q8g): unsound `Iterator` impls on
+# `glib::VariantStrIter`, fixed in glib 0.20. Not reachable from here: glib 0.18
+# is what gtk 0.18 wants, and gtk 0.18 is what Tauri 2 (muda, tao, wry,
+# webkit2gtk) pins on its Linux stack. The app targets macOS, where none of that
+# is compiled in; Linux is only what CI builds on. Drop this once Tauri moves
+# to gtk 0.20+.
+ignore = ["RUSTSEC-2024-0429"]
+
+[output]
+# Unsound advisories fail the job the way vulnerabilities do; they are the class
+# GitHub's Dependabot files alerts for (the glib one above is alert #3).
+# `unmaintained` stays a warning: Tauri 2's tree carries several
+# (proc-macro-error, unic-*) and nothing in this repo can fix them.
+deny = ["unsound"]
+# The default, spelled out because cargo-audit 0.22 rejects an [output] table
+# that leaves it out ("missing field `quiet`").
+quiet = false
