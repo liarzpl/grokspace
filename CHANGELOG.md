@@ -19,6 +19,10 @@ several PRs, and each milestone heading links to its commit range on GitHub.
 
 - OpenSSF Scorecard: a weekly (and on every push to `main`) supply-chain scan whose results are published to `api.scorecard.dev`, uploaded to the Security tab, and shown as a README badge ([#199](https://github.com/liarzpl/grokspace/pull/199)).
 
+### Fixed
+
+- Release workflow: an unsigned build passes `--no-sign` to `tauri build`. Unset Apple secrets reach the job as empty strings, and the bundler treated the empty `APPLE_CERTIFICATE` as one to import, so the `v0.1.0` dry run failed with `failed to import keychain certificate` ([#203](https://github.com/liarzpl/grokspace/pull/203)).
+
 ## [0.1.0] - 2026-09-19
 
 First tagged release, published as a pre-release: an **unsigned** universal macOS
