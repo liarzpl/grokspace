@@ -1,0 +1,69 @@
+# Dependabot version updates (WP-O06). Security updates are switched on in the
+# repository settings and do not depend on this file; this adds the routine
+# version bumps that used to wait for someone to run `npm outdated`.
+#
+# Shape: weekly; one grouped PR per ecosystem for minor + patch bumps; one PR
+# per major. GitHub Actions are pinned to a full commit SHA with a `# vX.Y.Z`
+# comment, and Dependabot reads the version from that comment and rewrites
+# both, so the pins stay pins.
+#
+# Ignored majors. These lines were skipped on purpose during the dependency
+# pass as major or prerelease bumps to be taken by hand, with a macOS check,
+# rather than by a bot. Delete the matching `ignore` entry when taking one.
+#   - `dirs` 7                 home-directory lookup behind `~/.grokspace`
+#   - `notify` 9               file watcher behind graph and session steps
+#   - `tauri-plugin-dialog` 3  alpha; the npm half `@tauri-apps/plugin-dialog`
+#                              is held on 2 with it, the JS/Rust pair must match
+#   - `vitest` 5               `@vitest/coverage-v8` is held with it, its peer
+#                              dependency pins the same vitest major
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitest/coverage-v8"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@tauri-apps/plugin-dialog"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "dirs"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "notify"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tauri-plugin-dialog"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
