@@ -18,10 +18,17 @@ several PRs, and each milestone heading links to its commit range on GitHub.
 
 - `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), reported through a private security advisory rather than a personal address ([#178](https://github.com/liarzpl/grokspace/pull/178)).
 - This changelog, and a "CHANGELOG updated, or not needed" item in the pull request template.
+- Issue forms for bug reports and feature requests: the bug form asks for the macOS version, `grok --version`, the GrokSpace commit, the pane type, and a collapsed `grokspace.log` excerpt; the chooser links Security Advisories and the README, and blank issues are off ([#182](https://github.com/liarzpl/grokspace/pull/182)).
+- README front door: a native Actions badge, a three-sentence Why, a Community section, and pointers to the new `docs/README.md`, which indexes `docs/` and maps the host / renderer / agent boundary on one page ([#181](https://github.com/liarzpl/grokspace/pull/181)).
+- Package metadata: `homepage`, `repository`, `bugs`, and `keywords` in `package.json`; `readme`, `homepage`, `repository`, `keywords`, and `categories` in `src-tauri/Cargo.toml`; plus `.editorconfig` and an `.nvmrc` on CI's Node 22.12 ([#184](https://github.com/liarzpl/grokspace/pull/184)).
+- Dependabot version updates: weekly, grouped minor-and-patch pull requests for npm, cargo, and GitHub Actions, with the majors skipped on purpose (`dirs` 7, `notify` 9, `tauri-plugin-dialog` 3, `vitest` 5) ignored ([#179](https://github.com/liarzpl/grokspace/pull/179)).
+- CI `audit` job: `cargo audit` over `src-tauri/Cargo.lock` on every pull request, installed with `cargo install` rather than a new action; `src-tauri/.cargo/audit.toml` denies `unsound` advisories and documents the one ignore, RUSTSEC-2024-0429 (glib 0.18, pinned by Tauri 2's Linux stack) ([#183](https://github.com/liarzpl/grokspace/pull/183)).
+- CI job summaries: the Vitest counts and coverage text-summary from `frontend`, and every `cargo test` result line with its total from `backend`, on the run page ([#190](https://github.com/liarzpl/grokspace/pull/190)).
 
 ### Changed
 
 - CONTRIBUTING: where to start, branch naming, `type(scope): summary` commit subjects, squash merging, and how to disclose AI-assisted contributions ([#178](https://github.com/liarzpl/grokspace/pull/178)).
+- SECURITY: what to put in a report, supported versions (`main`, then the latest `v0.x` tag), response expectations, and the in-scope host boundaries — pty spawn, ACP stdio, the permission gate, worktree merge, `~/.grokspace` file permissions ([#180](https://github.com/liarzpl/grokspace/pull/180)).
 
 ## [Feature wave] - 2026-09-14
 
