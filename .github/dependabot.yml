@@ -16,6 +16,10 @@
 #                              is held on 2 with it, the JS/Rust pair must match
 #   - `vitest` 5               `@vitest/coverage-v8` is held with it, its peer
 #                              dependency pins the same vitest major
+#   - `@types/node` 23+        the types follow the runtime; CI and `.nvmrc`
+#                              pin Node 22.12, so the major moves with them
+#   - `jsdom` 29+              29 raised the Node floor to 22.13, 30 to
+#                              22.22 / 24.15; held until the Node bump
 version: 2
 updates:
   - package-ecosystem: "npm"
@@ -35,6 +39,13 @@ updates:
       - dependency-name: "@vitest/coverage-v8"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@tauri-apps/plugin-dialog"
+        update-types: ["version-update:semver-major"]
+      # Node 22.12 is pinned in CI and `.nvmrc`; the types must stay on 22.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # jsdom 29+ needs Node 22.13+, jsdom 30 needs 22.22+ / 24.15+; revisit
+      # with the Node bump.
+      - dependency-name: "jsdom"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "cargo"
