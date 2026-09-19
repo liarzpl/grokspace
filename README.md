@@ -2,7 +2,11 @@
 
 <!-- Badges are GitHub-native only: the Actions badge and a link to LICENSE.
      No third-party image CDN. -->
+<!-- One exception, approved with WP-O09: the OpenSSF Scorecard badge is served
+     by api.scorecard.dev, the service .github/workflows/scorecard.yml publishes
+     its results to. -->
 [![CI](https://github.com/liarzpl/grokspace/actions/workflows/ci.yml/badge.svg)](https://github.com/liarzpl/grokspace/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/liarzpl/grokspace/badge)](https://scorecard.dev/viewer/?uri=github.com/liarzpl/grokspace)
 [License: MIT](LICENSE)
 
 A local-first macOS command center for running and coordinating multiple
