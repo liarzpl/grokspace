@@ -3,11 +3,11 @@
 All notable changes to GrokSpace are recorded in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
-versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). No `v*` tag
-has been pushed yet: `main` is the `v0.1.0` track, so everything below is unreleased.
+versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). `v0.1.0` is
+the first tag (pushed 2026-09-19); `[Unreleased]` is what has landed on `main` since,
+and everything from `[0.1.0]` down is in that tag.
 How a tag becomes a release is in [docs/releasing.md](docs/releasing.md); the release
-workflow writes its own notes and does not read this file. That held until 2026-09-19:
-`v0.1.0` is the first tag, and the tag contains everything from `[0.1.0]` down.
+workflow writes its own notes and does not read this file.
 
 The history before this file existed is backfilled from the merged pull requests,
 newest first, grouped by the milestone each change landed in. A bullet usually covers
@@ -17,12 +17,7 @@ several PRs, and each milestone heading links to its commit range on GitHub.
 
 ### Added
 
-- OpenSSF Scorecard: a weekly (and on every push to `main`) supply-chain scan whose results are published to `api.scorecard.dev`, uploaded to the Security tab, and shown as a README badge ([#199](https://github.com/liarzpl/grokspace/pull/199)).
 - SECURITY: a paragraph under Scope on what the Scorecard *Vulnerabilities* count is — seven RustSec entries in Tauri 2's tree (five `unic-*` and `proc-macro-error` unmaintained notices, plus the Linux-only `glib` 0.18 advisory already ignored in `audit.toml`), none fixable here before Tauri 3 ([#204](https://github.com/liarzpl/grokspace/pull/204)).
-
-### Fixed
-
-- Release workflow: an unsigned build passes `--no-sign` to `tauri build`. Unset Apple secrets reach the job as empty strings, and the bundler treated the empty `APPLE_CERTIFICATE` as one to import, so the `v0.1.0` dry run failed with `failed to import keychain certificate` ([#203](https://github.com/liarzpl/grokspace/pull/203)).
 
 ## [0.1.0] - 2026-09-19
 
@@ -45,11 +40,16 @@ lists what landed after the feature wave.
 - CI `audit` job: `cargo audit` over `src-tauri/Cargo.lock` on every pull request, installed with `cargo install` rather than a new action; `src-tauri/.cargo/audit.toml` denies `unsound` advisories and documents the one ignore, RUSTSEC-2024-0429 (glib 0.18, pinned by Tauri 2's Linux stack) ([#183](https://github.com/liarzpl/grokspace/pull/183)).
 - CI job summaries: the Vitest counts and coverage text-summary from `frontend`, and every `cargo test` result line with its total from `backend`, on the run page ([#190](https://github.com/liarzpl/grokspace/pull/190)).
 - CodeQL code scanning for JavaScript/TypeScript and the GitHub Actions workflows, on pull requests, pushes to `main`, and a weekly schedule; Rust is not scanned because CodeQL would need a full Tauri build ([#192](https://github.com/liarzpl/grokspace/pull/192)).
+- OpenSSF Scorecard: a weekly (and on every push to `main`) supply-chain scan whose results are published to `api.scorecard.dev`, uploaded to the Security tab, and shown as a README badge ([#199](https://github.com/liarzpl/grokspace/pull/199)).
 
 ### Changed
 
 - CONTRIBUTING: where to start, branch naming, `type(scope): summary` commit subjects, squash merging, and how to disclose AI-assisted contributions ([#178](https://github.com/liarzpl/grokspace/pull/178)).
 - SECURITY: what to put in a report, supported versions (`main`, then the latest `v0.x` tag), response expectations, and the in-scope host boundaries — pty spawn, ACP stdio, the permission gate, worktree merge, `~/.grokspace` file permissions ([#180](https://github.com/liarzpl/grokspace/pull/180)).
+
+### Fixed
+
+- Release workflow: an unsigned build passes `--no-sign` to `tauri build`. Unset Apple secrets reach the job as empty strings, and the bundler treated the empty `APPLE_CERTIFICATE` as one to import, so the `v0.1.0` dry run failed with `failed to import keychain certificate` ([#203](https://github.com/liarzpl/grokspace/pull/203)).
 
 ## [Feature wave] - 2026-09-14
 

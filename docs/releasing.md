@@ -31,8 +31,9 @@ Everything in the workflow that *decides* something lives in
 [`scripts/release-plan.sh`](../scripts/release-plan.sh) rather than inline in the YAML,
 because shell in a `run:` block is checked by shellcheck for syntax and by nothing at
 all for behaviour. [`scripts/release.test.ts`](../scripts/release.test.ts) runs both —
-eighteen cases covering every version disagreement, the tag mismatch, each Apple secret
-missing on its own, and that a dry run publishes nothing.
+twenty-two cases covering every version disagreement, the tag mismatch, each Apple secret
+missing on its own, that a dry run publishes nothing, and that an unsigned plan
+passes `--no-sign` to `tauri build`.
 
 That last one matters most. Written the obvious way in YAML it would not work:
 
@@ -96,10 +97,13 @@ under Sign-In and Security; it requires two-factor authentication on the account
 
 ## Pre-flight checklist
 
-Where things stand as of 2026-09-14: **no `v*` tag has ever been pushed, and the
-repository has 0 Actions secrets.** With 0 secrets a dry run still succeeds — it builds
-an *explicitly labelled* unsigned DMG — but it proves nothing about Developer ID
-signing, stapling, or Gatekeeper. Only a run with all six secrets set tests those.
+Where things stand as of 2026-09-19: **`v0.1.0` has been pushed** (unsigned
+pre-release; see the [Releases](https://github.com/liarzpl/grokspace/releases) page)
+**and the repository still has 0 Actions secrets.** With 0 secrets a dry run still
+succeeds — it builds an *explicitly labelled* unsigned DMG — but it proves nothing
+about Developer ID signing, stapling, or Gatekeeper. Only a run with all six secrets
+set tests those. The first tag already shipped that way; this checklist is for the
+signed follow-up.
 
 Work through this in order. Nothing here creates a tag until the last step.
 
